@@ -1,9 +1,21 @@
 import { Loader2, AlertTriangle, Sparkles, TrendingUp, Activity, Info } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
+import { aiClient } from "../../lib/ai-client.js";
 
 /* ================= AI ================= */
 export function AiBlock({ state, run, hasData }) {
+  // SECURITY #1: the AI feature is enabled only when a first-party proxy is
+  // configured (VITE_AI_PROXY_URL). With none set, we show a calm "not
+  // configured" notice rather than a disabled-with-no-reason button or, worse,
+  // a red error. The browser never reaches a model vendor directly.
+  const configured = aiClient.isConfigured();
+
+  // Surfaced when a call resolved to AiNotConfiguredError (defensive — the
+  // button is also disabled when unconfigured, so this is rarely hit).
+  if (state.notConfigured) {
+    return <AiNotConfiguredCard />;
+  }
   if (state.loading) {
     return (
       <Card>
@@ -28,6 +40,8 @@ export function AiBlock({ state, run, hasData }) {
     );
   }
   if (!state.result) {
+    if (!configured) return <AiNotConfiguredCard />;
+    const canRun = hasData;
     return (
       <Card>
         <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
@@ -36,18 +50,23 @@ export function AiBlock({ state, run, hasData }) {
               Let Claude read the notes.
             </div>
             <div style={{ color: T.sub, fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
-              Send a sampled, anonymized slice of your cases to Claude Sonnet for a qualitative read — themes,
+              Send a sampled, anonymized slice of your cases to Claude for a qualitative read — themes,
               recurring issues, KB gaps, and skill areas that would sharpen your queue.
             </div>
           </div>
-          <button disabled style={{ ...btnPrimary, opacity: 0.5, cursor: "not-allowed" }}>
+          <button
+            onClick={run}
+            disabled={!canRun}
+            style={{ ...btnPrimary, ...(canRun ? {} : { opacity: 0.5, cursor: "not-allowed" }) }}
+          >
             <Sparkles size={14} /> Generate insights
           </button>
         </div>
-        <div style={{ marginTop: 12, padding: "10px 14px", border: `1px dashed ${T.warn}`, borderRadius: 4, background: T.warnSoft + "55", color: T.sub, fontSize: 12, display: "flex", alignItems: "center", gap: 8 }}>
-          <AlertTriangle size={14} style={{ color: T.warn, flex: "0 0 auto" }} />
-          <span><strong style={{ color: T.ink }}>This feature is not yet enabled.</strong> AI insights will turn on once the Claude API integration is wired up in this environment.</span>
-        </div>
+        {!canRun && (
+          <div style={{ marginTop: 12, color: T.muted, fontSize: 12 }}>
+            Load a dataset to enable analysis.
+          </div>
+        )}
       </Card>
     );
   }
@@ -71,6 +90,27 @@ export function AiBlock({ state, run, hasData }) {
         </div>
       )}
     </div>
+  );
+}
+
+function AiNotConfiguredCard() {
+  return (
+    <Card>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <Info size={18} style={{ color: T.accent, flex: "0 0 auto", marginTop: 2 }} />
+        <div>
+          <div className="display" style={{ fontSize: 18, fontWeight: 500 }}>
+            AI insights are not configured
+          </div>
+          <div style={{ color: T.sub, fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
+            This feature routes case data through a first-party AI proxy that hasn't been set up in this
+            environment yet. Once an operator configures <span className="mono">VITE_AI_PROXY_URL</span> to
+            point at the backend service, analysis turns on automatically. Case data is never sent to a model
+            vendor directly from your browser.
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 

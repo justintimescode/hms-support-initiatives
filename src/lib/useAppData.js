@@ -18,6 +18,8 @@ import {
   filterRowsByDate, previousWindow,
 } from "./stats.js"
 import { useFilters } from "./useFilters.js"
+import { aiClient, AiNotConfiguredError } from "./ai-client.js"
+import { scrubForAi } from "./ai-scrub.js"
 
 void PROJECT_KEY // kept in scope; used downstream by Jira sync error paths
 
@@ -392,6 +394,11 @@ export function useAppData() {
   }, [enriched])
 
   /* ---------- AI insights ---------- */
+  // Builds the structured analysis payload (same case-sample shape as before),
+  // masks PII via scrubForAi, then hands it to aiClient. The client posts to a
+  // first-party proxy (VITE_AI_PROXY_URL) which owns the model key and prompt;
+  // with no proxy configured it throws AiNotConfiguredError. The browser never
+  // talks to a model vendor directly. See ai-client.js / ai-scrub.js (#1).
   const analyzeCases = async (rowsIn, label) => {
     const sample = rowsIn.slice(0, 50).map((r) => ({
       number: r.number,
@@ -406,60 +413,40 @@ export function useAppData() {
     }))
     const localKpis = computeKpis(rowsIn)
     const cats = topCounts(rowsIn, (r) => r._category, 6)
-    const prompt = `You are analyzing ServiceNow support cases for a Product Support Analyst working on Infor HMS and Epitome PMS for DoD lodging properties.
-
-Scope: ${label}. Total cases in view: ${rowsIn.length}. SLA compliance in view: ${localKpis.slaRate != null ? localKpis.slaRate.toFixed(1) + "%" : "n/a"}. Categories detected: ${cats.map((c) => c.name + "(" + c.count + ")").join(", ")}.
-
-Here is a sample of up to 50 cases as JSON:
-${JSON.stringify(sample, null, 2)}
-
-Respond ONLY with a JSON object, no markdown fences, with these keys:
-{
-  "themes": [ { "title": "short theme name", "description": "1-2 sentence explanation grounded in the data" } ],
-  "recurring_issues": [ { "issue": "specific recurring issue", "evidence": "what in the data shows this" } ],
-  "skill_opportunities": [ { "area": "skill area", "why": "why this would help based on the cases" } ],
-  "kb_gaps": [ { "gap": "potential knowledge base gap", "why": "evidence from the cases" } ],
-  "watch_outs": [ "short string of a risk or anti-pattern to watch" ]
-}
-
-Be specific, reference real patterns (e.g., night audit issues, CRS sync) rather than generic advice. Keep each array to 3-5 items max.`
-
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1500,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    })
-    const data = await res.json()
-    const text = (data.content || [])
-      .map((i) => (i.type === "text" ? i.text : ""))
-      .join("")
-      .trim()
-    const clean = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```\s*$/i, "").trim()
-    return JSON.parse(clean)
+    const payload = {
+      label,
+      totalCases: rowsIn.length,
+      slaRate: localKpis.slaRate != null ? +localKpis.slaRate.toFixed(1) : null,
+      categories: cats.map((c) => ({ name: c.name, count: c.count })),
+      cases: sample,
+    }
+    const scrubbed = scrubForAi(payload)
+    return aiClient.analyzeCases(scrubbed)
   }
 
   const runAiAnalysis = async () => {
-    setAiState({ loading: true, result: null, error: null })
+    setAiState({ loading: true, result: null, error: null, notConfigured: false })
     try {
       const label = analyst === "__all__" ? "all analysts" : analyst
       const parsed = await analyzeCases(enriched, label)
-      setAiState({ loading: false, result: parsed, error: null })
+      setAiState({ loading: false, result: parsed, error: null, notConfigured: false })
     } catch (e) {
-      setAiState({ loading: false, result: null, error: e.message || "AI analysis failed." })
+      if (e instanceof AiNotConfiguredError) {
+        setAiState({ loading: false, result: null, error: e.message, notConfigured: true })
+      } else {
+        setAiState({ loading: false, result: null, error: e.message || "AI analysis failed.", notConfigured: false })
+      }
     }
   }
 
   const runMemberAi = async (member) => {
-    setMemberAi((s) => ({ ...s, [member.name]: { loading: true, result: null, error: null } }))
+    setMemberAi((s) => ({ ...s, [member.name]: { loading: true, result: null, error: null, notConfigured: false } }))
     try {
       const parsed = await analyzeCases(member.rows, member.name)
-      setMemberAi((s) => ({ ...s, [member.name]: { loading: false, result: parsed, error: null } }))
+      setMemberAi((s) => ({ ...s, [member.name]: { loading: false, result: parsed, error: null, notConfigured: false } }))
     } catch (e) {
-      setMemberAi((s) => ({ ...s, [member.name]: { loading: false, result: null, error: e.message || "AI analysis failed." } }))
+      const notConfigured = e instanceof AiNotConfiguredError
+      setMemberAi((s) => ({ ...s, [member.name]: { loading: false, result: null, error: e.message || "AI analysis failed.", notConfigured } }))
     }
   }
 

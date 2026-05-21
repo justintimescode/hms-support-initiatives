@@ -39,6 +39,13 @@ export function useFilters({ analystNames = [] } = {}) {
   )
 
   /* ---------- analyst (opaque token ↔ name) ---------- */
+  // SECURITY #8: user-controlled input. `?a=` comes from the URL and is
+  // attacker-influenceable. It is NOT used in any query directly — it only
+  // indexes into `sortedNames` (names derived from the loaded dataset), so the
+  // resolved `analyst` is always either '__all__' or a real known name. Every
+  // DB query then passes it as a parameterized value (queries.js buildWhere:
+  // `assigned_to = ?`). If you ever interpolate `analyst` into SQL/HTML
+  // instead of parameterizing it, this becomes an injection vector — don't.
   const tokenParam = params.get("a")
   const analyst = useMemo(() => {
     if (!tokenParam) return "__all__"

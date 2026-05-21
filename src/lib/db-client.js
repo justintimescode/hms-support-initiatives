@@ -92,7 +92,7 @@ export const dbClient = {
   },
 }
 
-// Expose to window in dev for manual smoke testing.
-if (typeof window !== 'undefined' && import.meta.env?.DEV) {
-  window.__db = dbClient
-}
+// SECURITY (#2): the DuckDB client is intentionally NOT exposed on `window`.
+// A previous `window.__db = dbClient` dev hook meant anyone who could open
+// DevTools on a misconfigured dev/preview build could dump all loaded
+// customer data via `window.__db.query(...)`. Do not reintroduce it.

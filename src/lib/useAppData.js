@@ -128,7 +128,7 @@ export function useAppData() {
       }
       // Day-window modes pull a partial slice and merge onto the cache so
       // older issues aren't dropped. "full" pulls the whole project.
-      const SYNC_WINDOWS = { "5d": 5, "14d": 14, recent: 14, "30d": 30 }
+      const SYNC_WINDOWS = { "24h": 1, "5d": 5, "14d": 14, recent: 14, "30d": 30 }
       const since = SYNC_WINDOWS[mode]
       const { issues: rawIssues, fetchedAt, fieldMap, statusMap, project } = await fetchHmsProject({
         since,

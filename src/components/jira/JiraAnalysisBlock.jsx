@@ -54,6 +54,7 @@ export function JiraSyncControls({ meta, onSync }) {
           ⚠ cache not saved
         </span>
       )}
+      <button onClick={() => onSync("24h")} style={jiraBtn(false, false)} title="Issues updated in the last 24 hours">Last 24h</button>
       <button onClick={() => onSync("5d")} style={jiraBtn(false, false)} title="Issues updated in the last 5 days">Last 5 days</button>
       <button onClick={() => onSync("14d")} style={jiraBtn(false, false)} title="Issues updated in the last 14 days">Last 14 days</button>
       <button onClick={() => onSync("30d")} style={jiraBtn(false, false)} title="Issues updated in the last 30 days">Last month</button>

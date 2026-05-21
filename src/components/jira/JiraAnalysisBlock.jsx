@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Loader2, AlertTriangle, XCircle, Activity } from "lucide-react";
 import { T } from "../../lib/theme.js";
@@ -121,7 +122,9 @@ export function JiraIssueDetail({ issue, detail }) {
             <div
               className="scrollbar"
               style={{ fontSize: 13, color: T.ink, lineHeight: 1.55, maxHeight: 360, overflowY: "auto", wordBreak: "break-word" }}
-              dangerouslySetInnerHTML={{ __html: detail.html }}
+              // SECURITY #10: Jira renders user-authored description content;
+              // sanitize before injecting as HTML to block stored XSS.
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(detail.html) }}
             />
           )
           : <div style={{ color: T.muted, fontSize: 13, fontStyle: "italic" }}>No description.</div>

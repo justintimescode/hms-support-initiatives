@@ -1,8 +1,15 @@
 // Shared enrichment logic. Used by:
-//   - the existing in-memory pipeline in KpiAnalyzer.jsx (drives the UI today)
-//   - the Phase 2 DuckDB worker (writes columns into the cases table)
+//   - the in-memory pipeline behind the UI (useAppData)
+//   - the DuckDB worker (writes columns into the cases table)
 // Both must produce identical values for any given raw row, so this is the
 // single source of truth.
+//
+// SECURITY #10: free-text ServiceNow fields (work_notes, close_notes,
+// short_description, etc.) flow through here and are rendered as TEXT in the
+// UI today, which is safe. If any future change renders them via
+// `dangerouslySetInnerHTML` (rich text), the HTML MUST be sanitized through
+// DOMPurify first (see src/components/jira/JiraAnalysisBlock.jsx for the
+// pattern). Do not introduce raw HTML rendering of these fields without it.
 
 import {
   DEV_STATUS_MARKERS,

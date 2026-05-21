@@ -1,0 +1,23 @@
+/* ---------- theme ---------- */
+export const T = {
+  bg: "#F3EEE5",
+  surface: "#FBF8F2",
+  surfaceAlt: "#EFE8DB",
+  ink: "#141311",
+  sub: "#5C564A",
+  muted: "#8A8270",
+  border: "#D9D1BF",
+  borderSoft: "#E8E0CE",
+  accent: "#B8452C",
+  accentSoft: "#E8C6B8",
+  ok: "#3D6340",
+  okSoft: "#C8D6BF",
+  warn: "#B8801C",
+  warnSoft: "#EBD3A0",
+  danger: "#A23220",
+  dangerSoft: "#E7B8AD",
+  priorityCritical: "#A23220",
+  priorityMajor: "#B8801C",
+  priorityMedium: "#3D6340",
+  priorityStandard: "#6B7A8F",
+};

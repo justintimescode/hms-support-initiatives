@@ -1,0 +1,32 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #F3EEE5;
+  color: #141311;
+  min-height: 100vh;
+}
+
+button { cursor: pointer; font: inherit; }
+a { color: inherit; }
+
+input[type="date"] {
+  font: inherit;
+  background: #FBF8F2;
+  border: 1px solid #D9D1BF;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #141311;
+}
+
+/* ── scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D9D1BF; border-radius: 3px; }
+
+/* ── print ── */
+@media print {
+  .no-print { display: none !important; }
+  .print-section { page-break-inside: avoid; margin-bottom: 32px; }
+  body { background: #fff; }
+}

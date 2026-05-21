@@ -10,6 +10,7 @@ import { T } from "../../lib/theme.js";
 import { useAppData } from "../../lib/useAppData.js";
 import { Shell } from "./Shell.jsx";
 import { TopBar } from "./TopBar.jsx";
+import { DataRetentionNotice } from "./DataRetentionNotice.jsx";
 
 /* Sidebar layout for the routed app. Phase 1: shell only — entries are
  * NavLinks but most targets are placeholders until Phase 3 wires the real
@@ -71,7 +72,7 @@ export function AppLayout() {
   const appData = useAppData();
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: T.bg, color: T.ink }}>
-      <Sidebar />
+      <Sidebar snapshotMs={appData.snapshotMs} onClearData={appData.reset} />
       <div style={{ flex: 1, marginLeft: SIDEBAR_WIDTH, minWidth: 0 }}>
         <Shell>
           <TopBar ctx={appData} />
@@ -82,7 +83,7 @@ export function AppLayout() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ snapshotMs, onClearData }) {
   return (
     <aside
       className="no-print"
@@ -139,6 +140,10 @@ function Sidebar() {
           </div>
         ))}
       </nav>
+
+      <div style={{ padding: "0 0 12px" }}>
+        <DataRetentionNotice snapshotMs={snapshotMs} onClear={onClearData} />
+      </div>
     </aside>
   );
 }

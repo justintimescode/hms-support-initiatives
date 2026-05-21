@@ -18,6 +18,10 @@ const BUNDLES = {
 
 const OPFS_PATH = 'opfs://cases.duckdb'
 const CHUNK_SIZE = 10000
+// SECURITY #4: customer data persisted in OPFS is auto-cleared on init once it
+// is older than this. Without a TTL the DuckDB file survives indefinitely on a
+// shared workstation; anyone with the browser profile could read it. 24 hours.
+const MAX_AGE_MS = 24 * 60 * 60 * 1000
 // Bump when the `cases` schema changes. A persisted OPFS table from an older
 // version lacks the new columns, so on mismatch we rebuild empty and the app
 // prompts a re-import (the table is just a cache of the uploaded file).
@@ -135,7 +139,22 @@ async function init() {
   conn = db.connect()
   ensureSchema()
   migrateSchemaIfNeeded()
+  clearIfExpired()
   return getStatus()
+}
+
+// SECURITY #4: drop persisted data on init if it predates the retention
+// window. Runs after schema migration so the table exists to read meta from.
+function clearIfExpired() {
+  const { loadedAt } = readMeta()
+  if (loadedAt == null) return
+  const age = Date.now() - loadedAt
+  if (age <= MAX_AGE_MS) return
+  dropTables()
+  ensureSchema()
+  try { db.flushFiles() } catch (e) { log(`flushFiles failed: ${e?.message || e}`, 'warn') }
+  const hours = Math.round(age / 36e5)
+  log(`auto-cleared OPFS data: ${hours}h old, exceeds ${MAX_AGE_MS / 36e5}h retention`, 'warn')
 }
 
 function rowsToPlain(table) {

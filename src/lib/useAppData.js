@@ -23,6 +23,29 @@ import { scrubForAi } from "./ai-scrub.js"
 
 void PROJECT_KEY // kept in scope; used downstream by Jira sync error paths
 
+// SECURITY #6 — validate uploads by content, not just extension. A file named
+// `report.csv` could be a crafted binary, and an XLSX parser should never be
+// handed arbitrary bytes. We check magic numbers and a size ceiling before any
+// parser touches the data.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024 // 50 MB
+const BAD_FILE_MSG =
+  "File doesn't look like a valid CSV/Excel export. Re-export from ServiceNow and try again."
+
+async function validateUpload(file, ext) {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error(`File is too large (${(file.size / 1048576).toFixed(0)} MB). The limit is 50 MB.`)
+  }
+  if (ext === "xlsx" || ext === "xls") {
+    const head = new Uint8Array(await file.slice(0, 8).arrayBuffer())
+    const isZip = head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04 // PK\x03\x04 (xlsx)
+    const isOle = head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0 // legacy .xls compound doc
+    if (!isZip && !isOle) throw new Error(BAD_FILE_MSG)
+  } else if (ext === "csv") {
+    const head = new Uint8Array(await file.slice(0, 1024).arrayBuffer())
+    if (head.includes(0x00)) throw new Error(BAD_FILE_MSG) // NUL byte ⇒ binary, not text
+  }
+}
+
 export function useAppData() {
   const [rows, setRows] = useState(null)
   const [filename, setFilename] = useState("")
@@ -184,6 +207,10 @@ export function useAppData() {
     setUploadError("")
     try {
       const ext = file.name.split(".").pop().toLowerCase()
+      if (ext !== "csv" && ext !== "xlsx" && ext !== "xls") {
+        throw new Error("Please upload a CSV or Excel (.xlsx) file.")
+      }
+      await validateUpload(file, ext) // SECURITY #6: magic-byte + size check before parsing
       let data = []
       if (ext === "csv") {
         const text = await file.text()

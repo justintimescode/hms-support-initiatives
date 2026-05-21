@@ -77,6 +77,37 @@ function jiraFileCachePlugin() {
   }
 }
 
+// SECURITY #9 — Content Security Policy, PRODUCTION BUILD ONLY.
+//
+// The dev server needs looser rules (HMR websockets, the /api/jira proxy,
+// eval-based tooling), so this plugin runs only on `vite build` and injects a
+// <meta http-equiv="Content-Security-Policy"> into the built index.html.
+//
+// Allowances explained:
+//   script-src 'wasm-unsafe-eval'   → DuckDB-WASM instantiation
+//   style-src  'unsafe-inline'      → this app styles via inline style props
+//   style-src/font-src fonts.google → Shell.jsx @imports Google Fonts
+//   img-src/font-src data:          → inline SVG/icon data URIs
+//   connect-src 'self'              → same-origin only (prod has no Jira proxy)
+function cspProdPlugin() {
+  const policy = [
+    "default-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "font-src 'self' data: https://fonts.gstatic.com",
+  ].join("; ")
+  return {
+    name: "csp-prod",
+    apply: "build",
+    transformIndexHtml(html) {
+      const tag = `<meta http-equiv="Content-Security-Policy" content="${policy}">`
+      return html.replace("</head>", `    ${tag}\n  </head>`)
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig(() => {
   // .env values stay on the Node side; they are never bundled into the client.
@@ -98,7 +129,7 @@ export default defineConfig(() => {
   }
 
   return {
-    plugins: [react(), jiraFileCachePlugin()],
+    plugins: [react(), jiraFileCachePlugin(), cspProdPlugin()],
     // duckdb-wasm ships its own pre-bundled artifacts; let Vite pass them through
     // rather than try to pre-bundle them with esbuild.
     optimizeDeps: { exclude: ['@duckdb/duckdb-wasm'] },

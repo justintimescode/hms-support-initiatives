@@ -72,7 +72,7 @@ export function AppLayout() {
   const appData = useAppData();
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: T.bg, color: T.ink }}>
-      <Sidebar snapshotMs={appData.snapshotMs} onClearData={appData.reset} />
+      <Sidebar importCount={appData.imports?.length || 0} storageBytes={appData.storageBytes} />
       <div style={{ flex: 1, marginLeft: SIDEBAR_WIDTH, minWidth: 0 }}>
         <Shell>
           <TopBar ctx={appData} />
@@ -83,7 +83,7 @@ export function AppLayout() {
   );
 }
 
-function Sidebar({ snapshotMs, onClearData }) {
+function Sidebar({ importCount, storageBytes }) {
   return (
     <aside
       className="no-print"
@@ -142,7 +142,7 @@ function Sidebar({ snapshotMs, onClearData }) {
       </nav>
 
       <div style={{ padding: "0 0 12px" }}>
-        <DataRetentionNotice snapshotMs={snapshotMs} onClear={onClearData} />
+        <DataRetentionNotice importCount={importCount} storageBytes={storageBytes} />
       </div>
     </aside>
   );

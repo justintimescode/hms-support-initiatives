@@ -1,31 +1,21 @@
-import { useEffect, useState } from "react";
 import { Database } from "lucide-react";
+import { NavLink } from "react-router-dom";
 import { T } from "../../lib/theme.js";
 
 /* SECURITY #4 — persistent reminder that case data is stored locally in the
- * browser (OPFS), plus a one-click clear. Pairs with the worker's 24h auto-TTL:
- * the worker drops stale data on its own, this makes the storage visible and
- * lets the user clear on demand. Hidden entirely when no data is loaded. */
+ * browser (OPFS). With the multi-import model the user manages data explicitly
+ * on the Connections page, so this surfaces the import count + total storage
+ * and links there. Hidden entirely when no imports exist. */
 
-function agoLabel(ts) {
-  const mins = Math.floor((Date.now() - ts) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
+const fmtBytes = (n) => {
+  if (!n) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+};
 
-export function DataRetentionNotice({ snapshotMs, onClear }) {
-  // Re-tick the relative label once a minute so "loaded 3m ago" stays honest.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (snapshotMs == null) return;
-    const id = setInterval(() => setTick((n) => n + 1), 60000);
-    return () => clearInterval(id);
-  }, [snapshotMs]);
-
-  if (snapshotMs == null) return null;
+export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
+  if (!importCount) return null;
 
   return (
     <div
@@ -42,13 +32,14 @@ export function DataRetentionNotice({ snapshotMs, onClear }) {
         <span style={{ fontWeight: 600 }}>Data stored locally</span>
       </div>
       <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>
-        loaded <span className="mono">{agoLabel(snapshotMs)}</span> · auto-clears after 24h
+        <span className="mono">{importCount}</span> {importCount === 1 ? "import" : "imports"} · <span className="mono">{fmtBytes(storageBytes)}</span>
       </div>
-      <button
-        onClick={onClear}
+      <NavLink
+        to="/connections"
         style={{
+          display: "block",
           marginTop: 8,
-          width: "100%",
+          textAlign: "center",
           padding: "5px 10px",
           background: "transparent",
           color: T.sub,
@@ -57,11 +48,11 @@ export function DataRetentionNotice({ snapshotMs, onClear }) {
           fontFamily: "DM Sans, sans-serif",
           fontSize: 11,
           fontWeight: 600,
-          cursor: "pointer",
+          textDecoration: "none",
         }}
       >
-        Clear data
-      </button>
+        Manage imports
+      </NavLink>
     </div>
   );
 }

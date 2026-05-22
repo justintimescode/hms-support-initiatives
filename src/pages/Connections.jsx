@@ -1,23 +1,19 @@
-import { useState } from "react"
 import { useOutletContext } from "react-router-dom"
 import {
-  Upload, FileSpreadsheet, Plug, ExternalLink, Database, Heart,
-  AlertTriangle, RotateCcw, Loader2,
+  Plug, ExternalLink, Database, Heart, AlertTriangle,
 } from "lucide-react"
 import { T } from "../lib/theme.js"
-import { fmtFullDate, fmtFullDateTime } from "../lib/format.js"
+import { fmtFullDateTime } from "../lib/format.js"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { Pill } from "../components/Pill.jsx"
+import { ImportsCard } from "../components/connections/ImportsCard.jsx"
 
-/* All data sources in one place. CSV upload + Jira sync are real;
- * ServiceNow API + Gainsight are placeholders. */
+/* All data sources in one place. ServiceNow imports (file manager) + Jira sync
+ * are real; ServiceNow API + Gainsight are placeholders. */
 export default function Connections() {
-  const {
-    rows, filename, uploading, uploadError, inputRef, handleFile, reset,
-    snapshotMs,
-    jiraState, syncJira,
-  } = useOutletContext()
+  const ctx = useOutletContext()
+  const { jiraState, syncJira } = ctx
 
   return (
     <Section
@@ -25,16 +21,7 @@ export default function Connections() {
       subtitle="The data sources that feed every page in the app. Upload a ServiceNow case export to get started; everything else is optional."
     >
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12 }}>
-        <CsvCard
-          rows={rows}
-          filename={filename}
-          uploading={uploading}
-          uploadError={uploadError}
-          inputRef={inputRef}
-          onPick={handleFile}
-          onReset={reset}
-          snapshotMs={snapshotMs}
-        />
+        <ImportsCard {...ctx} />
         <JiraCard jiraState={jiraState} onSync={syncJira} />
         <PlaceholderCard
           title="ServiceNow API"
@@ -51,135 +38,6 @@ export default function Connections() {
   )
 }
 
-function CsvCard({ rows, filename, uploading, uploadError, inputRef, onPick, onReset, snapshotMs }) {
-  const [drag, setDrag] = useState(false)
-  const hasData = !!rows
-  return (
-    <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <FileSpreadsheet size={16} style={{ color: T.accent }} />
-          <span className="display" style={{ fontSize: 16, fontWeight: 600 }}>ServiceNow case export</span>
-        </div>
-        <Pill color={hasData ? T.ok : T.muted}>{hasData ? "loaded" : "not loaded"}</Pill>
-      </div>
-
-      {hasData ? (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13, color: T.sub }}>
-            <div><span className="mono" style={{ color: T.ink }}>{filename}</span></div>
-            <div className="mono">{rows.length.toLocaleString()} rows</div>
-            {snapshotMs && (
-              <div style={{ fontSize: 12 }}>Loaded {fmtFullDate(snapshotMs)}</div>
-            )}
-          </div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <label
-              className="hoverlift"
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "8px 14px",
-                background: T.ink, color: T.surface,
-                border: `1px solid ${T.ink}`, borderRadius: 6,
-                fontSize: 13, fontWeight: 500, cursor: "pointer",
-              }}
-            >
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".csv,.xlsx,.xls"
-                style={{ display: "none" }}
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) onPick(f)
-                }}
-              />
-              <Upload size={13} /> Replace data
-            </label>
-            <button
-              onClick={onReset}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "8px 14px",
-                background: "transparent", color: T.danger,
-                border: `1px solid ${T.danger}`, borderRadius: 6,
-                fontSize: 13, fontWeight: 500, cursor: "pointer",
-              }}
-            >
-              <RotateCcw size={13} /> Clear data
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <label
-            onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDrag(false)
-              const f = e.dataTransfer.files?.[0]
-              if (f) onPick(f)
-            }}
-            className="hoverlift"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexDirection: "column",
-              gap: 8,
-              padding: "32px 16px",
-              borderRadius: 6,
-              border: `1.5px dashed ${drag ? T.accent : T.border}`,
-              background: drag ? T.accentSoft + "55" : T.surfaceAlt,
-              cursor: "pointer",
-            }}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              style={{ display: "none" }}
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) onPick(f)
-              }}
-            />
-            {uploading ? (
-              <>
-                <Loader2 size={24} style={{ color: T.accent, animation: "spin 1s linear infinite" }} />
-                <div style={{ fontSize: 12, color: T.sub }}>Parsing…</div>
-              </>
-            ) : (
-              <>
-                <Upload size={24} style={{ color: T.accent }} />
-                <div style={{ fontSize: 13, fontWeight: 500 }}>Drop a CSV or Excel file</div>
-                <div style={{ fontSize: 12, color: T.sub }}>or click to browse · .csv, .xlsx</div>
-              </>
-            )}
-          </label>
-          {uploadError && (
-            <div style={{ color: T.danger, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
-              <AlertTriangle size={14} /> {uploadError}
-            </div>
-          )}
-          <div style={{
-            display: "flex", alignItems: "flex-start", gap: 8,
-            background: T.warnSoft, border: `1px solid ${T.warn}`,
-            borderRadius: 6, padding: "10px 12px", fontSize: 12, color: T.ink,
-          }}>
-            <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0, marginTop: 1 }} />
-            <span>
-              <strong>XLSX recommended.</strong> Some ServiceNow CSV columns
-              (SLA due, first response time, resolution notes) can fail to
-              populate — export via <em>Excel → .xlsx</em> for the most complete results.
-            </span>
-          </div>
-        </>
-      )}
-    </Card>
-  )
-}
 
 function JiraCard({ jiraState, onSync }) {
   const status = jiraState?.status || "idle"

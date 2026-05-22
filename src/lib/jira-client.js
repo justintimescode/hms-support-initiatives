@@ -55,7 +55,12 @@ export class JiraError extends Error {
   }
 }
 
-async function jiraFetch(path, { method = 'GET', body, retries = 2 } = {}) {
+// Transient gateway/proxy errors. Atlassian (and the dev proxy in front of it)
+// intermittently return these on large expand=changelog pages — they are not
+// fatal, so we retry rather than aborting a multi-page sync on one hiccup.
+const TRANSIENT_STATUS = new Set([502, 503, 504])
+
+async function jiraFetch(path, { method = 'GET', body, retries = 3 } = {}) {
   const res = await fetch(JIRA_API + path, {
     method,
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -65,6 +70,14 @@ async function jiraFetch(path, { method = 'GET', body, retries = 2 } = {}) {
   if (res.status === 429 && retries > 0) {
     // Atlassian Cloud enforces cost-based rate limits. Honor Retry-After.
     const wait = Number(res.headers.get('Retry-After')) || 5
+    await new Promise((r) => setTimeout(r, wait * 1000))
+    return jiraFetch(path, { method, body, retries: retries - 1 })
+  }
+
+  if (TRANSIENT_STATUS.has(res.status) && retries > 0) {
+    // Exponential backoff: ~1s, 2s, 4s. Honor Retry-After if present.
+    const attempt = 3 - retries
+    const wait = Number(res.headers.get('Retry-After')) || 2 ** attempt
     await new Promise((r) => setTimeout(r, wait * 1000))
     return jiraFetch(path, { method, body, retries: retries - 1 })
   }

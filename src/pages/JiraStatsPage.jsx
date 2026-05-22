@@ -21,6 +21,7 @@ import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { JiraKpiCard, JiraSyncControls, JiraIssueDetail } from "../components/jira/JiraAnalysisBlock.jsx"
+import { CopyableNumber } from "../components/CopyableNumber.jsx"
 
 // Page-local fixed window for the "Composition" section. NOT the global filter
 // — the user wants a stable recent-mix snapshot. Change here to retune.
@@ -134,9 +135,10 @@ function CrossSource({ blast, hasSn }) {
     setSort((s) => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" })
 
   const expandRow = (b) => {
-    if (!b.hasLive) return
     setExpanded((cur) => (cur === b.key ? null : b.key))
-    if (!details[b.key]) {
+    // Only live Jiras have a fetchable description; RN-/unsynced keys just show
+    // their linked-case list.
+    if (b.hasLive && !details[b.key]) {
       setDetails((cur) => ({ ...cur, [b.key]: { loading: true } }))
       fetchIssueDetail(b.key)
         .then((res) => setDetails((cur) => ({ ...cur, [b.key]: { html: res.descriptionHtml } })))
@@ -192,7 +194,7 @@ function CrossSource({ blast, hasSn }) {
                   return (
                     <React.Fragment key={b.key}>
                       <tr onClick={() => expandRow(b)} className="hoverlift"
-                        style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: b.hasLive ? "pointer" : "default", background: isExpanded ? T.surfaceAlt : "transparent" }}>
+                        style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isExpanded ? T.surfaceAlt : "transparent" }}>
                         <td className="mono" style={{ padding: "9px 12px", color: T.accent, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}</td>
                         <td style={{ padding: "9px 12px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.ink }} title={b.summary}>{b.summary || (b.hasLive ? "" : "(not in synced project)")}</td>
                         <td style={{ padding: "9px 12px", color: T.sub, whiteSpace: "nowrap" }}>{b.issueType}</td>
@@ -202,10 +204,11 @@ function CrossSource({ blast, hasSn }) {
                         <td className="mono" style={{ padding: "9px 12px", textAlign: "right", color: T.sub }}>{b.totalCount}</td>
                         <td className="mono" style={{ padding: "9px 12px", textAlign: "right", color: b.daysSinceUpdate >= STALE_DAYS ? T.warn : T.sub }}>{b.daysSinceUpdate ?? "—"}</td>
                       </tr>
-                      {isExpanded && b.issue && (
+                      {isExpanded && (
                         <tr>
                           <td colSpan={cols.length} style={{ padding: "0 12px 12px", borderBottom: `1px solid ${T.borderSoft}`, background: T.surfaceAlt }}>
-                            <JiraIssueDetail issue={b.issue} detail={details[b.key]} />
+                            <LinkedCases cases={b.cases} openCount={b.openCount} totalCount={b.totalCount} />
+                            {b.issue && <JiraIssueDetail issue={b.issue} detail={details[b.key]} />}
                           </td>
                         </tr>
                       )}
@@ -240,6 +243,39 @@ function CrossSource({ blast, hasSn }) {
             </ResponsiveContainer>
           </div>
         </Card>
+      </div>
+    </div>
+  )
+}
+
+/* Linked ServiceNow cases for one blast-radius Jira key. Open cases first and
+ * emphasized; closed de-emphasized. Case numbers are click-to-copy. Scrolls
+ * when a key has many cases (some have 100+). */
+function LinkedCases({ cases, openCount, totalCount }) {
+  if (!cases || cases.length === 0) {
+    return <div style={{ padding: "12px 4px", color: T.muted, fontSize: 12, fontStyle: "italic" }}>No linked ServiceNow cases.</div>
+  }
+  return (
+    <div style={{ padding: "12px 4px 4px" }}>
+      <div className="eyebrow" style={{ color: T.muted, marginBottom: 8 }}>
+        Linked ServiceNow cases · {totalCount} total · {openCount} open
+      </div>
+      <div className="scrollbar" style={{ maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+        {cases.map((c) => (
+          <div key={c.number} style={{ display: "grid", gridTemplateColumns: "auto auto minmax(0, 1fr) auto", gap: 10, alignItems: "center", fontSize: 12, padding: "3px 4px" }}>
+            <span title={c.isClosed ? "Closed" : "Open"}
+              style={{ width: 7, height: 7, borderRadius: "50%", background: c.isClosed ? T.muted : T.warn, flex: "0 0 auto" }} />
+            <CopyableNumber value={c.number} className="mono"
+              style={{ color: c.isClosed ? T.muted : T.accent, fontWeight: 600 }} />
+            <span style={{ color: c.isClosed ? T.muted : T.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={`${c.shortDescription}${c.account ? " · " + c.account : ""}`}>
+              {c.shortDescription || "—"}{c.account ? <span style={{ color: T.muted }}> · {c.account}</span> : null}
+            </span>
+            <span className="mono" style={{ color: T.muted, textAlign: "right", whiteSpace: "nowrap" }}>
+              {c.daysOpen != null ? `${c.daysOpen}d` : ""}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )

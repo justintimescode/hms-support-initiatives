@@ -135,27 +135,39 @@ export function resolutionStatsByPriority(issues, days = 90) {
  *   statusCategory, fixVersions, url, updated, daysSinceUpdate, hasLive }]
  */
 export function blastRadius(rows, jiraIssueMap) {
+  const now = Date.now()
   const counts = new Map()
   for (const r of rows || []) {
     const seen = new Set() // a case counts once per distinct key
     for (const t of r._jiraTickets || []) {
       if (!t.id || seen.has(t.id)) continue
       seen.add(t.id)
-      const e = counts.get(t.id) || { total: 0, open: 0 }
+      const e = counts.get(t.id) || { total: 0, open: 0, cases: [] }
       e.total++
       if (!r._isClosed) e.open++
+      e.cases.push({
+        number: r.number || "",
+        isClosed: !!r._isClosed,
+        account: r.account || "",
+        shortDescription: r.short_description || "",
+        daysOpen: r._created ? Math.floor((now - r._created.getTime()) / DAY) : null,
+      })
       counts.set(t.id, e)
     }
   }
-  const now = Date.now()
   return [...counts.entries()]
     .map(([key, c]) => {
       const issue = jiraIssueMap?.get(key) || null
       const updated = issue?.updated || null
+      // Open cases first (the actionable ones), then by case number.
+      const cases = c.cases.sort((a, b) =>
+        a.isClosed !== b.isClosed ? (a.isClosed ? 1 : -1) : String(a.number).localeCompare(String(b.number)),
+      )
       return {
         key,
         openCount: c.open,
         totalCount: c.total,
+        cases,
         issue,
         summary: issue?.summary || "",
         issueType: issue?.issueType || "—",

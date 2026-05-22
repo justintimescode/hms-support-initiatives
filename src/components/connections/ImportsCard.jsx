@@ -37,6 +37,12 @@ export function ImportsCard(ctx) {
   const [busy, setBusy] = useState(null) // uuid being rebuilt/activated
   const [query, setQuery] = useState("")
   const [sort, setSort] = useState("uploadedAt")
+  const [toast, setToast] = useState(null)
+
+  const flash = (msg) => {
+    setToast(msg)
+    setTimeout(() => setToast((cur) => (cur === msg ? null : cur)), 2200)
+  }
 
   const showControls = imports.length >= 5
   const totalBytes = storageBytes || imports.reduce((s, i) => s + (i.fileSize || 0), 0)
@@ -57,7 +63,8 @@ export function ImportsCard(ctx) {
 
   const doActivate = async (uuid) => {
     setMenuFor(null); setBusy(uuid)
-    try { await activateImport(uuid) } finally { setBusy(null) }
+    const name = imports.find((i) => i.uuid === uuid)?.displayName
+    try { await activateImport(uuid); flash(`Activated ${name}`) } finally { setBusy(null) }
   }
   const doRebuild = async (uuid) => {
     setMenuFor(null); setBusy(uuid)
@@ -178,10 +185,25 @@ export function ImportsCard(ctx) {
           onConfirm={async () => {
             const t = confirmDelete
             setConfirmDelete(null)
-            if (t.all) await clearAllImports()
-            else await deleteImport(t.uuid)
+            if (t.all) { await clearAllImports(); flash("Cleared all imports") }
+            else {
+              const wasActive = t.uuid === activeImportUuid
+              await deleteImport(t.uuid)
+              flash(wasActive ? `Deleted ${t.displayName} · activated most recent` : `Deleted ${t.displayName}`)
+            }
           }}
         />
+      )}
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 20, right: 20, zIndex: 60,
+          display: "inline-flex", alignItems: "center", gap: 6,
+          background: T.ink, color: T.surface, fontSize: 12, fontWeight: 600,
+          padding: "8px 14px", borderRadius: 6, boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+        }}>
+          <Check size={14} /> {toast}
+        </div>
       )}
     </Card>
   )

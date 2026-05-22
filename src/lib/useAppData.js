@@ -25,6 +25,26 @@ import {
   getTotalStorageBytes,
 } from "./imports-store.js"
 import { SCHEMA_VERSION } from "./enrich.js"
+import { getAutoDelete } from "./settings.js"
+
+// On boot, optionally prune imports older than the user's retention setting.
+// The active import is never auto-deleted (don't silently lose the working set).
+async function enforceAutoDelete(list, activeUuid) {
+  const { enabled, days } = getAutoDelete()
+  if (!enabled || !list?.length) return list
+  const cutoff = Date.now() - days * 864e5
+  const stale = list.filter((i) => i.uuid !== activeUuid && (i.uploadedAt ?? Infinity) < cutoff)
+  if (!stale.length) return list
+  let result = list
+  for (const imp of stale) {
+    try {
+      const res = await dbClient.deleteImport(imp.uuid)
+      await deleteImportFiles(imp.uuid).catch(() => {})
+      result = res.imports
+    } catch (e) { console.error("[imports] auto-delete failed", e) }
+  }
+  return result
+}
 
 void PROJECT_KEY // kept in scope; used downstream by Jira sync error paths
 
@@ -213,10 +233,12 @@ export function useAppData() {
       .init()
       .then(async ({ imports: list, activeUuid }) => {
         if (cancelled) return
-        setImports(list || [])
+        const pruned = await enforceAutoDelete(list || [], activeUuid)
+        if (cancelled) return
+        setImports(pruned)
         setActiveImportUuid(activeUuid || null)
         setDbReady(true)
-        await loadActiveRows(activeUuid, list)
+        await loadActiveRows(activeUuid, pruned)
         refreshStorage()
       })
       .catch((err) => console.error("[db] init failed", err))

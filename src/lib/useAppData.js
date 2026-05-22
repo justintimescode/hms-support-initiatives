@@ -20,6 +20,11 @@ import {
 import { useFilters } from "./useFilters.js"
 import { aiClient, AiNotConfiguredError } from "./ai-client.js"
 import { scrubForAi } from "./ai-scrub.js"
+import {
+  storeImportBlob, storeImportMeta, readImportBlob, deleteImportFiles,
+  getTotalStorageBytes,
+} from "./imports-store.js"
+import { SCHEMA_VERSION } from "./enrich.js"
 
 void PROJECT_KEY // kept in scope; used downstream by Jira sync error paths
 
@@ -92,13 +97,48 @@ async function readXlsxRows(arrayBuffer) {
   return rows
 }
 
+// Parse a CSV/XLSX File into normalized raw rows usable by BOTH the in-memory
+// pipeline (enrichRow) and the worker (createImport → enrichForSql). CSV headers
+// are already system field names; XLSX display labels are mapped via
+// normalizeXlsxRow. Keys are trimmed. Shared by upload and rebuild.
+async function parseFileToRows(file, ext) {
+  let data = []
+  if (ext === "csv") {
+    const text = await file.text()
+    const parsed = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false })
+    data = parsed.data
+  } else {
+    const raw = await readXlsxRows(await file.arrayBuffer())
+    data = raw.map(normalizeXlsxRow)
+  }
+  return data.map((r) => {
+    const o = {}
+    for (const k of Object.keys(r)) o[String(k).trim()] = r[k]
+    return o
+  })
+}
+
 export function useAppData() {
+  // Multi-import model: every upload is a persistent import; one is active.
+  // `rows` holds the active import's re-parsed raw rows — the in-memory pipeline
+  // below derives every chart from it. `filename`/`snapshotMs` are derived from
+  // the active import so the rest of the app reads the same names as before.
+  const [imports, setImports] = useState([])
+  const [activeImportUuid, setActiveImportUuid] = useState(null)
   const [rows, setRows] = useState(null)
-  const [filename, setFilename] = useState("")
+  const rowsCache = useRef(new Map()) // uuid -> parsed raw rows, for instant re-activation
+  const [storageBytes, setStorageBytes] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState("")
   const [aiState, setAiState] = useState({ loading: false, result: null, error: null })
   const [memberAi, setMemberAi] = useState({})
+
+  const activeImport = useMemo(
+    () => imports.find((i) => i.uuid === activeImportUuid) || null,
+    [imports, activeImportUuid],
+  )
+  const filename = activeImport?.displayName || ""
+  const snapshotMs = activeImport?.uploadedAt ?? null
 
   // Stable name list for the opaque-token resolver in useFilters.
   const analystNames = useMemo(() => {
@@ -115,7 +155,6 @@ export function useAppData() {
   const view = analyst === "__all__" ? "team" : "individual"
 
   const [dbReady, setDbReady] = useState(false)
-  const [snapshotMs, setSnapshotMs] = useState(null)
   const [jiraState, setJiraState] = useState({
     status: "idle",
     issues: null,
@@ -147,19 +186,42 @@ export function useAppData() {
     }
   }, [printMode])
 
-  // On mount: probe OPFS for prior data.
+  // Load an import's raw rows into the in-memory pipeline: cache hit, else
+  // re-parse its stored OPFS blob. Blob-less imports (legacy-migrated) yield
+  // null — their charts stay empty until re-upload, but SQL pages still work.
+  const loadActiveRows = useCallback(async (uuid, importList) => {
+    if (!uuid) { setRows(null); return }
+    if (rowsCache.current.has(uuid)) { setRows(rowsCache.current.get(uuid)); return }
+    const meta = (importList || []).find((i) => i.uuid === uuid)
+    const file = await readImportBlob(uuid)
+    if (!file) { setRows(null); return }
+    const ext = (meta?.fileType || file.name.split(".").pop() || "csv").toLowerCase()
+    const parsed = await parseFileToRows(file, ext)
+    rowsCache.current.set(uuid, parsed)
+    setRows(parsed)
+  }, [])
+
+  const refreshStorage = useCallback(() => {
+    getTotalStorageBytes().then(setStorageBytes).catch(() => {})
+  }, [])
+
+  // On mount: boot the worker, load the imports list, activate + rehydrate the
+  // active import's rows (this also fixes the old reload-loses-charts bug).
   React.useEffect(() => {
     let cancelled = false
     dbClient
-      .getStatus()
-      .then((s) => {
+      .init()
+      .then(async ({ imports: list, activeUuid }) => {
         if (cancelled) return
-        if (s?.hasData) setDbReady(true)
-        if (s?.loadedAt) setSnapshotMs(Number(s.loadedAt))
+        setImports(list || [])
+        setActiveImportUuid(activeUuid || null)
+        setDbReady(true)
+        await loadActiveRows(activeUuid, list)
+        refreshStorage()
       })
-      .catch(() => {})
+      .catch((err) => console.error("[db] init failed", err))
     return () => { cancelled = true }
-  }, [])
+  }, [loadActiveRows, refreshStorage])
 
   // On mount: hydrate Jira from cache.
   React.useEffect(() => {
@@ -247,71 +309,118 @@ export function useAppData() {
     return false
   }, [])
 
-  /* ---------- ingest ---------- */
+  /* ---------- ingest (multi-import) ---------- */
+
+  // Reset the analyst/date/AI working state — used whenever the active dataset
+  // changes (upload or activation) so filters don't carry across datasets.
+  const resetWorkingState = useCallback(() => {
+    setAnalyst("__all__")
+    setDateRange({ from: null, to: null, field: "_created" })
+    setCompareOn(false)
+    setAiState({ loading: false, result: null, error: null })
+    setMemberAi({})
+  }, [setAnalyst, setDateRange, setCompareOn])
+
+  // New upload → a new persistent import, auto-activated. Atomic: on any failure
+  // the OPFS blob is cleaned up and nothing half-created remains.
   const handleFile = async (file) => {
     setUploading(true)
     setUploadError("")
+    let uuid = null
     try {
       const ext = file.name.split(".").pop().toLowerCase()
       if (ext !== "csv" && ext !== "xlsx" && ext !== "xls") {
         throw new Error("Please upload a CSV or Excel (.xlsx) file.")
       }
       await validateUpload(file, ext) // SECURITY #6: magic-byte + size check before parsing
-      let data = []
-      if (ext === "csv") {
-        const text = await file.text()
-        const parsed = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false })
-        data = parsed.data
-      } else if (ext === "xlsx" || ext === "xls") {
-        const raw = await readXlsxRows(await file.arrayBuffer())
-        data = raw.map(normalizeXlsxRow)
-      } else {
-        throw new Error("Please upload a CSV or Excel (.xlsx) file.")
-      }
-      if (!data.length) throw new Error("No rows found in the file.")
-      const normalized = data.map((r) => {
-        const o = {}
-        for (const k of Object.keys(r)) o[String(k).trim()] = r[k]
-        return o
+      const normalized = await parseFileToRows(file, ext)
+      if (!normalized.length) throw new Error("No rows found in the file.")
+
+      uuid = crypto.randomUUID()
+      // Distinct display name when the same filename was uploaded before.
+      const dupes = imports.filter((i) => i.filename === file.name).length
+      const displayName = dupes ? `${file.name} (${dupes + 1})` : file.name
+
+      await storeImportBlob(uuid, file, ext)
+      await storeImportMeta(uuid, { uuid, filename: file.name, displayName, fileType: ext, fileSize: file.size, uploadedAt: Date.now() })
+      const { imports: list, activeUuid } = await dbClient.createImport({
+        uuid, filename: file.name, displayName, fileSize: file.size, fileType: ext, rows: normalized,
       })
+
+      rowsCache.current.set(uuid, normalized)
+      setImports(list)
+      setActiveImportUuid(activeUuid)
       setRows(normalized)
-      setFilename(file.name)
-      setAnalyst("__all__")
-      setDateRange({ from: null, to: null, field: "_created" })
-      setCompareOn(false)
-      setAiState({ loading: false, result: null, error: null })
-      setMemberAi({})
-      setDbReady(false)
-      setSnapshotMs(null)
-      const dbPromise = ext === "csv"
-        ? dbClient.loadCsv(file)
-        : dbClient.loadRows(normalized, { filename: file.name })
-      dbPromise
-        .then((status) => {
-          setDbReady(true)
-          if (status?.loadedAt) setSnapshotMs(Number(status.loadedAt))
-        })
-        .catch((err) => console.error("[db] load failed", err))
+      setDbReady(true)
+      resetWorkingState()
+      refreshStorage()
+      if (inputRef.current) inputRef.current.value = ""
     } catch (e) {
+      if (uuid) await deleteImportFiles(uuid).catch(() => {}) // roll back the blob
       setUploadError(e.message || "Could not parse file.")
     } finally {
       setUploading(false)
     }
   }
 
-  const reset = () => {
+  const activateImport = useCallback(async (uuid) => {
+    if (uuid === activeImportUuid) return
+    const { activeUuid } = await dbClient.activateImport(uuid)
+    setActiveImportUuid(activeUuid)
+    setImports((list) => list.map((i) => ({ ...i, isActive: i.uuid === activeUuid })))
+    resetWorkingState()
+    await loadActiveRows(activeUuid, imports)
+  }, [activeImportUuid, imports, loadActiveRows, resetWorkingState])
+
+  const renameImport = useCallback(async (uuid, displayName) => {
+    const name = String(displayName || "").trim()
+    if (!name) return
+    await dbClient.renameImport(uuid, name)
+    setImports((list) => list.map((i) => (i.uuid === uuid ? { ...i, displayName: name } : i)))
+  }, [])
+
+  const deleteImport = useCallback(async (uuid) => {
+    const { imports: list, activeUuid } = await dbClient.deleteImport(uuid)
+    await deleteImportFiles(uuid).catch(() => {})
+    rowsCache.current.delete(uuid)
+    setImports(list)
+    if (activeUuid !== activeImportUuid) {
+      setActiveImportUuid(activeUuid)
+      resetWorkingState()
+      await loadActiveRows(activeUuid, list)
+    }
+    refreshStorage()
+  }, [activeImportUuid, loadActiveRows, resetWorkingState, refreshStorage])
+
+  // Re-parse the stored source blob and rebuild the import's table with current
+  // enrichment logic (clears the stale schema_version flag).
+  const rebuildImport = useCallback(async (uuid) => {
+    const meta = imports.find((i) => i.uuid === uuid)
+    const file = await readImportBlob(uuid)
+    if (!file) throw new Error("No stored source file for this import — re-upload it instead.")
+    const ext = (meta?.fileType || file.name.split(".").pop() || "csv").toLowerCase()
+    const parsed = await parseFileToRows(file, ext)
+    const { imports: list } = await dbClient.rebuildImport({ uuid, rows: parsed })
+    rowsCache.current.set(uuid, parsed)
+    setImports(list)
+    if (uuid === activeImportUuid) setRows(parsed)
+  }, [imports, activeImportUuid])
+
+  const clearAllImports = useCallback(async () => {
+    const current = imports.map((i) => i.uuid)
+    await dbClient.clearAllImports()
+    await Promise.all(current.map((u) => deleteImportFiles(u).catch(() => {})))
+    rowsCache.current.clear()
+    setImports([])
+    setActiveImportUuid(null)
     setRows(null)
-    setFilename("")
-    setAnalyst("__all__")
-    setDateRange({ from: null, to: null, field: "_created" })
-    setCompareOn(false)
-    setAiState({ loading: false, result: null, error: null })
-    setMemberAi({})
-    setDbReady(false)
-    setSnapshotMs(null)
-    dbClient.clearDatabase().catch((err) => console.error("[db] clear failed", err))
+    resetWorkingState()
+    refreshStorage()
     if (inputRef.current) inputRef.current.value = ""
-  }
+  }, [imports, resetWorkingState, refreshStorage])
+
+  // Back-compat alias: the old "Clear data" button maps to clearing everything.
+  const reset = clearAllImports
 
   /* ---------- derived ---------- */
   const analysts = useMemo(() => {
@@ -524,9 +633,12 @@ export function useAppData() {
   }
 
   return {
-    // raw + ingest
+    // raw + ingest (rows/filename/snapshotMs derived from the active import)
     rows, filename, uploading, uploadError, inputRef,
     handleFile, reset,
+    // imports (multi-import file manager)
+    imports, activeImport, activeImportUuid, storageBytes, schemaVersion: SCHEMA_VERSION,
+    activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
     // filters (URL-backed)
     analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, view,
     analystNames, analysts,

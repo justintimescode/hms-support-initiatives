@@ -17,6 +17,12 @@ import {
   SUPPORT_THRESHOLDS_MS,
 } from './sop-thresholds.js'
 
+// Bump when enrichForSql / SQL_COLUMNS change. Each persisted import records the
+// version it was built with; on boot, imports older than this are flagged in the
+// file manager with a "Rebuild needed" badge (re-parses the stored source blob).
+// Single source of truth — imported by the DuckDB worker.
+export const SCHEMA_VERSION = '2'
+
 export const CATEGORIES = [
   { name: "Night Audit", kws: ["night audit", "nightaudit", "end of day", "eod ", "audit ran"] },
   { name: "Login & Access", kws: ["login", "log in", "signin", "sign in", "password", "credentials", "unable to log", "cannot log", "locked out", "access denied"] },

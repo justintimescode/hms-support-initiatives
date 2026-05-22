@@ -90,6 +90,56 @@ export const dbClient = {
   async clearDatabase() {
     return call('clearDatabase')
   },
+
+  /* ---------- multi-import ---------- */
+
+  /** List all imports + the active uuid. → { imports, activeUuid } */
+  async listImports() {
+    return call('listImports')
+  },
+
+  /** Create a new import from already-normalized rows. Atomic on the worker
+   *  side (rolls back on failure). → { imports, activeUuid }. Progress events
+   *  flow via onProgress. */
+  async createImport({ uuid, filename, displayName, fileSize, fileType, rows }, { onProgress } = {}) {
+    progressHandler = onProgress || null
+    try {
+      return await call('createImport', { uuid, filename, displayName, fileSize, fileType, rows })
+    } finally {
+      progressHandler = null
+    }
+  },
+
+  /** Make `uuid` the active import (redefines the `cases` view). → { activeUuid } */
+  async activateImport(uuid) {
+    return call('activateImport', { uuid })
+  },
+
+  /** Rename an import's display name. → { ok } */
+  async renameImport(uuid, displayName) {
+    return call('renameImport', { uuid, displayName })
+  },
+
+  /** Delete an import's table + index row. → { imports, activeUuid } */
+  async deleteImport(uuid) {
+    return call('deleteImport', { uuid })
+  },
+
+  /** Re-create an import's table from freshly re-parsed rows, bump schema
+   *  version. → { imports } */
+  async rebuildImport({ uuid, rows }, { onProgress } = {}) {
+    progressHandler = onProgress || null
+    try {
+      return await call('rebuildImport', { uuid, rows })
+    } finally {
+      progressHandler = null
+    }
+  },
+
+  /** Drop every import table + clear the index. → { imports, activeUuid } */
+  async clearAllImports() {
+    return call('clearAllImports')
+  },
 }
 
 // SECURITY (#2): the DuckDB client is intentionally NOT exposed on `window`.

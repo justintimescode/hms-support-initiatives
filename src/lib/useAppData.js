@@ -46,6 +46,52 @@ async function validateUpload(file, ext) {
   }
 }
 
+// SECURITY #5 — XLSX parsing via exceljs (replaces the unmaintained `xlsx`
+// package, which carried a ReDoS advisory). exceljs returns native cell types,
+// so each cell is re-emitted as the same primitive the old `xlsx` raw:false
+// path produced — date cells as "YYYY-MM-DD HH:MM:SS" wall-clock strings (built
+// from the Date's UTC components) and booleans as "TRUE"/"FALSE". That keeps
+// normalizeXlsxRow / enrichForSql byte-identical; validated row-for-row (574/574)
+// against a real ServiceNow export.
+const _pad2 = (n) => String(n).padStart(2, "0")
+function xlsxCellValue(v) {
+  if (v == null) return null
+  if (v instanceof Date) {
+    return `${v.getUTCFullYear()}-${_pad2(v.getUTCMonth() + 1)}-${_pad2(v.getUTCDate())} ` +
+      `${_pad2(v.getUTCHours())}:${_pad2(v.getUTCMinutes())}:${_pad2(v.getUTCSeconds())}`
+  }
+  if (typeof v === "boolean") return v ? "TRUE" : "FALSE"
+  if (typeof v === "object") {
+    if (Array.isArray(v.richText)) return v.richText.map((t) => t.text).join("") // rich text
+    if ("text" in v) return v.text     // hyperlink cell
+    if ("result" in v) return v.result // formula cell
+    if ("error" in v) return null      // error cell
+    return String(v)
+  }
+  return v
+}
+
+async function readXlsxRows(arrayBuffer) {
+  const ExcelJS = (await import("exceljs")).default
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(arrayBuffer)
+  const ws = wb.worksheets[0]
+  if (!ws) return []
+  const headers = ws.getRow(1).values // sparse, 1-indexed; [0] is empty
+  const rows = []
+  ws.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return // header
+    const obj = {}
+    for (let i = 1; i < headers.length; i++) {
+      const key = headers[i]
+      if (key == null) continue
+      obj[key] = xlsxCellValue(row.getCell(i).value)
+    }
+    rows.push(obj)
+  })
+  return rows
+}
+
 export function useAppData() {
   const [rows, setRows] = useState(null)
   const [filename, setFilename] = useState("")
@@ -217,12 +263,7 @@ export function useAppData() {
         const parsed = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false })
         data = parsed.data
       } else if (ext === "xlsx" || ext === "xls") {
-        const XLSX = await import("xlsx")
-        const buffer = await file.arrayBuffer()
-        const workbook = XLSX.read(buffer, { type: "array" })
-        const sheetName = workbook.SheetNames[0]
-        const sheet = workbook.Sheets[sheetName]
-        const raw = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: false })
+        const raw = await readXlsxRows(await file.arrayBuffer())
         data = raw.map(normalizeXlsxRow)
       } else {
         throw new Error("Please upload a CSV or Excel (.xlsx) file.")

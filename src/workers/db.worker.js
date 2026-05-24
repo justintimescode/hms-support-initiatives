@@ -207,7 +207,10 @@ function upsertIndexRow({ uuid, filename, displayName, uploadedAt, rowCount, fil
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
   )
   try {
-    stmt.query(uuid, filename, displayName, BigInt(uploadedAt), BigInt(rowCount), BigInt(fileSize || 0), fileType || '', schemaVersion || SCHEMA_VERSION)
+    // duckdb-wasm serializes prepared-statement params via JSON, which can't
+    // handle BigInt. Pass plain Numbers — these values (ms timestamps, counts,
+    // sizes) all fit comfortably within Number.MAX_SAFE_INTEGER.
+    stmt.query(uuid, filename, displayName, Number(uploadedAt), Number(rowCount), Number(fileSize || 0), fileType || '', schemaVersion || SCHEMA_VERSION)
   } finally {
     stmt.close()
   }
@@ -286,7 +289,7 @@ function rebuildImport({ uuid, rows }) {
   createCasesTable(tableName)
   const rowCount = insertRows(tableName, rows || [])
   const stmt = conn.prepare('UPDATE imports_index SET schema_version = ?, row_count = ? WHERE uuid = ?')
-  try { stmt.query(SCHEMA_VERSION, BigInt(rowCount), uuid) } finally { stmt.close() }
+  try { stmt.query(SCHEMA_VERSION, Number(rowCount), uuid) } finally { stmt.close() }
   if (activeUuid() === uuid) redefineView(uuid)
   flush()
   return { imports: readIndex() }

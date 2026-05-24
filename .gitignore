@@ -19,6 +19,10 @@ dist-ssr
 # Persistent Jira issue cache — large, machine-local
 .jira-cache/
 
+# Persistent ServiceNow imports disk mirror — contains customer case data,
+# machine-local, large. Must never be committed.
+.servicenow-cache/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

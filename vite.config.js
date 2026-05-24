@@ -77,6 +77,128 @@ function jiraFileCachePlugin() {
   }
 }
 
+// Dev-only disk mirror for ServiceNow imports. Patterned after the Jira cache
+// above. Each import lives at <project>/.servicenow-cache/{uuid}/source.{ext}
+// + meta.json so the data survives any browser clearing — OPFS (browser-side)
+// stays the primary store; this is a backup that lets a different browser /
+// cleared profile recover its imports on next boot. Customer case data is
+// written here, so .servicenow-cache/ is gitignored — see SECURITY note at the
+// top of imports-cache.js.
+function snFileCachePlugin() {
+  const cacheDir = path.join(here, '.servicenow-cache')
+  fs.mkdirSync(cacheDir, { recursive: true })
+
+  const importDir = (uuid) => path.join(cacheDir, uuid)
+  const SAFE_UUID = /^[a-zA-Z0-9-]{1,64}$/
+  // Server-side guard: only accept things that look like our uuids to prevent
+  // any path-traversal funny business through user-controlled URL segments.
+  const isSafeUuid = (s) => typeof s === 'string' && SAFE_UUID.test(s)
+
+  function streamBody(req, file) {
+    return new Promise((resolve, reject) => {
+      const chunks = []
+      let bytes = 0
+      req.on('data', (c) => { chunks.push(c); bytes += c.length })
+      req.on('end', () => {
+        fs.writeFile(file, Buffer.concat(chunks), (err) => err ? reject(err) : resolve(bytes))
+      })
+      req.on('error', reject)
+    })
+  }
+
+  function readAllMetas() {
+    if (!fs.existsSync(cacheDir)) return []
+    const out = []
+    for (const uuid of fs.readdirSync(cacheDir)) {
+      if (!isSafeUuid(uuid)) continue
+      const metaFile = path.join(cacheDir, uuid, 'meta.json')
+      try {
+        const txt = fs.readFileSync(metaFile, 'utf8')
+        const meta = JSON.parse(txt)
+        if (meta && meta.uuid === uuid) out.push(meta)
+      } catch { /* skip corrupt / missing meta */ }
+    }
+    return out
+  }
+
+  function findSourceFile(dir) {
+    if (!fs.existsSync(dir)) return null
+    for (const name of fs.readdirSync(dir)) {
+      if (name.startsWith('source.')) return path.join(dir, name)
+    }
+    return null
+  }
+
+  return {
+    name: 'sn-file-cache',
+    configureServer(server) {
+      server.middlewares.use('/api/cache/sn', (req, res, next) => {
+        // req.url is the path AFTER the mount point. "" or "/" = collection root.
+        const u = new URL(req.url, 'http://x')
+        const segs = u.pathname.split('/').filter(Boolean) // [uuid?, kind?]
+
+        // Collection: GET (list) | DELETE (wipe)
+        if (segs.length === 0) {
+          if (req.method === 'GET') {
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify(readAllMetas()))
+            return
+          }
+          if (req.method === 'DELETE') {
+            try { fs.rmSync(cacheDir, { recursive: true, force: true }); fs.mkdirSync(cacheDir, { recursive: true }) }
+            catch (e) { res.statusCode = 500; res.end(e.message); return }
+            res.statusCode = 204; res.end(); return
+          }
+          return next()
+        }
+
+        const uuid = segs[0]
+        if (!isSafeUuid(uuid)) { res.statusCode = 400; res.end('bad uuid'); return }
+        const dir = importDir(uuid)
+
+        // /{uuid} : DELETE one
+        if (segs.length === 1 && req.method === 'DELETE') {
+          try { fs.rmSync(dir, { recursive: true, force: true }) }
+          catch (e) { res.statusCode = 500; res.end(e.message); return }
+          res.statusCode = 204; res.end(); return
+        }
+
+        // /{uuid}/source : GET (stream blob) | PUT (write blob)
+        if (segs.length === 2 && segs[1] === 'source') {
+          if (req.method === 'GET') {
+            const file = findSourceFile(dir)
+            if (!file) { res.statusCode = 404; res.end(); return }
+            res.setHeader('Content-Type', 'application/octet-stream')
+            fs.createReadStream(file).pipe(res)
+            return
+          }
+          if (req.method === 'PUT') {
+            const ext = (u.searchParams.get('ext') || 'bin').replace(/[^a-zA-Z0-9]/g, '')
+            fs.mkdirSync(dir, { recursive: true })
+            // Remove any prior source.* before writing (extension can change).
+            try { for (const n of fs.readdirSync(dir)) { if (n.startsWith('source.')) fs.unlinkSync(path.join(dir, n)) } } catch { /* ignore */ }
+            streamBody(req, path.join(dir, `source.${ext}`))
+              .then((bytes) => { console.info(`[sn-cache] wrote ${(bytes / 1048576).toFixed(1)} MB → ${uuid}/source.${ext}`); res.statusCode = 204; res.end() })
+              .catch((e) => { res.statusCode = 500; res.end(e.message) })
+            return
+          }
+        }
+
+        // /{uuid}/meta : PUT (write meta.json)
+        if (segs.length === 2 && segs[1] === 'meta' && req.method === 'PUT') {
+          fs.mkdirSync(dir, { recursive: true })
+          streamBody(req, path.join(dir, 'meta.json'))
+            .then(() => { res.statusCode = 204; res.end() })
+            .catch((e) => { res.statusCode = 500; res.end(e.message) })
+          return
+        }
+
+        next()
+      })
+    },
+  }
+}
+
 // SECURITY #9 — Content Security Policy, PRODUCTION BUILD ONLY.
 //
 // The dev server needs looser rules (HMR websockets, the /api/jira proxy,
@@ -129,7 +251,7 @@ export default defineConfig(() => {
   }
 
   return {
-    plugins: [react(), jiraFileCachePlugin(), cspProdPlugin()],
+    plugins: [react(), jiraFileCachePlugin(), snFileCachePlugin(), cspProdPlugin()],
     // duckdb-wasm ships its own pre-bundled artifacts; let Vite pass them through
     // rather than try to pre-bundle them with esbuild.
     optimizeDeps: { exclude: ['@duckdb/duckdb-wasm'] },

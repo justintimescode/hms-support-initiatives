@@ -67,6 +67,18 @@ export const fmtDate = (d) => {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 };
 
+/** "just now" / "3m ago" / "2h ago" / "5d ago" from an ms timestamp. Used by
+ *  the top-bar freshness indicator and the Jira sync controls. */
+export const fmtAgo = (ts) => {
+  if (ts == null) return null;
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+};
+
 export const fmtDateTime = (d) => {
   if (!d) return "—";
   return d.toLocaleString(undefined, {

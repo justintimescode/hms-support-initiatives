@@ -3,7 +3,7 @@ import DOMPurify from "dompurify";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Loader2, AlertTriangle, XCircle, Activity } from "lucide-react";
 import { T } from "../../lib/theme.js";
-import { fmtDuration, fmtDateTime, fmtWeekLabel, priorityColor } from "../../lib/format.js";
+import { fmtDuration, fmtDateTime, fmtWeekLabel, fmtAgo, priorityColor } from "../../lib/format.js";
 import { fetchIssueDetail, PROJECT_KEY } from "../../lib/jira-client.js";
 import { jiraSummary, recentlyCreated, recentlyResolved, weeklyCreated } from "../../lib/jira-enrich.js";
 import { Card } from "../layout/Card.jsx";
@@ -24,18 +24,8 @@ const jiraBtn = (primary, disabled) => ({
   color: primary ? "#FBF8F2" : T.sub,
 })
 
-const fmtSyncAgo = (ts) => {
-  if (!ts) return null
-  const mins = Math.floor((Date.now() - ts) / 60000)
-  if (mins < 1) return "just now"
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
-}
-
 export function JiraSyncControls({ meta, onSync }) {
-  const ago = fmtSyncAgo(meta?.fetchedAt)
+  const ago = fmtAgo(meta?.fetchedAt)
   const cacheFailed = meta?.cacheSaved === false
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>

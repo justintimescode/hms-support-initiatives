@@ -1,11 +1,14 @@
 import { User, ListFilter, Printer } from "lucide-react"
 import { T } from "../../lib/theme.js"
 import { FilterBar } from "../FilterBar.jsx"
+import { FreshnessIndicator } from "./FreshnessIndicator.jsx"
 
-/* Persistent top bar for every routed page: analyst dropdown + filter
- * controls + print menu. AppLayout passes app state in as a prop since
- * TopBar renders ABOVE the Outlet (not inside it, so useOutletContext
- * would return nothing here). */
+/* Persistent top bar for every routed page: filter controls + analyst dropdown
+ * + print menu, with an always-visible freshness indicator at the top right
+ * showing when the active ServiceNow import was uploaded and when Jira was
+ * last synced. AppLayout passes app state in as a prop since TopBar renders
+ * ABOVE the Outlet (not inside it, so useOutletContext would return nothing
+ * here). */
 export function TopBar({ ctx }) {
   if (!ctx) return null
   const {
@@ -17,11 +20,22 @@ export function TopBar({ ctx }) {
     view,
     teamMembers, kpis,
     printMenuOpen, setPrintMenuOpen, triggerPrint,
+    activeImport, jiraState,
   } = ctx
 
-  // No data yet → keep the bar invisible. Pages render their own empty
-  // states; a control bar with no usable options would just be noise.
-  if (!rows) return null
+  // No data yet → render only the freshness indicator (so every page has a
+  // consistent header). The filter/analyst/print controls are hidden because
+  // there's nothing to filter; pages render their own empty states.
+  if (!rows) {
+    return (
+      <div
+        className="no-print"
+        style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}
+      >
+        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} />
+      </div>
+    )
+  }
 
   const canPrintIndividual = analyst !== "__all__"
   const sliceCount = view === "team"
@@ -126,6 +140,8 @@ export function TopBar({ ctx }) {
             </>
           )}
         </div>
+
+        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} />
       </div>
     </div>
   )

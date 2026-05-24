@@ -24,6 +24,10 @@ import {
   storeImportBlob, storeImportMeta, readImportBlob, deleteImportFiles,
   getTotalStorageBytes,
 } from "./imports-store.js"
+import {
+  listDiskMetas, writeDiskBlob, writeDiskMeta, readDiskBlob,
+  deleteDiskImport, clearDiskCache,
+} from "./imports-cache.js"
 import { SCHEMA_VERSION } from "./enrich.js"
 import { getAutoDelete } from "./settings.js"
 
@@ -175,6 +179,9 @@ export function useAppData() {
   const view = analyst === "__all__" ? "team" : "individual"
 
   const [dbReady, setDbReady] = useState(false)
+  // null = not restoring; number = imports left to pull back from the disk
+  // mirror on cold boot. UI shows a transient banner while > 0.
+  const [restoringCount, setRestoringCount] = useState(null)
   const [jiraState, setJiraState] = useState({
     status: "idle",
     issues: null,
@@ -225,6 +232,54 @@ export function useAppData() {
     getTotalStorageBytes().then(setStorageBytes).catch(() => {})
   }, [])
 
+  // Cold-boot restore: oldest-first so the final createImport leaves the most
+  // recently-uploaded import active (matches the worker's "newest-active"
+  // semantic). Progressively updates `imports` so the file manager fills in
+  // as the restore proceeds.
+  const restoreFromDisk = useCallback(async (diskMetas, isCancelled) => {
+    setRestoringCount(diskMetas.length)
+    const sorted = [...diskMetas].sort((a, b) => (a.uploadedAt || 0) - (b.uploadedAt || 0))
+    let remaining = sorted.length
+    let lastList = []
+    let lastActiveUuid = null
+    for (const meta of sorted) {
+      if (isCancelled()) break
+      try {
+        const file = await readDiskBlob(meta.uuid, meta.filename)
+        if (!file) { console.warn(`[sn-cache] no blob on disk for ${meta.uuid} — skipping`); continue }
+        const ext = (meta.fileType || file.name.split(".").pop() || "csv").toLowerCase()
+        const rows = await parseFileToRows(file, ext)
+        const { imports: nl, activeUuid: au } = await dbClient.createImport({
+          uuid: meta.uuid,
+          filename: meta.filename,
+          displayName: meta.displayName || meta.filename,
+          fileSize: meta.fileSize || file.size,
+          fileType: ext,
+          rows,
+        })
+        // Mirror to OPFS for fast subsequent reloads (re-parse from blob, then
+        // OPFS path takes over). Best-effort; failure here doesn't abort.
+        await storeImportBlob(meta.uuid, file, ext).catch(() => {})
+        await storeImportMeta(meta.uuid, { ...meta, fileType: ext }).catch(() => {})
+        rowsCache.current.set(meta.uuid, rows)
+        lastList = nl
+        lastActiveUuid = au
+        if (!isCancelled()) setImports(nl)
+      } catch (err) {
+        console.warn(`[sn-cache] restore failed for ${meta.uuid} —`, err?.message || err)
+      } finally {
+        remaining--
+        if (!isCancelled()) setRestoringCount(remaining > 0 ? remaining : null)
+      }
+    }
+    if (!isCancelled() && lastActiveUuid) {
+      setActiveImportUuid(lastActiveUuid)
+      setRows(rowsCache.current.get(lastActiveUuid) || null)
+    }
+    if (!isCancelled()) setRestoringCount(null)
+    void lastList
+  }, [])
+
   // On mount: boot the worker, load the imports list, activate + rehydrate the
   // active import's rows (this also fixes the old reload-loses-charts bug).
   React.useEffect(() => {
@@ -235,15 +290,28 @@ export function useAppData() {
         if (cancelled) return
         const pruned = await enforceAutoDelete(list || [], activeUuid)
         if (cancelled) return
+        setDbReady(true)
+
+        // Cold boot: OPFS/DuckDB are empty but the disk mirror may have data
+        // from a previous browser. Pull each import back, recreate it (same
+        // uuid), and mirror into OPFS so subsequent reloads are fast.
+        if (pruned.length === 0) {
+          const diskMetas = await listDiskMetas()
+          if (!cancelled && diskMetas.length) {
+            await restoreFromDisk(diskMetas, () => cancelled)
+            if (!cancelled) refreshStorage()
+            return
+          }
+        }
+
         setImports(pruned)
         setActiveImportUuid(activeUuid || null)
-        setDbReady(true)
         await loadActiveRows(activeUuid, pruned)
         refreshStorage()
       })
       .catch((err) => console.error("[db] init failed", err))
     return () => { cancelled = true }
-  }, [loadActiveRows, refreshStorage])
+  }, [loadActiveRows, refreshStorage, restoreFromDisk])
 
   // On mount: hydrate Jira from cache.
   React.useEffect(() => {
@@ -363,8 +431,9 @@ export function useAppData() {
       const dupes = imports.filter((i) => i.filename === file.name).length
       const displayName = dupes ? `${file.name} (${dupes + 1})` : file.name
 
+      const meta = { uuid, filename: file.name, displayName, fileType: ext, fileSize: file.size, uploadedAt: Date.now() }
       await storeImportBlob(uuid, file, ext)
-      await storeImportMeta(uuid, { uuid, filename: file.name, displayName, fileType: ext, fileSize: file.size, uploadedAt: Date.now() })
+      await storeImportMeta(uuid, meta)
       const { imports: list, activeUuid } = await dbClient.createImport({
         uuid, filename: file.name, displayName, fileSize: file.size, fileType: ext, rows: normalized,
       })
@@ -377,6 +446,15 @@ export function useAppData() {
       resetWorkingState()
       refreshStorage()
       if (inputRef.current) inputRef.current.value = ""
+
+      // Disk mirror (best-effort, non-blocking — see imports-cache.js). The
+      // active import in `list` carries the worker-known rowCount, so we copy
+      // that into the on-disk meta for accurate cold-restore.
+      const persisted = list.find((i) => i.uuid === uuid) || meta
+      Promise.all([
+        writeDiskBlob(uuid, file, ext),
+        writeDiskMeta(uuid, { ...meta, rowCount: persisted.rowCount, schemaVersion: SCHEMA_VERSION }),
+      ]).catch((err) => console.warn("[sn-cache] mirror failed —", err?.message || err))
     } catch (e) {
       if (uuid) await deleteImportFiles(uuid).catch(() => {}) // roll back the blob
       setUploadError(e.message || "Could not parse file.")
@@ -399,11 +477,17 @@ export function useAppData() {
     if (!name) return
     await dbClient.renameImport(uuid, name)
     setImports((list) => list.map((i) => (i.uuid === uuid ? { ...i, displayName: name } : i)))
-  }, [])
+    // Keep the on-disk meta in sync so a cold-restore picks up the new name.
+    const meta = imports.find((i) => i.uuid === uuid)
+    if (meta) writeDiskMeta(uuid, { ...meta, displayName: name }).catch(() => {})
+  }, [imports])
 
   const deleteImport = useCallback(async (uuid) => {
     const { imports: list, activeUuid } = await dbClient.deleteImport(uuid)
-    await deleteImportFiles(uuid).catch(() => {})
+    await Promise.all([
+      deleteImportFiles(uuid).catch(() => {}),
+      deleteDiskImport(uuid),
+    ])
     rowsCache.current.delete(uuid)
     setImports(list)
     if (activeUuid !== activeImportUuid) {
@@ -431,7 +515,10 @@ export function useAppData() {
   const clearAllImports = useCallback(async () => {
     const current = imports.map((i) => i.uuid)
     await dbClient.clearAllImports()
-    await Promise.all(current.map((u) => deleteImportFiles(u).catch(() => {})))
+    await Promise.all([
+      ...current.map((u) => deleteImportFiles(u).catch(() => {})),
+      clearDiskCache(),
+    ])
     rowsCache.current.clear()
     setImports([])
     setActiveImportUuid(null)
@@ -660,6 +747,7 @@ export function useAppData() {
     handleFile, reset,
     // imports (multi-import file manager)
     imports, activeImport, activeImportUuid, storageBytes, schemaVersion: SCHEMA_VERSION,
+    restoringCount,
     activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
     // filters (URL-backed)
     analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, view,

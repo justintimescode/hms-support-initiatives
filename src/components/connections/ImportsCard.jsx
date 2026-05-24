@@ -26,7 +26,7 @@ const SORT_OPTIONS = [
 export function ImportsCard(ctx) {
   const {
     imports = [], activeImportUuid, storageBytes, schemaVersion,
-    uploading, uploadError, inputRef, handleFile,
+    uploading, uploadError, inputRef, handleFile, restoringCount,
     activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
   } = ctx
 
@@ -101,6 +101,12 @@ export function ImportsCard(ctx) {
       {uploadError && (
         <div style={{ color: T.danger, fontSize: 13, display: "flex", alignItems: "center", gap: 8 }}>
           <AlertTriangle size={14} /> {uploadError}
+        </div>
+      )}
+      {restoringCount != null && restoringCount > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: 6, padding: "10px 12px" }}>
+          <Loader2 size={14} style={{ color: T.accent, animation: "spin 1s linear infinite" }} />
+          Restoring {restoringCount} {restoringCount === 1 ? "import" : "imports"} from disk cache…
         </div>
       )}
 

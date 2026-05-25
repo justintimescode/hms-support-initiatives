@@ -4,9 +4,8 @@ import { T } from "../../lib/theme.js";
 import { fmtAgo } from "../../lib/format.js";
 
 /* Always-visible top-right indicator showing the freshness of the two data
- * sources that feed the app: the active ServiceNow import and the cached Jira
- * project sync. Lives in TopBar so every routed page gets the same header.
- * Re-ticks once a minute so "3m ago" stays honest. */
+ * sources that feed the app. Lives in TopBar so every routed page gets the
+ * same header. Re-ticks once a minute so "3m ago" stays honest. */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -14,29 +13,51 @@ function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone }) {
   const ago = fmtAgo(ts);
   const isMissing = ago == null;
   const stale = !isMissing && (now - ts) > DAY_MS;
-  const color = isMissing ? missingTone : stale ? T.warn : T.sub;
+  const fresh = !isMissing && !stale;
+  const color = isMissing ? missingTone : stale ? T.warn : T.ok;
   const text = isMissing ? missingLabel : ago;
   return (
     <div
       title={ts ? new Date(ts).toLocaleString() : undefined}
       style={{
-        display: "inline-flex", alignItems: "center", gap: 6,
-        padding: "5px 10px",
-        background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`,
-        borderRadius: 12, fontSize: 11, color: T.sub, whiteSpace: "nowrap",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 7,
+        padding: "5px 11px 5px 9px",
+        background: T.surface,
+        border: `1px solid ${T.border}`,
+        borderRadius: 999,
+        fontSize: 11,
+        color: T.sub,
+        whiteSpace: "nowrap",
+        boxShadow: T.shadowSm,
       }}
     >
-      <Icon size={12} style={{ color }} />
-      <span style={{ color: T.muted }}>{label}</span>
-      <span className="mono" style={{ color, fontWeight: 600 }}>{text}</span>
+      <span
+        aria-hidden
+        style={{
+          width: 7,
+          height: 7,
+          borderRadius: "50%",
+          background: color,
+          boxShadow: fresh ? `0 0 0 3px ${color}22` : "none",
+          animation: fresh ? "pulse-dot 2.4s ease-in-out infinite" : "none",
+          flexShrink: 0,
+        }}
+      />
+      <Icon size={12} style={{ color: T.muted }} />
+      <span style={{ color: T.muted, fontWeight: 500 }}>{label}</span>
+      <span
+        className="mono"
+        style={{ color: isMissing ? missingTone : T.ink, fontWeight: 600 }}
+      >
+        {text}
+      </span>
     </div>
   );
 }
 
 export function FreshnessIndicator({ activeImport, jiraState }) {
-  // `now` is held in state and updated only via the interval effect, so the
-  // freshness math stays out of the render-purity rule. Re-ticks every minute
-  // so "3m ago" / "stale" stay honest.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000);

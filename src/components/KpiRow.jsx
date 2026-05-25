@@ -8,7 +8,16 @@ import { Card } from "./layout/Card.jsx";
 export function DeltaLine({ text, color }) {
   if (!text) return null;
   return (
-    <div className="mono" style={{ color, fontSize: 11, marginTop: 4, fontWeight: 500 }}>
+    <div
+      className="mono"
+      style={{
+        color,
+        fontSize: 11,
+        marginTop: 6,
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+      }}
+    >
       {text}
     </div>
   );
@@ -54,17 +63,61 @@ export function KpiRow({ kpis, compareKpis }) {
     },
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14 }}>
       {cards.map((c) => (
-        <Card key={c.label} className="hoverlift">
+        <Card
+          key={c.label}
+          className="hoverlift"
+          style={{
+            position: "relative",
+            overflow: "hidden",
+            padding: "20px 22px 22px",
+          }}
+        >
+          {/* top accent bar */}
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 2,
+              background: c.accent,
+              opacity: 0.85,
+            }}
+          />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div className="eyebrow" style={{ color: T.muted }}>{c.label}</div>
-            <span style={{ color: c.accent }}>{c.icon}</span>
+            <span
+              style={{
+                color: c.accent,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 26,
+                height: 26,
+                borderRadius: 7,
+                background: c.accent + "10",
+              }}
+            >
+              {c.icon}
+            </span>
           </div>
-          <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: c.accent, lineHeight: 1 }}>
+          <div
+            className="display"
+            style={{
+              fontSize: 48,
+              lineHeight: 1.02,
+              marginTop: 12,
+              color: c.accent,
+              letterSpacing: "-0.02em",
+              fontFeatureSettings: '"tnum"',
+            }}
+          >
             {c.value}
           </div>
-          <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{c.sub}</div>
+          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 10, lineHeight: 1.45 }}>{c.sub}</div>
           {c.delta && <DeltaLine text={c.delta.text} color={c.delta.color} />}
         </Card>
       ))}

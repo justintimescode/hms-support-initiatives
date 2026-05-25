@@ -31,20 +31,42 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
     border: `1px solid ${T.border}`,
     background: T.surface,
     color: T.ink,
-    borderRadius: 4,
-    padding: "5px 8px",
+    borderRadius: 6,
+    padding: "6px 10px",
     fontSize: 12,
     fontFamily: "JetBrains Mono, monospace",
+    transition: "border-color 0.15s ease, box-shadow 0.15s ease",
   };
 
   return (
-    <div className="no-print" style={{ marginTop: 14, padding: "10px 14px", border: `1px solid ${T.borderSoft}`, borderRadius: 6, background: T.surface, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12, fontSize: 12 }}>
+    <div
+      className="no-print"
+      style={{
+        marginTop: 14,
+        padding: "11px 16px",
+        border: `1px solid ${T.border}`,
+        borderRadius: T.radiusMd,
+        background: T.surface,
+        boxShadow: T.shadowSm,
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 14,
+        fontSize: 12,
+      }}
+    >
       <span className="eyebrow" style={{ color: T.muted }}>Filter</span>
 
       <select
         value={range.preset}
         onChange={(e) => setPreset(e.target.value)}
-        style={{ ...inputStyle, fontFamily: "DM Sans, sans-serif", padding: "5px 10px", cursor: "pointer" }}
+        style={{
+          ...inputStyle,
+          fontFamily: "Geist, DM Sans, sans-serif",
+          padding: "6px 12px",
+          cursor: "pointer",
+          fontWeight: 500,
+        }}
       >
         {PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
       </select>
@@ -56,7 +78,15 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
         <input type="date" value={isoFromMs(range.to)} onChange={(e) => setTo(e.target.value)} style={inputStyle} />
       </div>
 
-      <div style={{ display: "inline-flex", background: T.surfaceAlt, border: `1px solid ${T.border}`, borderRadius: 4, padding: 2 }}>
+      <div
+        style={{
+          display: "inline-flex",
+          background: T.surfaceAlt,
+          border: `1px solid ${T.borderSoft}`,
+          borderRadius: 7,
+          padding: 2,
+        }}
+      >
         {[{ k: "_created", label: "by Created" }, { k: "_closed", label: "by Closed" }].map((opt) => {
           const active = range.field === opt.k;
           return (
@@ -64,15 +94,17 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
               key={opt.k}
               onClick={() => setField(opt.k)}
               style={{
-                padding: "4px 10px",
-                background: active ? T.ink : "transparent",
-                color: active ? T.surface : T.sub,
+                padding: "5px 12px",
+                background: active ? T.surface : "transparent",
+                color: active ? T.ink : T.sub,
                 border: "none",
-                borderRadius: 3,
-                fontFamily: "DM Sans, sans-serif",
+                borderRadius: 5,
+                fontFamily: "Geist, DM Sans, sans-serif",
                 fontSize: 12,
-                fontWeight: 500,
+                fontWeight: active ? 600 : 500,
                 cursor: "pointer",
+                boxShadow: active ? T.shadowSm : "none",
+                transition: "background 0.15s ease, color 0.15s ease",
               }}
             >
               {opt.label}
@@ -81,12 +113,22 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
         })}
       </div>
 
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: compareDisabled ? T.muted : T.ink, cursor: compareDisabled ? "not-allowed" : "pointer" }}>
+      <label
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 7,
+          color: compareDisabled ? T.muted : T.ink,
+          cursor: compareDisabled ? "not-allowed" : "pointer",
+          fontSize: 12.5,
+        }}
+      >
         <input
           type="checkbox"
           checked={compareOn && !compareDisabled}
           disabled={compareDisabled}
           onChange={(e) => onCompareChange(e.target.checked)}
+          style={{ accentColor: T.accent, cursor: "inherit" }}
         />
         <span>Compare to previous period</span>
       </label>
@@ -95,8 +137,31 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
         <span className="mono" style={{ color: T.sub, fontSize: 11 }}>{compareLabel}</span>
       )}
 
-      <div style={{ marginLeft: "auto", color: T.sub, fontSize: 11 }} className="mono">
-        {sliceCount.toLocaleString()} cases in slice
+      <div
+        style={{
+          marginLeft: "auto",
+          color: T.sub,
+          fontSize: 11,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            display: "inline-block",
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: T.accent,
+            opacity: 0.7,
+          }}
+        />
+        <span className="mono" style={{ fontWeight: 600, color: T.ink }}>
+          {sliceCount.toLocaleString()}
+        </span>
+        <span>cases in slice</span>
       </div>
     </div>
   );

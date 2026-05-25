@@ -3,28 +3,70 @@ import { Database } from "lucide-react"
 import { T } from "../lib/theme.js"
 import { Card } from "./layout/Card.jsx"
 
-/* Shared "no data loaded" state used by every analytical page. Single
- * source so the CTA + copy stays consistent. */
+/* Shared "no data loaded" state used by every analytical page. */
 export function EmptyState({ title = "No data loaded yet", message, cta = "Go to Connections" }) {
   return (
-    <Card style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "48px 24px", gap: 12, borderStyle: "dashed", background: T.surfaceAlt }}>
-      <Database size={28} style={{ color: T.muted }} />
-      <div className="display" style={{ fontSize: 20, fontWeight: 500 }}>{title}</div>
-      <div style={{ color: T.sub, fontSize: 13, maxWidth: 520, lineHeight: 1.55 }}>
-        {message || "Upload a ServiceNow case export to populate this page. Everything else flows from that one file."}
+    <Card
+      className="fade-in"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        textAlign: "center",
+        padding: "64px 32px",
+        gap: 14,
+        borderStyle: "dashed",
+        borderColor: T.border,
+        background: T.surface,
+        boxShadow: "none",
+      }}
+    >
+      <div
+        style={{
+          width: 56,
+          height: 56,
+          borderRadius: 14,
+          background: T.accentTint,
+          color: T.accent,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: `1px solid ${T.accent}22`,
+          marginBottom: 4,
+        }}
+      >
+        <Database size={24} strokeWidth={1.75} />
+      </div>
+      <div className="display" style={{ fontSize: 28, color: T.ink, letterSpacing: "-0.015em" }}>
+        {title}
+      </div>
+      <div style={{ color: T.sub, fontSize: 13.5, maxWidth: 520, lineHeight: 1.6 }}>
+        {message ||
+          "Upload a ServiceNow case export to populate this page. Everything else flows from that one file."}
       </div>
       <Link
         to="/connections"
         style={{
-          marginTop: 4,
-          padding: "8px 16px",
+          marginTop: 12,
+          padding: "10px 20px",
           background: T.accent,
-          color: T.surface,
-          border: `1px solid ${T.accent}`,
-          borderRadius: 6,
+          color: "#fff",
+          border: `1px solid ${T.accentDeep}`,
+          borderRadius: 8,
           fontSize: 13,
-          fontWeight: 500,
+          fontWeight: 600,
           textDecoration: "none",
+          boxShadow: `0 1px 0 ${T.accentDeep}, 0 4px 12px rgba(218, 41, 28, 0.25)`,
+          transition: "transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
+          fontFamily: "Geist, DM Sans, sans-serif",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = T.accentDeep
+          e.currentTarget.style.transform = "translateY(-1px)"
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = T.accent
+          e.currentTarget.style.transform = "translateY(0)"
         }}
       >
         {cta}

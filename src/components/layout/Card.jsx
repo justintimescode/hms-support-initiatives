@@ -6,9 +6,10 @@ export function Card({ children, style, className = "" }) {
       className={className}
       style={{
         background: T.surface,
-        border: `1px solid ${T.borderSoft}`,
-        borderRadius: 6,
-        padding: 20,
+        border: `1px solid ${T.border}`,
+        borderRadius: T.radiusMd,
+        padding: 22,
+        boxShadow: T.shadowSm,
         ...style,
       }}
     >

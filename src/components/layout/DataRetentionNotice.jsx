@@ -3,9 +3,7 @@ import { NavLink } from "react-router-dom";
 import { T } from "../../lib/theme.js";
 
 /* SECURITY #4 — persistent reminder that case data is stored locally in the
- * browser (OPFS). With the multi-import model the user manages data explicitly
- * on the Connections page, so this surfaces the import count + total storage
- * and links there. Hidden entirely when no imports exist. */
+ * browser (OPFS). Hidden entirely when no imports exist. */
 
 const fmtBytes = (n) => {
   if (!n) return "0 B";
@@ -20,35 +18,59 @@ export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
   return (
     <div
       style={{
-        margin: "8px 10px 0",
-        padding: "10px 12px",
-        borderRadius: 6,
+        margin: "10px 12px 0",
+        padding: "12px 14px",
+        borderRadius: T.radiusMd,
         background: T.surfaceAlt,
         border: `1px solid ${T.borderSoft}`,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, color: T.sub, fontSize: 11 }}>
-        <Database size={12} />
-        <span style={{ fontWeight: 600 }}>Data stored locally</span>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          color: T.ink,
+          fontSize: 11,
+          fontWeight: 600,
+        }}
+      >
+        <Database size={12} style={{ color: T.accent }} />
+        <span>Data stored locally</span>
       </div>
-      <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>
-        <span className="mono">{importCount}</span> {importCount === 1 ? "import" : "imports"} · <span className="mono">{fmtBytes(storageBytes)}</span>
+      <div style={{ color: T.sub, fontSize: 11, marginTop: 6 }}>
+        <span className="mono" style={{ color: T.ink, fontWeight: 600 }}>
+          {importCount}
+        </span>{" "}
+        {importCount === 1 ? "import" : "imports"} ·{" "}
+        <span className="mono" style={{ color: T.ink, fontWeight: 600 }}>
+          {fmtBytes(storageBytes)}
+        </span>
       </div>
       <NavLink
         to="/connections"
         style={{
           display: "block",
-          marginTop: 8,
+          marginTop: 10,
           textAlign: "center",
-          padding: "5px 10px",
-          background: "transparent",
-          color: T.sub,
+          padding: "6px 10px",
+          background: T.surface,
+          color: T.ink,
           border: `1px solid ${T.border}`,
-          borderRadius: 4,
-          fontFamily: "DM Sans, sans-serif",
+          borderRadius: 6,
+          fontFamily: "Geist, DM Sans, sans-serif",
           fontSize: 11,
           fontWeight: 600,
           textDecoration: "none",
+          transition: "background 0.15s ease, border-color 0.15s ease",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = T.accent;
+          e.currentTarget.style.color = T.accent;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = T.border;
+          e.currentTarget.style.color = T.ink;
         }}
       >
         Manage imports

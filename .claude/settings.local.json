@@ -10,7 +10,10 @@
       "Bash(Get-Content \"c:\\\\Users\\\\justic57\\\\Downloads\\\\x_igss2_customer_p_standard_case.json\" -TotalCount 150)",
       "Bash(Out-String)",
       "Bash(node -e \"const XLSX=require\\('xlsx'\\); const wb=XLSX.readFile\\('c:/Users/justic57/Downloads/x_igss2_customer_p_standard_case \\(8\\).xlsx'\\); const sheet=wb.Sheets[wb.SheetNames[0]]; const rows=XLSX.utils.sheet_to_json\\(sheet,{defval:null,raw:false}\\); let wn=0,ac=0,both=0; for\\(const r of rows\\){const w=r['Work notes']&&r['Work notes'].trim\\(\\); const a=r['Additional comments']&&r['Additional comments'].trim\\(\\); if\\(w&&a\\){both++;} if\\(w\\)wn++; if\\(a\\)ac++;} console.log\\('Work notes populated:',wn\\); console.log\\('Additional comments populated:',ac\\); console.log\\('Both populated:',both\\); const r=rows.find\\(x=>x['Work notes']&&x['Work notes'].length>50\\); if\\(r\\){console.log\\('\\\\\\\\n=== Work notes sample ==='\\); console.log\\(r['Work notes'].slice\\(0,500\\)\\);}\")",
-      "PowerShell($env:Path = \"C:\\\\Users\\\\justic57\\\\.local\\\\bin;$env:Path\"; & \"C:\\\\Users\\\\justic57\\\\.local\\\\bin\\\\uvx.exe\" --version)"
+      "PowerShell($env:Path = \"C:\\\\Users\\\\justic57\\\\.local\\\\bin;$env:Path\"; & \"C:\\\\Users\\\\justic57\\\\.local\\\\bin\\\\uvx.exe\" --version)",
+      "Bash(if [ ! -d \"C:/service-now-kpi-analyzer-beta-main/.claude\" ]; then mkdir \"C:/service-now-kpi-analyzer-beta-main/.claude\"; fi)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

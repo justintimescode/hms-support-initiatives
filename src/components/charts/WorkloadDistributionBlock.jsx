@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 import { T } from "../../lib/theme.js";
-import { workloadConcentration } from "../../lib/stats.js";
+import { workloadConcentration, workloadStats } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
 /* ================= Workload Distribution ================= */
 export function WorkloadDistributionBlock({ members }) {
   const lorenz = useMemo(() => workloadConcentration(members), [members]);
+  const stats = useMemo(() => workloadStats(members), [members]);
 
   return (
     <Card>
@@ -26,6 +27,7 @@ export function WorkloadDistributionBlock({ members }) {
           <div>Gini <span style={{ color: T.ink, fontWeight: 600 }}>{lorenz.gini.toFixed(2)}</span></div>
         </div>
       </div>
+      {stats.n > 0 && <StatTiles stats={stats} />}
       <div style={{ height: 280, marginTop: 12 }}>
         <ResponsiveContainer>
           <LineChart margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
@@ -78,6 +80,50 @@ export function WorkloadDistributionBlock({ members }) {
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 8 }}>Need at least 2 analysts to compare distribution.</div>
       )}
     </Card>
+  );
+}
+
+function StatTiles({ stats }) {
+  const fmt = (v, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "—");
+  const tiles = [
+    { label: "Analysts", value: String(stats.n) },
+    { label: "Mean", value: fmt(stats.mean, 1) },
+    { label: "Median", value: fmt(stats.median, 0) },
+    { label: "Std dev", value: fmt(stats.stddev, 1) },
+    { label: "Min · Max", value: `${stats.min} · ${stats.max}` },
+    { label: "CV", value: fmt(stats.cv, 2) },
+  ];
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))`,
+        gap: 8,
+        marginTop: 14,
+      }}
+    >
+      {tiles.map((t) => (
+        <div
+          key={t.label}
+          style={{
+            border: `1px solid ${T.borderSoft}`,
+            borderRadius: 4,
+            padding: "8px 10px",
+            background: T.surface,
+          }}
+        >
+          <div className="eyebrow" style={{ color: T.muted, fontSize: 10, textAlign: "left" }}>
+            {t.label}
+          </div>
+          <div
+            className="mono"
+            style={{ color: T.ink, fontSize: 16, fontWeight: 600, marginTop: 2, textAlign: "left" }}
+          >
+            {t.value}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

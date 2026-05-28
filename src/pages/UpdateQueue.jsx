@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { AlertTriangle, Clock } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
+import { AlertTriangle, Clock, Download } from "lucide-react";
 import { T } from "../lib/theme.js";
 import { fmtDuration, fmtFullDate, priorityColor } from "../lib/format.js";
 import { useQuery } from "../lib/useQuery.js";
@@ -10,6 +10,88 @@ import { Card } from "../components/layout/Card.jsx";
 import { Pill } from "../components/Pill.jsx";
 import { CaseDrilldown } from "../components/CaseDrilldown.jsx";
 import { CopyableNumber } from "../components/CopyableNumber.jsx";
+
+/* ---- CSV export helper ---- */
+function escapeCsv(val) {
+  if (val == null) return "";
+  const s = String(val);
+  return s.includes(",") || s.includes('"') || s.includes("\n")
+    ? `"${s.replace(/"/g, '""')}"`
+    : s;
+}
+
+function rowsToCsv(headers, rows) {
+  const lines = [headers.map(escapeCsv).join(",")];
+  for (const r of rows) lines.push(r.map(escapeCsv).join(","));
+  return lines.join("\r\n");
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs }) {
+  const queueHeaders = ["Queue", "Case", "Type/Priority", "State", "Status", "Assignee", "Last Update", "Threshold", "Account", "Description"];
+  const queueRows = [
+    ...overdue.map((r) => [
+      "Overdue",
+      r.number,
+      r.caseType === "development" ? "dev" : (r.priority || ""),
+      r.state || "",
+      r.status || "",
+      r.assignedTo || "Unassigned",
+      r.noInforUpdateYet ? "no analyst update yet" : `${fmtDuration(r.elapsedMs)} ago`,
+      r.thresholdMs == null ? "" : fmtDuration(r.thresholdMs),
+      r.account || "",
+      r.shortDescription || "",
+    ]),
+    ...dueSoon.map((r) => [
+      "Due Soon",
+      r.number,
+      r.caseType === "development" ? "dev" : (r.priority || ""),
+      r.state || "",
+      r.status || "",
+      r.assignedTo || "Unassigned",
+      r.noInforUpdateYet ? "no analyst update yet" : `${fmtDuration(r.elapsedMs)} ago`,
+      r.thresholdMs == null ? "" : fmtDuration(r.thresholdMs),
+      r.account || "",
+      r.shortDescription || "",
+    ]),
+  ];
+
+  const irHeaders = ["Case", "Priority", "State", "Status", "Assignee", "Age", "Target", "Account", "Description"];
+  const irRows = initialResponseMisses.map((r) => [
+    r.number,
+    r.priority || "",
+    r.state || "",
+    r.status || "",
+    r.assignedTo || "Unassigned",
+    fmtDuration(r.ageMs),
+    fmtDuration(r.targetMs),
+    r.account || "",
+    r.shortDescription || "",
+  ]);
+
+  const snapshotLabel = snapshotMs ? fmtFullDate(snapshotMs) : "unknown";
+  const csv = [
+    `# Update Queue export — data as of ${snapshotLabel}`,
+    "",
+    "## Overdue & Due Soon",
+    rowsToCsv(queueHeaders, queueRows),
+    "",
+    "## Initial Response Misses",
+    rowsToCsv(irHeaders, irRows),
+  ].join("\r\n");
+
+  const dateStr = new Date().toISOString().slice(0, 10);
+  downloadCsv(`update-queue-${dateStr}.csv`, csv);
+}
 
 /* ================= Update Queue (analyst-facing) ================= */
 export function UpdateQueue({ analyst, snapshotMs, dbReady }) {
@@ -70,8 +152,30 @@ export function UpdateQueue({ analyst, snapshotMs, dbReady }) {
               count={summary.initialMisses}
               accent={summary.initialMisses ? T.danger : T.ok}
             />
-            <div style={{ marginLeft: "auto", fontSize: 11, color: T.muted }} className="mono">
-              data as of {fmtFullDate(snapshotMs)}
+            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ fontSize: 11, color: T.muted }} className="mono">
+                data as of {fmtFullDate(snapshotMs)}
+              </div>
+              <button
+                onClick={() => exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs })}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "5px 12px",
+                  borderRadius: 6,
+                  border: `1px solid ${T.border}`,
+                  background: T.surface,
+                  color: T.ink,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Download size={13} />
+                Export CSV
+              </button>
             </div>
           </div>
         </Card>
@@ -125,8 +229,34 @@ function SummaryStat({ label, count, accent }) {
   );
 }
 
+const SORT_OPTIONS = [
+  { value: "elapsed-desc", label: "Last update · longest ago" },
+  { value: "elapsed-asc",  label: "Last update · most recent" },
+  { value: "assignee",     label: "Group by assignee" },
+];
+
+function sortQueueRows(rows, mode) {
+  const elapsedOf = (r) => (r.noInforUpdateYet ? Number.POSITIVE_INFINITY : (r.elapsedMs ?? 0));
+  const assigneeOf = (r) => (r.assignedTo || "￿Unassigned").toLowerCase();
+  const copy = rows.slice();
+  if (mode === "elapsed-asc") {
+    copy.sort((a, b) => elapsedOf(a) - elapsedOf(b));
+  } else if (mode === "assignee") {
+    copy.sort((a, b) => {
+      const ax = assigneeOf(a), bx = assigneeOf(b);
+      if (ax !== bx) return ax < bx ? -1 : 1;
+      return elapsedOf(b) - elapsedOf(a);
+    });
+  } else {
+    copy.sort((a, b) => elapsedOf(b) - elapsedOf(a));
+  }
+  return copy;
+}
+
 function QueueGroup({ title, subtitle, rows, tone, onPick, snapshotMs, emptyMsg }) {
   const headerColor = tone === "danger" ? T.danger : T.warn;
+  const [sortMode, setSortMode] = useState("elapsed-desc");
+  const sortedRows = useMemo(() => sortQueueRows(rows, sortMode), [rows, sortMode]);
   if (rows.length === 0) {
     return (
       <Card>
@@ -148,8 +278,28 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, snapshotMs, emptyMsg 
           <div className="eyebrow" style={{ color: headerColor }}>{title}</div>
           {subtitle && <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>{subtitle}</div>}
         </div>
-        <div className="mono" style={{ fontSize: 12, color: headerColor, fontWeight: 600 }}>
-          {rows.length} case{rows.length === 1 ? "" : "s"}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
+            <span className="eyebrow" style={{ color: T.muted }}>Sort</span>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              style={{
+                fontSize: 12,
+                padding: "4px 8px",
+                border: `1px solid ${T.border}`,
+                borderRadius: 6,
+                background: T.surface,
+                color: T.ink,
+                cursor: "pointer",
+              }}
+            >
+              {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </label>
+          <div className="mono" style={{ fontSize: 12, color: headerColor, fontWeight: 600 }}>
+            {rows.length} case{rows.length === 1 ? "" : "s"}
+          </div>
         </div>
       </div>
 
@@ -169,9 +319,21 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, snapshotMs, emptyMsg 
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
+            {sortedRows.map((r, i) => {
+              const prev = i > 0 ? sortedRows[i - 1] : null;
+              const showAssigneeHeader =
+                sortMode === "assignee" &&
+                (!prev || (prev.assignedTo || "Unassigned") !== (r.assignedTo || "Unassigned"));
+              return (
+              <Fragment key={r.number}>
+              {showAssigneeHeader && (
+                <tr style={{ background: T.surfaceSunk }}>
+                  <td colSpan={9} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, color: T.sub, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                    {r.assignedTo || "Unassigned"}
+                  </td>
+                </tr>
+              )}
               <tr
-                key={r.number}
                 onClick={() => onPick(r)}
                 className="hoverlift"
                 style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer" }}
@@ -207,7 +369,9 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, snapshotMs, emptyMsg 
                   {r.shortDescription || "—"}
                 </td>
               </tr>
-            ))}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

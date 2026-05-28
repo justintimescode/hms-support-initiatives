@@ -4,6 +4,7 @@
 // behavior change to the data or chart pipelines.
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
+import { useNavigate } from "react-router-dom"
 import Papa from "papaparse"
 import { enrichRow, priorityRank, normalizeXlsxRow } from "./enrich.js"
 import { dbClient } from "./db-client.js"
@@ -174,6 +175,7 @@ export function useAppData() {
 
   const { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn } =
     useFilters({ analystNames })
+  const navigate = useNavigate()
 
   // team flavor when no analyst selected.
   const view = analyst === "__all__" ? "team" : "individual"
@@ -738,6 +740,7 @@ export function useAppData() {
 
   const drillIntoMember = (name) => {
     setAnalyst(name)
+    navigate("/")
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" })
   }
 

@@ -63,7 +63,7 @@ export function TrajectoryBlock({ rows, highlightRange }) {
                 allowDecimals={false}
               />
               <Tooltip content={<TrajectoryTip />} cursor={{ fill: T.surfaceAlt }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} />
+              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} iconType="square" />
               {hl && (
                 <ReferenceArea
                   yAxisId="left"
@@ -76,8 +76,8 @@ export function TrajectoryBlock({ rows, highlightRange }) {
                   ifOverflow="extendDomain"
                 />
               )}
-              <Bar yAxisId="right" dataKey="created" name="created (right axis)" fill={T.accentSoft} radius={[2, 2, 0, 0]} />
-              <Line yAxisId="left" type="monotone" dataKey="open" name="open (left axis)" stroke={T.accent} strokeWidth={2} dot={false} />
+              <Bar yAxisId="right" dataKey="created" name="new cases created that day (right axis)" fill="#2563EB" fillOpacity={0.55} radius={[2, 2, 0, 0]} />
+              <Line yAxisId="left" type="monotone" dataKey="open" name="open backlog (left axis)" stroke={T.accent} strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

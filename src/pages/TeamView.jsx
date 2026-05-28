@@ -20,7 +20,6 @@ import { CategoryBlock } from "../components/charts/CategoryBlock.jsx";
 import { AccountProductBlock } from "../components/charts/AccountProductBlock.jsx";
 import { JiraDashboard } from "../components/jira/JiraDashboard.jsx";
 import { JiraAnalysisBlock } from "../components/jira/JiraAnalysisBlock.jsx";
-import { WorkloadDistributionBlock } from "../components/charts/WorkloadDistributionBlock.jsx";
 import { InteractionQualityBlock } from "../components/charts/InteractionQualityBlock.jsx";
 import { AiBlock } from "../components/ai/AiBlock.jsx";
 import { CaseTable } from "../components/CaseTable.jsx";
@@ -185,9 +184,6 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
 
       {(page === "team" || printMode) && (
         <div className="print-section">
-          <Section title="Workload Distribution" subtitle="How work is spread across the team — the Lorenz curve and Gini score show fairness and bus-factor risk that the leaderboard alone does not.">
-            <WorkloadDistributionBlock members={members} />
-          </Section>
           <Section title="Team Leaderboard" subtitle="Side-by-side performance across the team. Click any column header to sort, or any analyst's name to drill into their full dashboard. Use this view to spot outliers — both the team's strongest performers and analysts who may need support.">
         <Card style={{ padding: 0, overflow: "hidden" }}>
           <div style={{ overflowX: "auto" }} className="scrollbar">

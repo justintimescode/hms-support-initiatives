@@ -3,19 +3,26 @@ import { T } from "../lib/theme.js"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { WorkloadDistributionBlock } from "../components/charts/WorkloadDistributionBlock.jsx"
+import { WorkloadVolumeBlock } from "../components/charts/WorkloadVolumeBlock.jsx"
+import { AssigneeAgingBlock } from "../components/charts/AssigneeAgingBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function WorkloadPage() {
   const { rows, teamMembers, analyst } = useOutletContext()
   if (!rows) return <Section title="Workload Distribution"><EmptyState /></Section>
+  const members = teamMembers || []
   return (
     <>
       {analyst !== "__all__" && <TeamOnlyNote />}
       <Section
         title="Workload Distribution"
-        subtitle="How work is spread across the team — the Lorenz curve and Gini score show fairness and bus-factor risk that the leaderboard alone does not."
+        subtitle="How work is spread across the team — concentration, per-analyst volume, and where open work is piling up."
       >
-        <WorkloadDistributionBlock members={teamMembers || []} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <WorkloadDistributionBlock members={members} />
+          <WorkloadVolumeBlock members={members} />
+          <AssigneeAgingBlock members={members} />
+        </div>
       </Section>
     </>
   )

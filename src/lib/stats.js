@@ -409,6 +409,30 @@ export const weeklyIntakeResolved = (rows) => {
   return arr;
 };
 
+export const workloadStats = (members) => {
+  const empty = { n: 0, mean: 0, median: 0, stddev: 0, min: 0, max: 0, cv: 0, total: 0 };
+  if (!members || !members.length) return empty;
+  const counts = members.map((m) => m.kpis.total).filter((v) => v > 0);
+  const n = counts.length;
+  if (!n) return { ...empty, n: members.length };
+  const total = counts.reduce((s, v) => s + v, 0);
+  const mean = total / n;
+  const sorted = [...counts].sort((a, b) => a - b);
+  const median = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+  const variance = counts.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  const stddev = Math.sqrt(variance);
+  return {
+    n,
+    total,
+    mean,
+    median,
+    stddev,
+    min: sorted[0],
+    max: sorted[n - 1],
+    cv: mean ? stddev / mean : 0,
+  };
+};
+
 export const workloadConcentration = (members) => {
   const empty = { points: [{ x: 0, y: 0 }, { x: 1, y: 1 }], gini: 0, top20Share: 0, top50Share: 0, nAnalysts: 0, totalCases: 0 };
   if (!members || !members.length) return empty;

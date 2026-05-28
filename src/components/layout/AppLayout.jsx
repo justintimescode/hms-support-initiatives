@@ -37,14 +37,14 @@ const NAV_GROUPS = [
     items: [
       { to: "/workload",      label: "Workload",             icon: Scale },
       { to: "/team",          label: "Team",                 icon: Users },
-      { to: "/jira-blockers", label: "Cases w/ Jira Blockers", icon: Ban },
     ],
   },
   {
     label: "Jira",
     items: [
-      { to: "/jira",       label: "All HMS Jira's", icon: ExternalLink },
-      { to: "/jira-stats", label: "Statistics",     icon: BarChart3 },
+      { to: "/jira",          label: "All HMS Jira's",         icon: ExternalLink },
+      { to: "/jira-stats",    label: "Statistics",             icon: BarChart3 },
+      { to: "/jira-blockers", label: "Cases w/ Jira Blockers", icon: Ban },
     ],
   },
   {

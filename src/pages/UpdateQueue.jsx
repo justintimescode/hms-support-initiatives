@@ -89,8 +89,10 @@ function exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapsho
     rowsToCsv(irHeaders, irRows),
   ].join("\r\n");
 
-  const dateStr = new Date().toISOString().slice(0, 10);
-  downloadCsv(`update-queue-${dateStr}.csv`, csv);
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, "");
+  downloadCsv(`${dateStr}-${timeStr}-updatequeue.csv`, csv);
 }
 
 /* ================= Update Queue (analyst-facing) ================= */

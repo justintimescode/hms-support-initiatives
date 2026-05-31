@@ -1,7 +1,7 @@
 import { priorityRank } from "./enrich.js";
-import { priorityColor, isoFromMs, msFromIso } from "./format.js";
+import { priorityColor } from "./format.js";
 import {
-  WEEKDAY_NAMES, WEEKDAY_ORDER, PRESETS, AGING_BUCKETS, SLA_RISK_BUCKETS,
+  WEEKDAY_NAMES, WEEKDAY_ORDER, PRESETS, AGING_BUCKETS, SLA_RISK_BUCKETS, FRT_BUCKETS,
 } from "./constants.js";
 
 export const computeKpis = (rows) => {
@@ -15,12 +15,24 @@ export const computeKpis = (rows) => {
   const avgRes = resolved.length
     ? resolved.reduce((s, r) => s + r._resolvedMs, 0) / resolved.length
     : null;
+  // Percentiles tell the real story the average hides: p50 is the typical case,
+  // p90 the long tail. A wide p50→p90 gap means a minority of cases drag badly.
+  const resSorted = resolved.map((r) => r._resolvedMs).sort((a, b) => a - b);
+  const resP50 = percentile(resSorted, 50);
+  const resP90 = percentile(resSorted, 90);
   const frt = rows.filter((r) => r._frtMs != null);
   const avgFrt = frt.length ? frt.reduce((s, r) => s + r._frtMs, 0) / frt.length : null;
+  const frtSorted = frt.map((r) => r._frtMs).sort((a, b) => a - b);
+  const frtP50 = percentile(frtSorted, 50);
+  const frtP90 = percentile(frtSorted, 90);
   const now = new Date();
   const atRisk = open.filter((r) => r._slaDue && r._slaDue > now && r._slaDue - now < 24 * 36e5);
   const breached = open.filter((r) => r._slaDue && r._slaDue < now);
-  return { total, closed: closed.length, open: open.length, slaRate, slaMet, slaEligible: slaEligible.length, avgRes, avgFrt, atRisk, breached };
+  return {
+    total, closed: closed.length, open: open.length, slaRate, slaMet,
+    slaEligible: slaEligible.length, avgRes, resP50, resP90, avgFrt, frtP50, frtP90,
+    atRisk, breached,
+  };
 };
 
 export const computeInteractionStats = (rows) => {
@@ -431,6 +443,128 @@ export const workloadStats = (members) => {
     max: sorted[n - 1],
     cv: mean ? stddev / mean : 0,
   };
+};
+
+/** First-response-time distribution: histogram buckets + percentile/avg stats.
+ *  Operates over rows that have a measured `_frtMs`. */
+export const frtDistribution = (rows) => {
+  const vals = [];
+  for (const r of rows) if (r._frtMs != null) vals.push(r._frtMs);
+  const buckets = FRT_BUCKETS.map((b) => ({ name: b.name, count: 0 }));
+  for (const v of vals) {
+    const idx = FRT_BUCKETS.findIndex((b) => v < b.max);
+    if (idx >= 0) buckets[idx].count++;
+  }
+  const sorted = [...vals].sort((a, b) => a - b);
+  return {
+    buckets,
+    n: vals.length,
+    p50: percentile(sorted, 50),
+    p90: percentile(sorted, 90),
+    avg: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null,
+  };
+};
+
+/** Forward-looking SLA breach forecast: open cases NOT yet breached whose SLA
+ *  deadline falls within `horizonDays`, ranked soonest-first. Each row carries
+ *  its time-to-breach and a momentum read (time since the last Infor update);
+ *  `stalled` flags cases that haven't been touched in longer than the time they
+ *  have left — i.e. on current cadence they're unlikely to get attention before
+ *  breaching. `noResponseYet` flags open cases with no first response logged.
+ *
+ *  `refNow` defaults to the live clock; callers should pass the data snapshot
+ *  timestamp so the forecast is deterministic for a given dataset (and to keep
+ *  Date.now() out of component render — react-hooks/purity). */
+export const slaBreachForecast = (rows, refNow = Date.now(), horizonDays = 7) => {
+  const now = refNow;
+  const horizon = now + horizonDays * 864e5;
+  const out = [];
+  for (const r of rows) {
+    if (r._isClosed || !r._slaDue) continue;
+    const due = r._slaDue.getTime();
+    if (due <= now || due > horizon) continue; // already breached, or beyond window
+    const timeToBreach = due - now;
+    const lastTouch = r._lastInforUpdate
+      ? r._lastInforUpdate.getTime()
+      : r._created ? r._created.getTime() : null;
+    const sinceTouch = lastTouch != null ? now - lastTouch : null;
+    const stalled = sinceTouch != null && sinceTouch > timeToBreach;
+    const noResponseYet = r._frtMs == null;
+    out.push({ row: r, due, timeToBreach, sinceTouch, stalled, noResponseYet });
+  }
+  out.sort((a, b) => a.timeToBreach - b.timeToBreach);
+  return out;
+};
+
+/** Account churn-risk signal. Ranks accounts by a transparent score combining
+ *  three pressures relative to a rolling window: rising case volume (this
+ *  `windowDays` vs the prior equal window), falling SLA (same comparison), and
+ *  open Jira-blocked / breached cases right now. Returns accounts with any risk
+ *  signal, highest score first. Tiny accounts (< 3 cases across both windows)
+ *  are excluded as noise. `refNow` should be the data snapshot timestamp. */
+export const accountChurnRisk = (rows, refNow = Date.now(), windowDays = 90) => {
+  const now = refNow;
+  const W = windowDays * 864e5;
+  const nowStart = now - W;
+  const prevStart = now - 2 * W;
+  const acc = new Map();
+  const get = (name) => {
+    let a = acc.get(name);
+    if (!a) {
+      a = {
+        account: name, casesNow: 0, casesPrev: 0,
+        slaMetNow: 0, slaEligNow: 0, slaMetPrev: 0, slaEligPrev: 0,
+        openCount: 0, openBlockers: 0, breachedOpen: 0,
+      };
+      acc.set(name, a);
+    }
+    return a;
+  };
+  for (const r of rows) {
+    const a = get(r.account || "Unknown");
+    const eligible = r.made_sla !== "" && r.made_sla != null;
+    const created = r._created ? r._created.getTime() : null;
+    if (created != null) {
+      if (created >= nowStart && created <= now) {
+        a.casesNow++;
+        if (eligible) { a.slaEligNow++; if (r._madeSla) a.slaMetNow++; }
+      } else if (created >= prevStart && created < nowStart) {
+        a.casesPrev++;
+        if (eligible) { a.slaEligPrev++; if (r._madeSla) a.slaMetPrev++; }
+      }
+    }
+    if (!r._isClosed) {
+      a.openCount++;
+      if ((r._jiraActiveTickets?.length || 0) > 0) a.openBlockers++;
+      if (r._slaDue && r._slaDue.getTime() < now) a.breachedOpen++;
+    }
+  }
+  const results = [];
+  for (const a of acc.values()) {
+    if (a.account === "Unknown") continue;
+    if (a.casesNow + a.casesPrev < 3) continue;
+    const slaNow = a.slaEligNow ? (a.slaMetNow / a.slaEligNow) * 100 : null;
+    const slaPrev = a.slaEligPrev ? (a.slaMetPrev / a.slaEligPrev) * 100 : null;
+    const volDelta = a.casesNow - a.casesPrev;
+    const volTrendPct = a.casesPrev ? (volDelta / a.casesPrev) * 100 : a.casesNow ? 100 : 0;
+    const slaDrop = slaNow != null && slaPrev != null ? slaPrev - slaNow : 0; // + = SLA fell
+    const risingVolume = volDelta > 0 && a.casesNow >= 2;
+    const fallingSla = slaDrop > 0.5;
+    // Transparent additive score — shown alongside its signal chips so managers
+    // can see *why* an account ranks where it does, not just a black-box number.
+    const score =
+      Math.max(0, volDelta) * 2 +
+      Math.max(0, slaDrop) * 0.5 +
+      a.openBlockers * 4 +
+      a.breachedOpen * 3;
+    if (score <= 0) continue;
+    results.push({
+      ...a, slaNow, slaPrev, volDelta, volTrendPct, slaDrop,
+      risingVolume, fallingSla, score,
+    });
+  }
+  results.sort((x, y) => y.score - x.score);
+  return results;
 };
 
 export const workloadConcentration = (members) => {

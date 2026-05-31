@@ -21,27 +21,94 @@ import {
 // version it was built with; on boot, imports older than this are flagged in the
 // file manager with a "Rebuild needed" badge (re-parses the stored source blob).
 // Single source of truth — imported by the DuckDB worker.
-export const SCHEMA_VERSION = '2'
+export const SCHEMA_VERSION = '4'
 
+// Topical case categories for the HMS hospitality-PMS domain. Keywords are
+// matched as lowercase substrings. Ordered roughly specific → generic: on a
+// score tie the earlier entry wins, so the broad catch-alls (Performance,
+// System Outage) sit last and only claim a case when nothing more specific did.
 export const CATEGORIES = [
   { name: "Night Audit", kws: ["night audit", "nightaudit", "end of day", "eod ", "audit ran"] },
-  { name: "Login & Access", kws: ["login", "log in", "signin", "sign in", "password", "credentials", "unable to log", "cannot log", "locked out", "access denied"] },
+  { name: "Ledger & Accounting", kws: ["hotel ledger", "city ledger", "guest ledger", "general ledger", "posting journal", "ledger", "accounts receivable", "trial balance", "accounting"] },
+  { name: "Billing & Folio", kws: ["folio", "invoice", "billing", "charge", "credit card", "cc auth", "payment", "refund", "post ", "deposit", "advance deposit", "sundry", "auto transfer", "auto-transfer"] },
+  { name: "Rates & Pricing", kws: ["rate", "rateplan", "rate plan", "rate code", "map rate", "pricing", "discount", "package", "yield", "market segment"] },
+  { name: "Groups & Blocks", kws: ["group", "room block", "allotment", "group account", "commission group", "group master", "block "] },
+  { name: "Reservations & Availability", kws: ["reservation", "booking", "availability", "out of balance", "rooms avail", "stay date", "no-show", "overbook", "cancel"] },
+  { name: "Front Desk & Stay 360", kws: ["stay 360", "day 360", "front desk", "desk deck", "check in", "check-in", "checkout", "check out", "walk in", "walk-in", "guest stay", "in house", "in-house", "split stay", "room move"] },
+  { name: "Housekeeping & Room Status", kws: ["housekeeping", "out of order", "ooo ", "room status", "discrepant", "vacant", "occupied", "room plan", "dirty", "turndown", "room assignment"] },
+  { name: "Guest Profiles & Data", kws: ["guest profile", "profile", "passport", "loyalty", "membership", "lost and found", "guest record", "guest contact"] },
+  { name: "Reports & Data", kws: ["report", "export", "query", "data missing", "extract", "kpi", "statistics", "occupancy stat"] },
   { name: "Email & Notifications", kws: ["email", "e-mail", "confirmation", "receipt", "smtp", "not sending", "not receiving", "notification"] },
-  { name: "Reservations & Availability", kws: ["reservation", "booking", "availability", "out of balance", "rooms avail", "stay date", "departure", "arrival", "cancel", "no-show", "block"] },
-  { name: "Rates & Pricing", kws: ["rate", "rateplan", "pricing", "discount", "package", "yield"] },
-  { name: "Billing & Folio", kws: ["folio", "invoice", "billing", "charge", "credit card", "cc auth", "payment", "refund", "post "] },
-  { name: "Reports & Data", kws: ["report", "export", "query", "data missing", "extract", "kpi"] },
-  { name: "Integrations & Interfaces", kws: ["integration", "interface", "crs", "sync", "connector", "api ", "hms core", "pms sync"] },
-  { name: "Performance & Errors", kws: ["slow", "crash", "frozen", "stuck", "error", "timeout", "hang", "unresponsive", "not responding"] },
+  { name: "Login & Access", kws: ["login", "log in", "signin", "sign in", "password", "credentials", "unable to log", "cannot log", "locked out", "access denied"] },
+  { name: "Integrations & Interfaces", kws: ["integration", "interface", "crs", "sync", "connector", "api ", "hms core", "pms sync", "profitsword", "duetto", "synxis", "ideas", "delphi", "channel", "ota "] },
   { name: "User & Permissions", kws: ["user", "permission", "role", "security group", "privilege"] },
-  { name: "Printing & Hardware", kws: ["print", "printer", "receipt printer", "key encoder", "terminal"] },
+  { name: "Printing & Hardware", kws: ["print", "printer", "receipt printer", "key encoder", "key card", "door lock", "encoder", "terminal"] },
+  { name: "Performance & Errors", kws: ["slow", "crash", "frozen", "stuck", "error", "timeout", "hang", "unresponsive", "not responding", "uncaught", "typeerror", "exception"] },
+  { name: "System Outage & Availability", kws: ["is down", "system down", "outage", "server down", "unable to access", "cannot access", "non operational", "unavailable", "not working", "won't load", "down for", "completely down"] },
 ]
 
+// Count how many of a category's keywords appear in `text` (distinct keyword
+// hits, not total occurrences — so one repeated word can't dominate).
+function keywordHits(text, kws) {
+  if (!text) return 0
+  let n = 0
+  for (const k of kws) if (text.includes(k)) n++
+  return n
+}
+
+// Pick the highest-scoring category. `scoreOf(category)` returns its score;
+// best-score-wins (ties broken by CATEGORIES order). Returns "Other" when
+// nothing matched.
+function bestCategory(scoreOf) {
+  let best = null
+  let bestScore = 0
+  for (const c of CATEGORIES) {
+    const s = scoreOf(c)
+    if (s > bestScore) {
+      bestScore = s
+      best = c.name
+    }
+  }
+  return best || "Other"
+}
+
+// Single-text categorization (best-score). Used where the input is already a
+// clean, compact string — e.g. a Jira summary + labels (see jira-enrich.js).
 export function categorize(text) {
   if (!text) return "Uncategorized"
   const t = String(text).toLowerCase()
-  for (const c of CATEGORIES) if (c.kws.some((k) => t.includes(k))) return c.name
-  return "Other"
+  return bestCategory((c) => keywordHits(t, c.kws))
+}
+
+// Strip ServiceNow journal chrome so keyword matching sees topical content
+// rather than entry headers ("2026-05-31 10:30:29 - Jane Doe (Infor) ..."),
+// [code]..[/code] wrappers, or stray HTML tags.
+function stripJournalChrome(s) {
+  if (!s) return ""
+  return String(s)
+    .replace(/\[code\][\s\S]*?\[\/code\]/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/^\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2}\s*-\s*.*\(Additional comments\)\s*$/gim, " ")
+    .replace(/^\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2}\s*-\s*/gim, " ")
+}
+
+// Topical categorization for a ServiceNow case, driven by the Short Description
+// (the case title) plus the Additional comments journal. The title is the
+// highest-signal field, so its keyword hits are weighted above the noisier
+// journal; best-score-wins (not first-match) so a single incidental keyword
+// deep in a long journal can't hijack the bucket. Returns "Uncategorized" when
+// there is no text at all, "Other" when text exists but matches no category.
+const CAT_WEIGHT_TITLE = 3
+const CAT_WEIGHT_JOURNAL = 1
+export function categorizeCase(shortDescription, additionalComments) {
+  const title = String(shortDescription || "").toLowerCase()
+  const journal = stripJournalChrome(additionalComments).toLowerCase()
+  if (!title && !journal) return "Uncategorized"
+  return bestCategory(
+    (c) =>
+      keywordHits(title, c.kws) * CAT_WEIGHT_TITLE +
+      keywordHits(journal, c.kws) * CAT_WEIGHT_JOURNAL,
+  )
 }
 
 export const parseDate = (v) => {
@@ -259,7 +326,7 @@ export const enrichRow = (r) => {
     _frtMs: frtMs,
     _isClosed: isClosed,
     _madeSla: madeSla,
-    _category: categorize(r.short_description + " " + (r.close_notes || "")),
+    _category: categorizeCase(r.short_description, r.additional_comments),
     _combinedText: combinedText,
     _interactionCount: ix.totalTurns,
     _customerTurns: ix.customerTurns,
@@ -323,7 +390,7 @@ export const enrichForSql = (r) => {
     is_closed: isClosed,
     made_sla: madeSla,
     sla_eligible: slaEligible,
-    category: categorize(r.short_description + " " + (r.close_notes || "")),
+    category: categorizeCase(r.short_description, r.additional_comments),
     priority_rank: pr,
     // Update Queue columns. Classification is time-independent — bake at
     // ingest. The Overdue/Due-Soon bucket is computed at query time against

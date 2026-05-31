@@ -224,7 +224,10 @@ function setActive(uuid) {
 /* --------------------------------- ops ---------------------------------- */
 
 // Create a new import atomically: table + rows + index row + activate + view.
-function createImport({ uuid, filename, displayName, fileSize, fileType, rows }) {
+// `uploadedAt` is preserved when supplied (cold-boot restore replays the
+// original upload time from the disk mirror); fresh uploads omit it and get
+// stamped with the current time.
+function createImport({ uuid, filename, displayName, fileSize, fileType, rows, uploadedAt }) {
   const tableName = tableNameFor(uuid)
   try {
     createCasesTable(tableName)
@@ -233,7 +236,7 @@ function createImport({ uuid, filename, displayName, fileSize, fileType, rows })
       uuid,
       filename,
       displayName: displayName || filename,
-      uploadedAt: Date.now(),
+      uploadedAt: uploadedAt ?? Date.now(),
       rowCount,
       fileSize,
       fileType,

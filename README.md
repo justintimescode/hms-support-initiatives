@@ -51,10 +51,14 @@ Browser
 ├── Web Worker (db.worker.js)
 │   ├── DuckDB-WASM (blocking browser build)
 │   ├── OPFS persistence (opfs://cases.duckdb)
-│   └── 24h auto-TTL on persisted data
+│   └── Multi-import model: one table per upload, `cases` view → active import
 │
-└── Vite dev-server proxy (/api/jira → infor.atlassian.net)
-    └── HTTP Basic auth injected server-side (token never in bundle)
+├── Vite dev-server proxy (/api/jira → infor.atlassian.net)
+│   └── HTTP Basic auth injected server-side (token never in bundle)
+│
+└── Vite dev-server disk mirrors (npm run dev only)
+    ├── /api/cache/jira  → .jira-cache/cache.json          (issue cache)
+    └── /api/cache/sn    → .servicenow-cache/{uuid}/source  (import backup; raw case data)
 ```
 
 The app runs two parallel data pipelines:
@@ -82,9 +86,17 @@ Before any parser touches the file, `validateUpload()` in `useAppData.js` checks
 - **Magic bytes** — XLSX/XLS files must start with `PK\x03\x04` (ZIP/OOXML) or `\xD0\xCF\x11\xE0` (OLE2 compound doc). CSV files must not contain NUL bytes.
 - **Extension allowlist** — `.csv`, `.xlsx`, `.xls` only.
 
-### OPFS persistence
+### Multi-import model & persistence
 
-After parsing, rows are loaded into DuckDB and persisted to `opfs://cases.duckdb` in the browser's Origin Private File System. The database survives page reloads. On every init, the worker checks `meta.loaded_at` and auto-clears data older than 24 hours. A **Data stored locally** notice in the sidebar shows when data was loaded and provides a one-click clear.
+Every upload is a persistent **import**, not a one-shot replace. The app keeps a library of imports; exactly one is *active* at a time, and all charts/queries read the active import. You can upload several exports, switch between them, rename them, and rebuild any of them from its stored source — all from the **Connections** page file manager.
+
+Persistence has three layers:
+
+- **OPFS (primary, browser-side).** Each import becomes a DuckDB table `cases_import_{uuid}` persisted to `opfs://cases.duckdb`. `cases` is a SQL **view** that points at the active import's table, so every `FROM cases` query reads the active import unchanged. Survives page reloads.
+- **Raw source blob (OPFS).** The original CSV/XLSX is also kept at `imports/{uuid}/source.{ext}` so the in-memory chart pipeline can be re-derived on activation and "Rebuild from source" works with current enrichment logic.
+- **Disk mirror (dev-server, `npm run dev` only — opt-in, OFF by default).** When **Settings → Back up imports to disk** is enabled, each import's raw source + metadata is mirrored to `<project>/.servicenow-cache/{uuid}/` via a Vite middleware so a *different* browser or a cleared profile can recover imports on next boot. The directory holds **unscrubbed customer case data** and is gitignored. It is off by default so customer data stays out of the project folder unless you opt in; deleting an import (manually or via auto-delete) removes its disk copy, and a boot-time sweep clears orphans — see [Security](#security).
+
+> **Retention:** there is **no automatic expiry by default.** Imports persist until you delete them or enable **Settings → Auto-delete old imports** (off by default; prunes imports older than N days on startup, never the active one). A **Data stored locally** notice in the sidebar shows the import count and bytes used, linking to the file manager. *(An earlier single-dataset build auto-cleared data after 24h; the multi-import refactor removed that — see SECURITY_CONCERNS.md #4.)*
 
 ---
 
@@ -95,7 +107,10 @@ The sidebar is organized into five groups. All pages respect the global analyst 
 ### Overview
 
 #### Dashboard (`/`)
-Top-line KPI summary cards for the current view: total cases, open/closed counts, SLA rate, average resolution time, average first response time, at-risk count, and breached count. Includes delta indicators when period comparison is active. Quick-access shortcut cards to Update Queue, SLA, and Team Leaderboard.
+Top-line KPI summary cards for the current view: total cases, open/closed counts, SLA rate, **median resolution time** (with p90 and average shown alongside — the median is the typical case, the p90 reveals the long tail the average hides), at-risk count, and breached count. Includes delta indicators when period comparison is active. Quick-access shortcut cards to Update Queue, SLA, and Team Leaderboard.
+
+#### My Day (`/my-day`)
+A personal triage landing page for a single analyst — a focused recomposition of data from the Update Queue and Backlog, scoped to whoever is selected. Pick an analyst (or use the top-bar selector) and see, in one screen: **overdue customer updates** (from the snapshot-anchored Update Queue), **SLA at risk** (breached / due < 24h / due this week on open cases), **stuck cases** (open 30 days+), and **Jira-blocked** open cases. Four summary tiles link to the full pages. This page deliberately **ignores the global date-range filter** — it reflects live open work, not a historical window.
 
 #### Update Queue (`/update-queue`)
 SOP-driven queue of open cases that need an Infor-authored customer-facing update. Powered entirely by DuckDB SQL (`getUpdateQueue()` in `queries.js`). Two sections:
@@ -114,12 +129,16 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 
 **Initial Response Misses** — open cases with no first response logged that have been open longer than their priority's initial-response target (P1: 30m, P2/P3: 2h, P4: 4h). Clicking any row in the overdue/due-soon table opens a `CaseDrilldown` panel.
 
+**CSV export** — the queue can be exported to a timestamped `.csv` (`YYYYMMDD-HHMMSS-updatequeue.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
+
 ### Performance
 
 #### SLA Performance (`/sla`)
 - Radial gauge showing overall SLA hit rate (color-coded: green ≥ 90%, yellow ≥ 75%, red below).
 - Bar chart breaking SLA rate down by priority level.
 - List of open cases approaching or already past their SLA deadline, segmented into: Breached, Due < 24h, Due this week, Comfortable, No SLA.
+- **Breach Forecast** — forward-looking complement to the Update Queue: open cases on track to breach SLA within the next 7 days, ranked soonest-first, with a momentum read (time since last Infor update). A **stalled** flag marks cases not touched in longer than the time they have left — i.e. on current cadence they're heading for a breach. Snapshot-anchored; covers all open work for the current analyst selection, independent of the date range. (`slaBreachForecast()` in `stats.js`.)
+- **First Response Time distribution** — the full histogram of time-to-first-response with median, p90, and average, rather than the mean alone (which a few slow outliers distort). (`frtDistribution()` in `stats.js`.)
 
 #### Open Backlog (`/backlog`)
 **Team view:**
@@ -153,6 +172,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 - Top 30 accounts by case volume (bar chart).
 - Product line breakdown.
 - Helps spot account concentration risk and recurring product hotspots.
+- **Account churn-risk signal** — ranks accounts by a transparent composite of three pressures: rising case volume (last 90 days vs the prior 90), falling SLA over the same comparison, and open Jira-blocked / breached cases right now. The contributing signals are shown as chips so the ranking is explainable. Uses the full dataset across all analysts, anchored to the snapshot. (`accountChurnRisk()` in `stats.js`.)
 
 ### Team
 
@@ -163,7 +183,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 - Per-analyst open-case aging stacked bar chart.
 
 #### Team Leaderboard (`/team`)
-Sortable table with one row per analyst: total cases, open cases, SLA %, average resolution time, average first response time, at-risk count, breached count. Click any analyst name to drill into their full individual dashboard.
+Sortable table with one row per analyst: total cases, open cases, SLA %, average resolution time, **median · p90 resolution**, average first response time, at-risk count, breached count. Click any analyst name to drill into their full individual dashboard.
 
 **Member profiles** — condensed card per analyst showing priority mix bar chart, top 3 categories, top 3 accounts, and key KPIs. "Open full dashboard →" button drills into the analyst's individual view.
 
@@ -183,7 +203,7 @@ Deep-dive statistics for the HMS project. See [Jira Integration](#jira-integrati
 ### Tools
 
 #### Connections (`/connections`)
-Data source management. Upload or replace the ServiceNow case export, trigger Jira syncs, and view connection status for all sources. Placeholder cards for ServiceNow API direct connector and Gainsight integration (coming later).
+Data source management. The **ServiceNow imports** card is a full file manager: upload new exports, switch the active import, rename, rebuild-from-source, and delete — each import is persisted independently (see [Multi-import model](#multi-import-model--persistence)). The **Jira** card shows sync status and triggers recent/full syncs. Placeholder cards for a ServiceNow API direct connector and Gainsight integration (coming later).
 
 #### Insights (`/insights`)
 AI-powered qualitative analysis. See [AI Insights](#ai-insights).
@@ -195,7 +215,7 @@ Full sortable and searchable case register. Every column from the enriched datas
 Placeholder for future CSAT/survey data integration.
 
 #### Settings (`/settings`)
-Placeholder for future app preferences.
+Local, browser-only app preferences (stored in `localStorage`, no backend). Exposes **Auto-delete old imports** (prune imports older than a threshold on startup; the active import is always kept) and **Back up imports to disk** (opt into the `.servicenow-cache/` disk mirror for cross-browser recovery — see [Security](#security)). Both off by default.
 
 ---
 
@@ -365,7 +385,7 @@ A Web Worker (`src/workers/db.worker.js`) runs a DuckDB-WASM instance using the 
 
 ### Schema
 
-The `cases` table has 34 columns covering all raw and enriched fields. A `meta` table stores `filename`, `loaded_at`, `row_count`, and `schema_version`. Schema version is bumped when columns change — on mismatch, the worker drops and rebuilds the table and logs a re-import prompt.
+Each import owns a base table `cases_import_{uuid}` with 34 columns covering all raw and enriched fields (`SQL_COLUMNS` in `enrich.js`). `cases` is a **view** redefined to point at the active import's table, so all query helpers read `FROM cases` without change. An `imports_index` table tracks every import's `uuid`, `display_name`, `uploaded_at`, `row_count`, `file_size`, `file_type`, `schema_version`, and `is_active` flag. `SCHEMA_VERSION` is bumped when columns change — imports built against an older version are flagged in the file manager with a "Rebuild needed" badge (re-parses the stored source blob). A legacy single-`cases`-table build is auto-migrated to import #1 on first boot.
 
 ### Ingestion
 
@@ -449,7 +469,7 @@ Print mode is triggered by setting `printMode` state, which causes all `print-se
 | In-browser SQL | DuckDB-WASM | 1.33 |
 | Arrow serialization | Apache Arrow | (bundled with DuckDB) |
 
-> Note: `xlsx` (SheetJS) is still listed in `package.json` as a legacy dependency. It should be removed once all XLSX parsing is confirmed to go through ExcelJS.
+> XLSX parsing goes through ExcelJS. The previously-used `xlsx` (SheetJS) package — which carried a ReDoS advisory — has been removed entirely (see SECURITY_CONCERNS.md #5).
 
 ---
 
@@ -512,12 +532,13 @@ npm run lint     # run ESLint
 
 ## Security
 
-See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for a full audit. Summary of the current posture:
+See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (15 items, with statuses). Summary of the current posture:
 
-- **Customer data** stays in the browser. The only outbound data path is the optional AI proxy call, which scrubs PII (case numbers, account names, analyst names, emails) before leaving the browser.
+- **Customer data** stays on the machine. The only *network* egress is the optional AI proxy call, which scrubs PII (case numbers, account names, analyst names, emails) before leaving the browser. The AI proxy is not yet deployed, so today the feature is inert and nothing leaves the browser.
 - **Jira credentials** are read server-side by the Vite dev proxy and never bundled into client code.
-- **OPFS data** auto-clears after 24 hours. A visible notice in the sidebar shows when data was loaded and provides a one-click clear.
-- **File uploads** are validated by magic bytes and size before parsing.
+- **Data at rest** lives in OPFS (browser) and — only if you opt in via **Settings → Back up imports to disk** (off by default) — the gitignored `.servicenow-cache/` disk mirror (raw, unencrypted exports). Neither has an automatic expiry by default; retention is controlled by the opt-in **Settings → Auto-delete old imports** (off by default), which now cleans all layers, plus the one-click delete in the Connections file manager and a boot-time orphan sweep. *(The previously-documented 24h auto-TTL was removed by the multi-import refactor — see #4.)*
+- **File uploads** are validated by magic bytes and a 50 MB size ceiling before parsing.
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
-- **Jira HTML descriptions** are sanitized with DOMPurify before rendering.
-- **CSV export** (not yet implemented) has a formula-injection sanitizer ready in `src/lib/csv-export.js`.
+- **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
+- **CSV export** (Update Queue) routes every cell through the formula-injection sanitizer in `src/lib/csv-export.js`.
+- **Production builds** ship a Content-Security-Policy meta tag.

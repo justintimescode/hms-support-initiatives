@@ -20,6 +20,18 @@ export const AGING_BUCKETS = [
   { name: "90d+", min: 91, max: Infinity },
 ];
 
+// First-response-time histogram buckets. `max` is the exclusive upper bound in
+// ms; a value falls in the first bucket whose `max` it is below.
+export const FRT_BUCKETS = [
+  { name: "<1h",   max: 36e5 },
+  { name: "1–2h",  max: 2 * 36e5 },
+  { name: "2–4h",  max: 4 * 36e5 },
+  { name: "4–8h",  max: 8 * 36e5 },
+  { name: "8–24h", max: 24 * 36e5 },
+  { name: "1–3d",  max: 3 * 24 * 36e5 },
+  { name: "3d+",   max: Infinity },
+];
+
 export const SLA_RISK_BUCKETS = [
   { key: "breached", label: "Breached", desc: "SLA already passed", color: "#A23220" },
   { key: "due24", label: "Due < 24h", desc: "SLA within next 24h", color: "#B8452C" },

@@ -43,16 +43,22 @@ The `parseUrlFilters` / `writeUrlFilters` pair that wrote raw analyst names into
 
 ---
 
-### 4. OPFS data persists indefinitely with no expiry or encryption
-**Status: RESOLVED**
-**Files:** `src/workers/db.worker.js`, `src/components/layout/DataRetentionNotice.jsx`
+### 4. OPFS data persists with no automatic expiry and no encryption
+**Status: PARTIALLY RESOLVED — regressed by the multi-import refactor**
+**Files:** `src/workers/db.worker.js`, `src/lib/useAppData.js`, `src/lib/settings.js`, `src/components/layout/DataRetentionNotice.jsx`, `src/pages/SettingsPage.jsx`
 
-Two mitigations are now in place:
+> **AUDIT CORRECTION (2026-05):** an earlier revision of this document claimed a hard 24-hour auto-TTL (`clearIfExpired()` / `MAX_AGE_MS` in the worker). That logic **no longer exists.** The multi-import refactor replaced the single-dataset worker (which dropped data older than 24h on every init) with a persistent per-import model that, by default, **keeps every uploaded import indefinitely.** The text below reflects the code as it actually stands.
 
-- **Auto-TTL:** `clearIfExpired()` runs on every worker init. If `meta.loaded_at` is older than `MAX_AGE_MS` (24 hours), the OPFS database is dropped and rebuilt empty before the app can read it. The threshold is a named constant at the top of the worker.
-- **Visible notice:** `DataRetentionNotice` renders in the sidebar whenever data is loaded, showing "Data stored locally · loaded Xm ago · auto-clears after 24h" and a one-click "Clear data" button.
+Current mitigations:
 
-**Remaining concern:** OPFS data is still unencrypted at rest. On a shared workstation, a user with access to the browser profile directory can extract the raw DuckDB file before the 24-hour TTL fires. The TTL and notice reduce the window and visibility, but do not eliminate the risk. For deployments on shared machines, consider adding a `visibilitychange` / `pagehide` clear.
+- **Opt-in auto-delete (default OFF):** `enforceAutoDelete()` (useAppData.js) runs on boot and prunes imports older than a user-chosen threshold. It is gated on `getAutoDelete()` in `settings.js`, which **defaults to `{ enabled: false, days: 30 }`** — so out of the box, nothing is ever auto-deleted. The toggle lives on the Settings page. The active import is never auto-deleted.
+- **Visible notice:** `DataRetentionNotice` renders in the sidebar whenever imports exist, showing the import count and total bytes stored, with a "Manage imports" link to the Connections page where any import can be deleted with one click.
+
+**Remaining concerns:**
+
+1. **No expiry by default.** Because auto-delete ships disabled, customer case data accumulates in OPFS until the user manually clears it or enables the setting. This is a regression from the previously-documented 24h behavior. Consider: (a) shipping auto-delete *enabled* with a sane default (e.g. 7–30 days), and/or (b) adding a `visibilitychange` / `pagehide` clear for shared-workstation deployments.
+2. **Unencrypted at rest.** OPFS data is not encrypted. A user with access to the browser profile directory can extract the raw DuckDB file. The notice raises visibility but does not eliminate the risk.
+3. **See item #14 (disk mirror)** — case data is *also* written to plaintext files on disk during `npm run dev`, with no TTL at all.
 
 ---
 
@@ -84,12 +90,14 @@ Magic-byte validation and a size ceiling are now applied before any parser touch
 ---
 
 ### 7. CSV / formula injection not sanitized
-**Status: RESOLVED (export path)**
-**File:** `src/lib/csv-export.js`
+**Status: RESOLVED (2026-05) — was briefly REGRESSED**
+**Files:** `src/lib/csv-export.js`, `src/pages/UpdateQueue.jsx`
 
-`sanitizeCellForExport()` and `toCsvRow()` are implemented and ready. Leading formula-trigger characters (`=`, `+`, `-`, `@`, tab, CR, LF) are prefixed with a single quote before any cell value is written to a CSV row. The comment in the file explicitly notes this utility must be used whenever an export feature is added.
+`sanitizeCellForExport()` and `toCsvRow()` are implemented in `csv-export.js`. Leading formula-trigger characters (`=`, `+`, `-`, `@`, tab, CR, LF) are prefixed with a single quote before any cell value is written to a CSV row.
 
-**Remaining concern:** No export feature exists yet, so the sanitizer has not been exercised in production. When export is implemented, a code review must verify every cell value passes through `sanitizeCellForExport` before being written.
+> **AUDIT NOTE:** the "Export Update Queue → CSV" feature (`UpdateQueue.jsx`, added after the original audit) initially shipped with its **own** `escapeCsv()` helper that only did RFC-4180 quoting (commas/quotes/newlines) and **bypassed the formula-injection guard entirely.** A ServiceNow `account` or `short_description` beginning with `=`, `+`, `-`, or `@` was written verbatim and would execute on open in Excel/Sheets. This has been fixed: `escapeCsv()` now calls `sanitizeCellForExport()` on every cell before quoting.
+
+**Remaining concern:** the project has two CSV-row builders (`toCsvRow` in `csv-export.js` and `escapeCsv`/`rowsToCsv` in `UpdateQueue.jsx`). Any *new* export feature must route through the sanitizer; consider consolidating onto a single shared builder so the guard can't be forgotten again. Every new export PR must be reviewed for sanitizer coverage.
 
 ---
 
@@ -190,6 +198,42 @@ This is the standard pattern for Vite dev proxies and is acceptable for a local 
 
 ---
 
+### 14. ServiceNow imports mirrored to plaintext files on disk (NEW)
+**Status: MOSTLY RESOLVED (2026-05) — opt-in & off by default; deletion paths fixed. Residual: still plaintext when opted in.**
+**Files:** `vite.config.js` (`snFileCachePlugin`), `src/lib/imports-cache.js`, `src/lib/settings.js`, `src/lib/useAppData.js`, `src/pages/SettingsPage.jsx`
+
+The multi-import refactor added a server-side disk mirror: during `npm run dev`, an uploaded ServiceNow export can be streamed to `<project>/.servicenow-cache/{uuid}/source.{ext}` (the raw, unmodified CSV/XLSX) plus a `meta.json`. This lets a different browser or a cleared profile recover imports on next boot. It is a **new data-at-rest surface that did not exist when items #1–#13 were written**, and it is *not* covered by the OPFS discussion in #4.
+
+Properties:
+- The files are the **raw customer case exports in plaintext** — full PII, no scrubbing, no encryption.
+- `.servicenow-cache/` is correctly gitignored (verified) and the Vite middleware guards the `uuid` path segment against traversal (`/^[a-zA-Z0-9-]{1,64}$/`).
+- The endpoint only exists under the dev server, so a static `vite build` deploy has no disk mirror. (Note: live Jira sync also requires `npm run dev`, so the dev server is the normal runtime, not a developer-only edge case.)
+
+**Mitigations applied (Tier 0 + Tier 1):**
+- **Opt-in, default OFF.** The mirror is now gated behind `getDiskBackup()` (`settings.js`, defaults `false`) and a "Back up imports to disk" toggle on the Settings page. The secure default keeps customer data out of the project directory entirely; uploads write only to OPFS. `writeDiskBlob`/`writeDiskMeta` call sites in `useAppData.js` (upload + rename) are guarded by the flag.
+- **Deletion now covers the mirror.** `enforceAutoDelete` deletes all three layers (DuckDB table, OPFS blob, disk mirror) — the previously-omitted `deleteDiskImport` is included. Manual delete and "clear all" already did.
+- **Orphan sweep on boot.** `sweepDiskOrphans()` reconciles `.servicenow-cache/` against the live import index on startup and removes any disk entry with no matching import — cleaning up historical orphans left by the old prune bug.
+
+**Residual concerns:**
+- When a user *opts in*, the mirror is still **plaintext / unencrypted**. Rely on full-disk encryption (BitLocker/FileVault) for at-rest protection, keep the project out of any cloud-synced folder (OneDrive/Dropbox) to avoid accidental egress, and consider relocating the cache to `%LOCALAPPDATA%`/`$XDG_CACHE_HOME` so it can't be zipped with the repo.
+- App-level encryption with a `.env` key (Tier 3) would only defend against accidental egress (folder copied without `.env`), not a local-access attacker — deferred as low value relative to default-OFF.
+
+---
+
+### 15. AI free-text scrub is heuristic and incomplete (NEW)
+**Status: OPEN (latent — AI proxy not yet deployed)**
+**File:** `src/lib/ai-scrub.js`
+
+`scrubText()` masks emails, ServiceNow-shaped case numbers, and "First Last" name pairs, then caps free text at 400 chars. Identifiers (case number, account, analyst) are hashed deterministically. This is solid defense-in-depth, but the free-text regex scrub does **not** catch: phone numbers, postal addresses, single-token names, hotel/property names embedded in prose, confirmation/reservation numbers, credit-card fragments, or non-Latin names. The `NAME_PAIR_RE` heuristic also produces false positives (e.g. "Night Audit" → "[name]") without improving safety.
+
+Currently moot: no proxy is configured (#1), so no payload ever leaves the browser. But **before the AI proxy ships**, this scrub must be hardened and — per #1 — the server must re-scrub as a second layer and must not log raw payloads. Treat the client scrub as best-effort masking, never as a guarantee.
+
+**Suggested fix:**
+- Expand the regex set (phone, address, long digit runs) and/or move the authoritative scrub server-side.
+- Add a unit test asserting the invariants documented at the bottom of `ai-scrub.js`.
+
+---
+
 ## Summary
 
 | # | Issue | Severity | Status |
@@ -197,13 +241,15 @@ This is the standard pattern for Vite dev proxies and is acceptable for a local 
 | 1 | Customer data sent to external AI API | Critical | RESOLVED |
 | 2 | `window.__db` exposed in dev mode | High | RESOLVED |
 | 3 | Analyst names in URL / browser history | High | RESOLVED |
-| 4 | OPFS data persists unencrypted indefinitely | High | RESOLVED (TTL + notice; encryption still open) |
+| 4 | OPFS data persists unencrypted, no default expiry | High | PARTIALLY RESOLVED — **regressed**: 24h auto-TTL removed; auto-delete now opt-in & OFF by default |
 | 5 | Outdated `xlsx` package with known vulns | Medium | RESOLVED (`xlsx` removed, migrated to `exceljs`, validated 574/574) |
 | 6 | No file type / magic byte validation | Medium | RESOLVED |
-| 7 | CSV formula injection not sanitized | Medium | RESOLVED (export utility ready; no export feature yet) |
+| 7 | CSV formula injection not sanitized | Medium | RESOLVED (2026-05) — export shipped bypassing the guard; now wired through `sanitizeCellForExport` |
 | 8 | Analyst param from URL (SQL injection risk) | Medium | RESOLVED |
 | 9 | No Content Security Policy | Low | RESOLVED (prod build) |
 | 10 | Free-text fields not sanitized for XSS | Low | PARTIALLY RESOLVED (Jira HTML sanitized; SN fields text-only) |
 | 11 | No authentication | Informational | OPEN |
 | 12 | `window.__jira` dev hook | Informational | OPEN |
 | 13 | Jira API token in plaintext `.env` (+ token leaked to GitLab) | Informational | OPEN (by design) — **leaked token must be revoked** |
+| 14 | ServiceNow imports mirrored to plaintext disk files | Informational | MOSTLY RESOLVED — **NEW**: opt-in & OFF by default; delete/sweep fixed; plaintext when opted in |
+| 15 | AI free-text scrub is heuristic / incomplete | Informational | OPEN (latent — proxy not deployed) — **NEW** |

@@ -21,8 +21,8 @@ export default function CategoriesPage() {
       title="Case Categorization"
       subtitle={
         view === "team"
-          ? "What kinds of problems are showing up across the team. Auto-derived from short descriptions and resolution notes."
-          : "What kinds of problems are showing up in this queue. Categories are auto-derived by scanning short descriptions and resolution notes for keyword patterns (Night Audit, Login & Access, Billing & Folio, etc.). The keyword cloud surfaces the most-mentioned terms in resolution notes — a quick read on the language of the work."
+          ? "What kinds of problems are showing up across the team. Auto-derived from case titles and comments."
+          : "What kinds of problems are showing up in this queue. Categories are auto-derived by scanning the short description and case comments for keyword patterns (Billing & Folio, Front Desk & Stay 360, Reports & Data, etc.)."
       }
     >
       <DevCompare

@@ -101,10 +101,10 @@ export const dbClient = {
   /** Create a new import from already-normalized rows. Atomic on the worker
    *  side (rolls back on failure). → { imports, activeUuid }. Progress events
    *  flow via onProgress. */
-  async createImport({ uuid, filename, displayName, fileSize, fileType, rows }, { onProgress } = {}) {
+  async createImport({ uuid, filename, displayName, fileSize, fileType, rows, uploadedAt }, { onProgress } = {}) {
     progressHandler = onProgress || null
     try {
-      return await call('createImport', { uuid, filename, displayName, fileSize, fileType, rows })
+      return await call('createImport', { uuid, filename, displayName, fileSize, fileType, rows, uploadedAt })
     } finally {
       progressHandler = null
     }

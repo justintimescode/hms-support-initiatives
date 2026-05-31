@@ -37,6 +37,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
         case "open": return m.kpis.open;
         case "sla": return m.kpis.slaRate ?? -1;
         case "avgRes": return m.kpis.avgRes ?? Infinity;
+        case "resP50": return m.kpis.resP50 ?? Infinity;
         case "avgFrt": return m.kpis.avgFrt ?? Infinity;
         case "atRisk": return m.kpis.atRisk.length;
         case "breached": return m.kpis.breached.length;
@@ -60,6 +61,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
     { key: "open", label: "Open", align: "right" },
     { key: "sla", label: "SLA %", align: "right" },
     { key: "avgRes", label: "Avg Resolution", align: "right" },
+    { key: "resP50", label: "Med · p90 Res", align: "right" },
     { key: "avgFrt", label: "Avg FRT", align: "right" },
     { key: "atRisk", label: "At Risk", align: "right" },
     { key: "breached", label: "Breached", align: "right" },
@@ -154,7 +156,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
           <Section title="Priority Analysis" subtitle="How case priority shapes both volume and resolution time across the team.">
             <PriorityBlock priorityData={priorityData} rows={allRows} />
           </Section>
-          <Section title="Case Categorization" subtitle="What kinds of problems are showing up across the team. Auto-derived from short descriptions and resolution notes.">
+          <Section title="Case Categorization" subtitle="What kinds of problems are showing up across the team. Auto-derived from case titles and comments.">
             <CategoryBlock categoryData={categoryData} />
           </Section>
           <Section title="Accounts & Products" subtitle="Which customers and product lines drive the most case volume across the team.">
@@ -237,6 +239,9 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
                       {m.kpis.slaRate == null ? "—" : `${m.kpis.slaRate.toFixed(1)}%`}
                     </td>
                     <td className="mono" style={{ padding: "10px 14px", textAlign: "right" }}>{fmtDuration(m.kpis.avgRes)}</td>
+                    <td className="mono" style={{ padding: "10px 14px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      {fmtDuration(m.kpis.resP50)}<span style={{ color: T.muted }}> · {fmtDuration(m.kpis.resP90)}</span>
+                    </td>
                     <td className="mono" style={{ padding: "10px 14px", textAlign: "right" }}>{fmtDuration(m.kpis.avgFrt)}</td>
                     <td className="mono" style={{ padding: "10px 14px", textAlign: "right", color: m.kpis.atRisk.length > 0 ? T.warn : T.muted }}>{m.kpis.atRisk.length}</td>
                     <td className="mono" style={{ padding: "10px 14px", textAlign: "right", color: m.kpis.breached.length > 0 ? T.danger : T.muted }}>{m.kpis.breached.length}</td>

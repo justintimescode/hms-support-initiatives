@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from "react-router-dom";
 import {
-  LayoutDashboard, ClipboardList,
+  LayoutDashboard, Sun, ClipboardList,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban,
   ExternalLink, BarChart3,
@@ -17,6 +17,7 @@ const NAV_GROUPS = [
     label: "Overview",
     items: [
       { to: "/",             label: "Dashboard",    icon: LayoutDashboard },
+      { to: "/my-day",       label: "My Day",       icon: Sun },
       { to: "/update-queue", label: "Update Queue", icon: ClipboardList },
     ],
   },

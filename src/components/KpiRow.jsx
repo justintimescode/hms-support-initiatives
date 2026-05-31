@@ -43,12 +43,12 @@ export function KpiRow({ kpis, compareKpis }) {
       delta: cmp ? { text: fmtDeltaPct(kpis.slaRate, cmp.slaRate), color: deltaColor((kpis.slaRate ?? 0) - (cmp.slaRate ?? 0), "up") } : null,
     },
     {
-      label: "Avg resolution",
-      value: fmtDuration(kpis.avgRes),
-      sub: "from created to closed",
+      label: "Median resolution",
+      value: fmtDuration(kpis.resP50),
+      sub: `p90 ${fmtDuration(kpis.resP90)} · avg ${fmtDuration(kpis.avgRes)}`,
       icon: <Clock size={14} />,
       accent: T.ink,
-      delta: cmp ? { text: fmtDeltaDuration(kpis.avgRes, cmp.avgRes), color: deltaColor((kpis.avgRes ?? 0) - (cmp.avgRes ?? 0), "down") } : null,
+      delta: cmp ? { text: fmtDeltaDuration(kpis.resP50, cmp.resP50), color: deltaColor((kpis.resP50 ?? 0) - (cmp.resP50 ?? 0), "down") } : null,
     },
     {
       label: "Open at risk",

@@ -10,11 +10,17 @@ import { Card } from "../components/layout/Card.jsx";
 import { Pill } from "../components/Pill.jsx";
 import { CaseDrilldown } from "../components/CaseDrilldown.jsx";
 import { CopyableNumber } from "../components/CopyableNumber.jsx";
+import { sanitizeCellForExport } from "../lib/csv-export.js";
 
 /* ---- CSV export helper ---- */
+// SECURITY #7 — every exported cell passes through sanitizeCellForExport first,
+// which neutralizes spreadsheet formula-injection (a ServiceNow description like
+// `=cmd|'/c calc'!A1` is inert in the app but executes when the .csv is opened
+// in Excel/Sheets). The RFC-4180 quoting below is a separate concern (commas/
+// quotes/newlines) and runs after the injection guard.
 function escapeCsv(val) {
   if (val == null) return "";
-  const s = String(val);
+  const s = sanitizeCellForExport(String(val));
   return s.includes(",") || s.includes('"') || s.includes("\n")
     ? `"${s.replace(/"/g, '""')}"`
     : s;
@@ -255,7 +261,7 @@ function sortQueueRows(rows, mode) {
   return copy;
 }
 
-function QueueGroup({ title, subtitle, rows, tone, onPick, snapshotMs, emptyMsg }) {
+function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
   const headerColor = tone === "danger" ? T.danger : T.warn;
   const [sortMode, setSortMode] = useState("elapsed-desc");
   const sortedRows = useMemo(() => sortQueueRows(rows, sortMode), [rows, sortMode]);

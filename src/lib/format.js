@@ -92,6 +92,10 @@ export const ageDays = (d) => {
   return Math.floor((Date.now() - d.getTime()) / 864e5);
 };
 
+/** ms from now until `d` (negative if `d` is in the past). null when no date.
+ *  Keeps `Date.now()` out of component render bodies (react-hooks/purity). */
+export const msUntil = (d) => (d ? d.getTime() - Date.now() : null);
+
 export const fmtAxisDate = (ts) => {
   const d = new Date(ts);
   return d.toLocaleDateString(undefined, { month: "short", year: "2-digit" });

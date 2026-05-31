@@ -30,10 +30,13 @@ import {
   deleteDiskImport, clearDiskCache,
 } from "./imports-cache.js"
 import { SCHEMA_VERSION } from "./enrich.js"
-import { getAutoDelete } from "./settings.js"
+import { getAutoDelete, getDiskBackup } from "./settings.js"
 
 // On boot, optionally prune imports older than the user's retention setting.
 // The active import is never auto-deleted (don't silently lose the working set).
+// SECURITY #14: deletes ALL three persistence layers — DuckDB table, OPFS source
+// blob, AND the on-disk mirror. The disk delete was previously omitted, leaving
+// orphaned plaintext copies on disk after a prune.
 async function enforceAutoDelete(list, activeUuid) {
   const { enabled, days } = getAutoDelete()
   if (!enabled || !list?.length) return list
@@ -44,11 +47,29 @@ async function enforceAutoDelete(list, activeUuid) {
   for (const imp of stale) {
     try {
       const res = await dbClient.deleteImport(imp.uuid)
-      await deleteImportFiles(imp.uuid).catch(() => {})
+      await Promise.all([
+        deleteImportFiles(imp.uuid).catch(() => {}),
+        deleteDiskImport(imp.uuid).catch(() => {}),
+      ])
       result = res.imports
     } catch (e) { console.error("[imports] auto-delete failed", e) }
   }
   return result
+}
+
+// SECURITY #14: delete disk-mirror entries that no longer correspond to a live
+// import. Cleans up historical orphans (older auto-delete runs left the disk
+// copy behind) and keeps the plaintext mirror in lockstep with the index.
+// Best-effort: never blocks boot, soft-fails when the dev endpoint is absent.
+async function sweepDiskOrphans(liveUuids) {
+  try {
+    const metas = await listDiskMetas()
+    if (!metas.length) return
+    const live = new Set(liveUuids)
+    for (const m of metas) {
+      if (m?.uuid && !live.has(m.uuid)) await deleteDiskImport(m.uuid).catch(() => {})
+    }
+  } catch { /* dev endpoint absent / list failed — fine */ }
 }
 
 void PROJECT_KEY // kept in scope; used downstream by Jira sync error paths
@@ -258,6 +279,9 @@ export function useAppData() {
           fileSize: meta.fileSize || file.size,
           fileType: ext,
           rows,
+          // Preserve the original upload time from the disk mirror — otherwise
+          // the worker re-stamps it with the current (reboot) time.
+          uploadedAt: meta.uploadedAt,
         })
         // Mirror to OPFS for fast subsequent reloads (re-parse from blob, then
         // OPFS path takes over). Best-effort; failure here doesn't abort.
@@ -310,6 +334,9 @@ export function useAppData() {
         setActiveImportUuid(activeUuid || null)
         await loadActiveRows(activeUuid, pruned)
         refreshStorage()
+        // Reconcile the disk mirror against the live index (SECURITY #14).
+        // Fire-and-forget — cleanup must never delay first paint.
+        sweepDiskOrphans(pruned.map((i) => i.uuid))
       })
       .catch((err) => console.error("[db] init failed", err))
     return () => { cancelled = true }
@@ -451,12 +478,16 @@ export function useAppData() {
 
       // Disk mirror (best-effort, non-blocking — see imports-cache.js). The
       // active import in `list` carries the worker-known rowCount, so we copy
-      // that into the on-disk meta for accurate cold-restore.
-      const persisted = list.find((i) => i.uuid === uuid) || meta
-      Promise.all([
-        writeDiskBlob(uuid, file, ext),
-        writeDiskMeta(uuid, { ...meta, rowCount: persisted.rowCount, schemaVersion: SCHEMA_VERSION }),
-      ]).catch((err) => console.warn("[sn-cache] mirror failed —", err?.message || err))
+      // that into the on-disk meta for accurate cold-restore. SECURITY #14:
+      // opt-in only — the mirror writes RAW customer data to the project dir, so
+      // it is gated behind the "Back up imports to disk" setting (default OFF).
+      if (getDiskBackup()) {
+        const persisted = list.find((i) => i.uuid === uuid) || meta
+        Promise.all([
+          writeDiskBlob(uuid, file, ext),
+          writeDiskMeta(uuid, { ...meta, rowCount: persisted.rowCount, schemaVersion: SCHEMA_VERSION }),
+        ]).catch((err) => console.warn("[sn-cache] mirror failed —", err?.message || err))
+      }
     } catch (e) {
       if (uuid) await deleteImportFiles(uuid).catch(() => {}) // roll back the blob
       setUploadError(e.message || "Could not parse file.")
@@ -480,8 +511,10 @@ export function useAppData() {
     await dbClient.renameImport(uuid, name)
     setImports((list) => list.map((i) => (i.uuid === uuid ? { ...i, displayName: name } : i)))
     // Keep the on-disk meta in sync so a cold-restore picks up the new name.
+    // Only when disk backup is enabled (SECURITY #14) — otherwise there is no
+    // disk copy to update.
     const meta = imports.find((i) => i.uuid === uuid)
-    if (meta) writeDiskMeta(uuid, { ...meta, displayName: name }).catch(() => {})
+    if (meta && getDiskBackup()) writeDiskMeta(uuid, { ...meta, displayName: name }).catch(() => {})
   }, [imports])
 
   const deleteImport = useCallback(async (uuid) => {

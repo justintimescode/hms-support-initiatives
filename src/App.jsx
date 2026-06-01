@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout.jsx";
 import Home from "./pages/Home.jsx";
 import MyDayPage from "./pages/MyDayPage.jsx";
+import MonthlySummaryReport from "./pages/MonthlySummaryReport.jsx";
 import SlaPage from "./pages/SlaPage.jsx";
 import BacklogPage from "./pages/BacklogPage.jsx";
 import TrendsPage from "./pages/TrendsPage.jsx";
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/connections" element={<Connections />} />
           <Route path="/" element={<Home />} />
           <Route path="/my-day" element={<MyDayPage />} />
+          <Route path="/report" element={<MonthlySummaryReport />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

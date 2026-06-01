@@ -16,7 +16,7 @@ import { enrichIssue, mergeJiraIntoRows } from "./jira-enrich.js"
 import { priorityColor } from "./format.js"
 import {
   computeKpis, computeInteractionStats, topCounts, priorityMix,
-  filterRowsByDate, previousWindow,
+  filterRowsByDate, previousWindow, qualityMetrics,
 } from "./stats.js"
 import { useFilters } from "./useFilters.js"
 import { aiClient, AiNotConfiguredError } from "./ai-client.js"
@@ -642,6 +642,7 @@ export function useAppData() {
         topProducts: topCounts(list, (r) => r.product_line, 3),
         priorityMix: priorityMix(list),
         interactionStats: computeInteractionStats(list),
+        quality: qualityMetrics(list),
       }
     })
     return out.sort((a, b) => b.kpis.total - a.kpis.total)

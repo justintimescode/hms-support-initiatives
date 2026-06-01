@@ -445,6 +445,75 @@ export const workloadStats = (members) => {
   };
 };
 
+/** Resolution-quality metrics managers care about more than raw volume:
+ *  - FCR (first-contact resolution): closed cases resolved in ≤1 analyst touch,
+ *    approximated from `_analystTurns` (Infor-authored journal entries).
+ *  - Reopen rate: cases that carry a close timestamp (`_closed`) but are NOT
+ *    currently closed — i.e. they were resolved and bounced back open. Derived
+ *    purely from the snapshot (no state-history export needed). */
+export const qualityMetrics = (rows) => {
+  let closed = 0, fcr = 0, everClosed = 0, reopened = 0;
+  for (const r of rows) {
+    if (r._isClosed) {
+      closed++;
+      if ((r._analystTurns || 0) <= 1) fcr++;
+    }
+    if (r._closed) {
+      everClosed++;
+      if (!r._isClosed) reopened++;
+    }
+  }
+  return {
+    closed,
+    fcr,
+    fcrRate: closed ? (fcr / closed) * 100 : null,
+    everClosed,
+    reopened,
+    reopenRate: everClosed ? (reopened / everClosed) * 100 : null,
+  };
+};
+
+/** Backlog burn-down forecast: a simple linear projection of the open-case
+ *  count from the recent weekly net (created − resolved). If the team is
+ *  resolving faster than intake (`weeklyBurn > 0`), projects weeks-to-clear and
+ *  a clear date; otherwise reports the backlog as flat/growing. `series` merges
+ *  a tail of the actual daily open trajectory with a weekly projected line for
+ *  charting. `refNow` should be the data snapshot timestamp. */
+export const backlogForecast = (
+  rows,
+  refNow = Date.now(),
+  { netWindowWeeks = 4, horizonWeeks = 52, historyDays = 120 } = {},
+) => {
+  const weekly = weeklyIntakeResolved(rows);
+  const currentOpen = rows.reduce((n, r) => n + (r._isClosed ? 0 : 1), 0);
+  const recent = weekly.slice(-netWindowWeeks);
+  const weeklyNet = recent.length ? recent.reduce((s, w) => s + w.net, 0) / recent.length : 0;
+  const weeklyBurn = -weeklyNet; // > 0 ⇒ backlog shrinking
+  const shrinking = weeklyBurn > 0.01;
+  const weeksToClear = shrinking ? currentOpen / weeklyBurn : null;
+  const clearDate = weeksToClear != null ? refNow + Math.round(weeksToClear * 7) * 864e5 : null;
+
+  // Chart series: tail of the actual daily trajectory + a weekly projected line.
+  const traj = dailyTrajectory(rows);
+  const histStart = refNow - historyDays * 864e5;
+  const series = traj
+    .filter((d) => d.date >= histStart)
+    .map((d) => ({ date: d.date, open: d.open, projected: null }));
+  if (series.length) {
+    const last = series[series.length - 1];
+    last.projected = last.open; // seed so the dashed line connects to the solid one
+    const dailyBurn = weeklyBurn / 7; // >0 shrinking, <0 growing
+    const projWeeks = shrinking ? horizonWeeks : 12;
+    for (let day = 7; day <= projWeeks * 7; day += 7) {
+      let proj = last.open - dailyBurn * day;
+      if (shrinking) proj = Math.max(0, proj);
+      series.push({ date: last.date + day * 864e5, open: null, projected: Math.round(proj) });
+      if (shrinking && proj <= 0) break;
+    }
+  }
+  return { currentOpen, weeklyNet, weeklyBurn, shrinking, weeksToClear, clearDate, series };
+};
+
 /** First-response-time distribution: histogram buckets + percentile/avg stats.
  *  Operates over rows that have a measured `_frtMs`. */
 export const frtDistribution = (rows) => {

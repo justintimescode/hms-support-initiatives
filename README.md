@@ -112,6 +112,9 @@ Top-line KPI summary cards for the current view: total cases, open/closed counts
 #### My Day (`/my-day`)
 A personal triage landing page for a single analyst — a focused recomposition of data from the Update Queue and Backlog, scoped to whoever is selected. Pick an analyst (or use the top-bar selector) and see, in one screen: **overdue customer updates** (from the snapshot-anchored Update Queue), **SLA at risk** (breached / due < 24h / due this week on open cases), **stuck cases** (open 30 days+), and **Jira-blocked** open cases. Four summary tiles link to the full pages. This page deliberately **ignores the global date-range filter** — it reflects live open work, not a historical window.
 
+#### Monthly Summary (`/report`)
+A manager-ready, print-first **period-over-period** report. Computes a current window (30 / 60 / 90 days, anchored to the data snapshot) against the immediately-preceding equal window, across the full dataset (independent of the global filters). Headline KPIs carry deltas — cases created, SLA %, median resolution, average FRT, FCR %, reopen % — followed by a backlog outlook (open now, net/week, projected clear), an accounts-to-watch table (from the churn-risk signal), and a per-analyst snapshot. A **Print / Save as PDF** button produces a clean one-pager (the app chrome is `.no-print`). Also reachable from the top-bar **Print** menu.
+
 #### Update Queue (`/update-queue`)
 SOP-driven queue of open cases that need an Infor-authored customer-facing update. Powered entirely by DuckDB SQL (`getUpdateQueue()` in `queries.js`). Two sections:
 
@@ -154,6 +157,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 - Daily open-case trajectory line chart from the oldest record to today.
 - Weekly created-vs-resolved bar chart with a rolling 4-week net line. A net above zero means the backlog grew that week.
 - Optional date-range highlight band overlaid on both charts.
+- **Backlog burn-down forecast** — a simple linear projection: takes the recent 4-week average net (created − resolved) and extends the current open backlog forward, showing open-now, net/week, and a projected weeks-to-clear + clear date (or "not clearing" when intake ≥ resolution). The chart overlays the actual open trajectory with a dashed forecast line. Explicitly a straight-line estimate, not a model. (`backlogForecast()` in `stats.js`.)
 
 #### Workload Cadence (`/cadence`)
 - Weekday bar charts: average open caseload by day of week, and case creation count by day of week.
@@ -186,6 +190,11 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 Sortable table with one row per analyst: total cases, open cases, SLA %, average resolution time, **median · p90 resolution**, average first response time, at-risk count, breached count. Click any analyst name to drill into their full individual dashboard.
 
 **Member profiles** — condensed card per analyst showing priority mix bar chart, top 3 categories, top 3 accounts, and key KPIs. "Open full dashboard →" button drills into the analyst's individual view.
+
+**Resolution Quality** — two manager-grade quality signals plus a per-analyst breakdown:
+- **First-contact resolution (FCR)** — share of closed cases resolved in ≤1 analyst touch (approximated from Infor-authored journal turns). Higher is better.
+- **Reopen rate** — share of resolved cases that bounced back open, derived from the snapshot (a case carrying a close timestamp but currently in an open state). Lower is better.
+Both are computed in `qualityMetrics()` (`stats.js`) and baked per-analyst into `teamMembers`. Managers weight these above raw closure volume.
 
 **Interaction Quality** — bar chart of average customer and analyst turns per case per team member. More turns often indicate unclear expectations or complex issues.
 
@@ -445,10 +454,11 @@ When comparison is active, every KPI card shows a delta indicator (↑/↓ with 
 
 ## Print / PDF Export
 
-The print menu in the top bar offers two scopes:
+The print menu in the top bar offers:
 
 - **Print team report** — renders all team-view sections stacked vertically.
 - **Print individual report** — renders all individual-view sections for the selected analyst.
+- **Monthly summary report** — opens the [Monthly Summary](#monthly-summary-report) page (`/report`), a print-first period-over-period one-pager with KPI deltas.
 
 Print mode is triggered by setting `printMode` state, which causes all `print-section` divs to render simultaneously. After a 500ms settle delay, `window.print()` is called. The sidebar and top bar are hidden in print via `.no-print` CSS class.
 

@@ -1,10 +1,11 @@
 import { useOutletContext } from "react-router-dom"
 import { Section } from "../components/layout/Section.jsx"
 import { TrajectoryBlock } from "../components/charts/TrajectoryBlock.jsx"
+import { BacklogForecastBlock } from "../components/charts/BacklogForecastBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function TrendsPage() {
-  const { rows: loadedRows, view, enrichedAnalyst, teamMembersAll, dateRange } = useOutletContext()
+  const { rows: loadedRows, view, enrichedAnalyst, teamMembersAll, dateRange, snapshotMs } = useOutletContext()
   if (!loadedRows) return <Section title="Trends Over Time"><EmptyState /></Section>
   // Team view uses the unfiltered all-members slice so trajectory keeps the
   // full longitudinal arc (matches the legacy TeamView behavior).
@@ -22,7 +23,10 @@ export default function TrendsPage() {
           : "How the backlog has moved over time, and whether intake is outpacing resolution week to week. The daily line shows the open-case count from the oldest record to today; the weekly bars compare new cases versus resolved ones to surface backlog growth or recovery. The shaded band marks the active date filter, if any."
       }
     >
-      <TrajectoryBlock rows={rows} highlightRange={highlightRange} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <TrajectoryBlock rows={rows} highlightRange={highlightRange} />
+        <BacklogForecastBlock rows={rows} snapshotMs={snapshotMs} />
+      </div>
     </Section>
   )
 }

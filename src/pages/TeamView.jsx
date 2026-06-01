@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { Sparkles, AlertTriangle } from "lucide-react";
 import { T } from "../lib/theme.js";
 import { fmtDuration, SLA_COLOR, deltaColor, fmtDeltaCount, fmtDeltaPct } from "../lib/format.js";
 import { computeKpis } from "../lib/stats.js";
@@ -21,13 +20,16 @@ import { AccountProductBlock } from "../components/charts/AccountProductBlock.js
 import { JiraDashboard } from "../components/jira/JiraDashboard.jsx";
 import { JiraAnalysisBlock } from "../components/jira/JiraAnalysisBlock.jsx";
 import { InteractionQualityBlock } from "../components/charts/InteractionQualityBlock.jsx";
+import { QualityBlock } from "../components/charts/QualityBlock.jsx";
+import { AnalystProfileModal } from "../components/AnalystProfileModal.jsx";
 import { AiBlock } from "../components/ai/AiBlock.jsx";
 import { CaseTable } from "../components/CaseTable.jsx";
 import { UpdateQueue } from "./UpdateQueue.jsx";
 
 /* ================= Team View ================= */
-export function TeamView({ page, printMode, members, allMembers, compareTotals, compareWindow, highlightRange, kpis, priorityData, categoryData, accountData, productData, enriched, enrichedAnalyst, aiState, runAiAnalysis, memberAi, runMemberAi, drillIntoMember, dbReady, snapshotMs, jiraState, syncJira, hydrateFromCache }) {
+export function TeamView({ page, printMode, members, allMembers, compareTotals, highlightRange, kpis, priorityData, categoryData, accountData, productData, enriched, aiState, runAiAnalysis, memberAi, runMemberAi, drillIntoMember, dbReady, snapshotMs, jiraState, syncJira, hydrateFromCache }) {
   const [sort, setSort] = useState({ key: "total", dir: "desc" });
+  const [profileMember, setProfileMember] = useState(null);
 
   const sorted = useMemo(() => {
     const get = (m) => {
@@ -253,23 +255,36 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
         </Card>
       </Section>
 
+          <Section title="Resolution Quality" subtitle="First-contact resolution (closed in ≤1 analyst touch) and reopen rate (resolutions that bounced back open). These quality signals matter more than raw volume — a high closure count with a high reopen rate is churn, not throughput.">
+            <QualityBlock members={members} />
+          </Section>
+
+          <Section title="Interaction Quality" subtitle="Average customer and analyst turns per case. More turns often indicate unclear expectations, complex issues, or cases that needed more back-and-forth to resolve. Use this alongside SLA metrics to identify analysts who resolve hard cases efficiently.">
+            <InteractionQualityBlock members={members} />
+          </Section>
+
           <Section title="Member Profiles" subtitle="A condensed snapshot per analyst — priority mix, top case categories, and most frequent accounts. Run the AI button on any card for a qualitative read on what that analyst's queue looks like, or click through to their full dashboard.">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12 }}>
               {sorted.map((m) => (
                 <MemberCard
                   key={m.name}
                   member={m}
-                  ai={memberAi[m.name]}
-                  onRunAi={() => runMemberAi(m)}
+                  onOpenProfile={() => setProfileMember(m)}
                   onDrillIn={() => drillIntoMember(m.name)}
                 />
               ))}
             </div>
           </Section>
 
-          <Section title="Interaction Quality" subtitle="Average customer and analyst turns per case. More turns often indicate unclear expectations, complex issues, or cases that needed more back-and-forth to resolve. Use this alongside SLA metrics to identify analysts who resolve hard cases efficiently.">
-            <InteractionQualityBlock members={members} />
-          </Section>
+          {profileMember && (
+            <AnalystProfileModal
+              member={profileMember}
+              ai={memberAi[profileMember.name]}
+              onRunAi={() => runMemberAi(profileMember)}
+              onClose={() => setProfileMember(null)}
+              onOpenDashboard={() => { setProfileMember(null); drillIntoMember(profileMember.name); }}
+            />
+          )}
         </div>
       )}
 
@@ -292,16 +307,21 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
   );
 }
 
-function MemberCard({ member, ai, onRunAi, onDrillIn }) {
-  const [showAi, setShowAi] = useState(false);
+function MemberCard({ member, onDrillIn, onOpenProfile }) {
   const k = member.kpis;
   const maxPriority = Math.max(1, ...member.priorityMix.map((p) => p.count));
+  // The whole card is a click target for the profile modal (mouse convenience);
+  // the name and footer buttons stay real, keyboard-accessible controls.
   return (
-    <Card className="hoverlift" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <Card
+      className="hoverlift"
+      onClick={onOpenProfile}
+      style={{ display: "flex", flexDirection: "column", gap: 14, cursor: "pointer" }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <button
-            onClick={onDrillIn}
+            onClick={(e) => { e.stopPropagation(); onOpenProfile(); }}
             style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
           >
             <div className="display" style={{ fontSize: 18, fontWeight: 600, color: T.ink, lineHeight: 1.2 }}>
@@ -349,69 +369,27 @@ function MemberCard({ member, ai, onRunAi, onDrillIn }) {
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", borderTop: `1px solid ${T.borderSoft}`, paddingTop: 12 }}>
         <button
-          disabled
-          title="AI insights are not yet enabled in this environment"
+          onClick={(e) => { e.stopPropagation(); onOpenProfile(); }}
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            padding: "7px 12px",
-            background: T.ink,
-            color: T.surface,
-            border: `1px solid ${T.ink}`,
-            borderRadius: 6,
-            fontFamily: "DM Sans, sans-serif",
-            fontSize: 12,
-            fontWeight: 500,
-            cursor: "not-allowed",
-            opacity: 0.5,
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "7px 12px", background: T.ink, color: T.surface,
+            border: `1px solid ${T.ink}`, borderRadius: 6,
+            fontFamily: "DM Sans, sans-serif", fontSize: 12, fontWeight: 500, cursor: "pointer",
           }}
         >
-          <Sparkles size={12} />
-          Analyze with AI
+          View profile
         </button>
         <button
-          onClick={onDrillIn}
+          onClick={(e) => { e.stopPropagation(); onDrillIn(); }}
           style={{
-            padding: "7px 12px",
-            background: "transparent",
-            color: T.sub,
-            border: `1px solid ${T.border}`,
-            borderRadius: 6,
-            fontFamily: "DM Sans, sans-serif",
-            fontSize: 12,
-            cursor: "pointer",
+            padding: "7px 12px", background: "transparent", color: T.sub,
+            border: `1px solid ${T.border}`, borderRadius: 6,
+            fontFamily: "DM Sans, sans-serif", fontSize: 12, cursor: "pointer",
           }}
         >
           Open full dashboard →
         </button>
       </div>
-      <div style={{ fontSize: 11, color: T.muted, fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
-        <AlertTriangle size={11} style={{ color: T.warn }} /> AI insights are not yet enabled in this environment.
-      </div>
-
-      {ai?.error && (
-        <div style={{ color: T.danger, fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <AlertTriangle size={12} /> {ai.error}
-        </div>
-      )}
-
-      {showAi && ai?.result && (
-        <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-          <AiSummaryList title="Themes" items={ai.result.themes?.map((t) => ({ h: t.title, b: t.description }))} />
-          <AiSummaryList title="Recurring issues" items={ai.result.recurring_issues?.map((t) => ({ h: t.issue, b: t.evidence }))} />
-          <AiSummaryList title="Skill opportunities" items={ai.result.skill_opportunities?.map((t) => ({ h: t.area, b: t.why }))} />
-          <AiSummaryList title="Knowledge base gaps" items={ai.result.kb_gaps?.map((t) => ({ h: t.gap, b: t.why }))} />
-          {ai.result.watch_outs?.length > 0 && (
-            <div>
-              <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>Watch-outs</div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.5, color: T.sub }}>
-                {ai.result.watch_outs.map((w, i) => <li key={i}>{w}</li>)}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
     </Card>
   );
 }
@@ -436,23 +414,6 @@ function ListBlock({ label, items }) {
           <div key={it.name} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
             <span style={{ color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
             <span className="mono" style={{ color: T.sub }}>{it.count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AiSummaryList({ title, items }) {
-  if (!items || items.length === 0) return null;
-  return (
-    <div>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>{title}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {items.map((it, i) => (
-          <div key={i}>
-            <div style={{ fontWeight: 600, fontSize: 12 }}>{it.h}</div>
-            <div style={{ color: T.sub, fontSize: 12, marginTop: 2, lineHeight: 1.45 }}>{it.b}</div>
           </div>
         ))}
       </div>

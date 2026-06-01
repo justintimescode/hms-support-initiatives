@@ -1,6 +1,6 @@
 import { T } from "../../lib/theme.js";
 
-export function Card({ children, style, className = "" }) {
+export function Card({ children, style, className = "", ...rest }) {
   return (
     <div
       className={className}
@@ -12,6 +12,7 @@ export function Card({ children, style, className = "" }) {
         boxShadow: T.shadowSm,
         ...style,
       }}
+      {...rest}
     >
       {children}
     </div>

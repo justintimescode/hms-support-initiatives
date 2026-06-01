@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom"
 import { User, ListFilter, Printer } from "lucide-react"
 import { T } from "../../lib/theme.js"
 import { FilterBar } from "../FilterBar.jsx"
@@ -5,6 +6,7 @@ import { FreshnessIndicator } from "./FreshnessIndicator.jsx"
 
 /* Persistent top bar for every routed page. */
 export function TopBar({ ctx }) {
+  const navigate = useNavigate()
   if (!ctx) return null
   const {
     rows,
@@ -145,7 +147,6 @@ export function TopBar({ ctx }) {
                     ...menuItemStyle(),
                     color: canPrintIndividual ? T.ink : T.muted,
                     cursor: canPrintIndividual ? "pointer" : "not-allowed",
-                    borderBottom: "none",
                   }}
                   onMouseEnter={(e) => canPrintIndividual && (e.currentTarget.style.background = T.surfaceAlt)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -154,6 +155,15 @@ export function TopBar({ ctx }) {
                   <div style={{ fontSize: 11.5, color: T.sub, marginTop: 3 }}>
                     {canPrintIndividual ? "Sections filtered to this analyst" : "Select an analyst first"}
                   </div>
+                </button>
+                <button
+                  onClick={() => { setPrintMenuOpen(false); navigate("/report") }}
+                  style={{ ...menuItemStyle(), borderBottom: "none" }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = T.surfaceAlt)}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                >
+                  Monthly summary report
+                  <div style={{ fontSize: 11.5, color: T.sub, marginTop: 3 }}>Period-over-period KPIs with deltas · print-ready</div>
                 </button>
               </div>
             </>

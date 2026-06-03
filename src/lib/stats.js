@@ -327,11 +327,11 @@ export const startOfMonday = (d) => {
   return x;
 };
 
-export const dailyTrajectory = (rows) => {
+export const dailyTrajectory = (rows, refNow = Date.now()) => {
   if (!rows || !rows.length) return [];
   let minCreated = null;
   let maxEnd = null;
-  const now = new Date();
+  const now = new Date(refNow);
   for (const r of rows) {
     if (r._created && (!minCreated || r._created < minCreated)) minCreated = r._created;
     const end = r._closed || now;
@@ -370,11 +370,11 @@ export const dailyTrajectory = (rows) => {
   return out;
 };
 
-export const weeklyIntakeResolved = (rows) => {
+export const weeklyIntakeResolved = (rows, refNow = Date.now()) => {
   if (!rows || !rows.length) return [];
   let minDate = null;
   let maxDate = null;
-  const now = new Date();
+  const now = new Date(refNow);
   for (const r of rows) {
     const d = r._created;
     const c = r._closed;
@@ -482,11 +482,18 @@ export const qualityMetrics = (rows) => {
 export const backlogForecast = (
   rows,
   refNow = Date.now(),
-  { netWindowWeeks = 4, horizonWeeks = 52, historyDays = 120 } = {},
+  { netWindowWeeks = 4, horizonWeeks = 52, historyDays = 120, immatureWeeks = 2 } = {},
 ) => {
-  const weekly = weeklyIntakeResolved(rows);
+  const weekly = weeklyIntakeResolved(rows, refNow);
   const currentOpen = rows.reduce((n, r) => n + (r._isClosed ? 0 : 1), 0);
-  const recent = weekly.slice(-netWindowWeeks);
+  // The most recent weeks are resolution-immature: a case created last week
+  // usually hasn't closed yet at snapshot time, so `resolved` is undercounted
+  // and the net reads artificially positive (and the final bucket is a partial
+  // week). Drop that immature tail before measuring the run-rate; fall back to
+  // the raw weeks only if trimming would leave nothing.
+  const mature = weekly.slice(0, Math.max(0, weekly.length - immatureWeeks));
+  const source = mature.length ? mature : weekly;
+  const recent = source.slice(-netWindowWeeks);
   const weeklyNet = recent.length ? recent.reduce((s, w) => s + w.net, 0) / recent.length : 0;
   const weeklyBurn = -weeklyNet; // > 0 ⇒ backlog shrinking
   const shrinking = weeklyBurn > 0.01;
@@ -494,7 +501,7 @@ export const backlogForecast = (
   const clearDate = weeksToClear != null ? refNow + Math.round(weeksToClear * 7) * 864e5 : null;
 
   // Chart series: tail of the actual daily trajectory + a weekly projected line.
-  const traj = dailyTrajectory(rows);
+  const traj = dailyTrajectory(rows, refNow);
   const histStart = refNow - historyDays * 864e5;
   const series = traj
     .filter((d) => d.date >= histStart)

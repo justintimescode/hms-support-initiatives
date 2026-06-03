@@ -473,52 +473,139 @@ export const qualityMetrics = (rows) => {
   };
 };
 
-/** Backlog burn-down forecast: a simple linear projection of the open-case
- *  count from the recent weekly net (created − resolved). If the team is
- *  resolving faster than intake (`weeklyBurn > 0`), projects weeks-to-clear and
- *  a clear date; otherwise reports the backlog as flat/growing. `series` merges
- *  a tail of the actual daily open trajectory with a weekly projected line for
- *  charting. `refNow` should be the data snapshot timestamp. */
+/* Seeded PRNG (mulberry32). The forecast below is a Monte Carlo simulation, so
+ * it needs randomness — but `Math.random()` would reshuffle the cone on every
+ * re-render (and trips react-hooks/purity). Seeding deterministically from the
+ * data keeps the forecast stable for a given snapshot. */
+const mulberry32 = (seed) => {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+
+/** Backlog burn-down forecast via Monte Carlo simulation.
+ *
+ *  Instead of extrapolating a single average net — which assumes one rate holds
+ *  forever and hides all uncertainty — this bootstraps from the recent *mature*
+ *  weekly history. Each simulated future week replays a real past week's
+ *  (created, resolved) pair; resolution is capped by what's actually open (a
+ *  queue can't resolve more than it holds); the open backlog walks forward.
+ *  Over many trials this yields a distribution per week, reported as a p10–p90
+ *  cone around the p50 median — an honest range rather than false precision.
+ *
+ *  Inputs are de-biased first: "now" is anchored to the snapshot, and the
+ *  resolution-immature tail (recent weeks whose cases haven't closed yet) is
+ *  dropped before sampling. The charted history is also trimmed of its
+ *  cold-start ramp. `refNow` should be the data snapshot timestamp. */
 export const backlogForecast = (
   rows,
   refNow = Date.now(),
-  { netWindowWeeks = 4, horizonWeeks = 52, historyDays = 120, immatureWeeks = 2 } = {},
+  {
+    horizonWeeks = 13,
+    historyDays = 120,
+    immatureWeeks = 2,
+    sampleWeeks = 12,
+    trials = 2000,
+  } = {},
 ) => {
-  const weekly = weeklyIntakeResolved(rows, refNow);
   const currentOpen = rows.reduce((n, r) => n + (r._isClosed ? 0 : 1), 0);
-  // The most recent weeks are resolution-immature: a case created last week
-  // usually hasn't closed yet at snapshot time, so `resolved` is undercounted
-  // and the net reads artificially positive (and the final bucket is a partial
-  // week). Drop that immature tail before measuring the run-rate; fall back to
-  // the raw weeks only if trimming would leave nothing.
-  const mature = weekly.slice(0, Math.max(0, weekly.length - immatureWeeks));
-  const source = mature.length ? mature : weekly;
-  const recent = source.slice(-netWindowWeeks);
-  const weeklyNet = recent.length ? recent.reduce((s, w) => s + w.net, 0) / recent.length : 0;
-  const weeklyBurn = -weeklyNet; // > 0 ⇒ backlog shrinking
-  const shrinking = weeklyBurn > 0.01;
-  const weeksToClear = shrinking ? currentOpen / weeklyBurn : null;
-  const clearDate = weeksToClear != null ? refNow + Math.round(weeksToClear * 7) * 864e5 : null;
+  const weekly = weeklyIntakeResolved(rows, refNow);
 
-  // Chart series: tail of the actual daily trajectory + a weekly projected line.
+  // Drop the resolution-immature tail (recent weeks under-count closes) and the
+  // partial final week, then keep the most recent `sampleWeeks` as the pool the
+  // simulation draws future weeks from — "the future looks like the recent past".
+  const mature = weekly.slice(0, Math.max(0, weekly.length - immatureWeeks));
+  const pool = (mature.length ? mature : weekly).slice(-sampleWeeks);
+
+  // Mean weekly net over the pool — the headline "± X per week" run-rate.
+  const weeklyNet = pool.length
+    ? pool.reduce((s, w) => s + (w.created - w.resolved), 0) / pool.length
+    : 0;
+  const shrinking = weeklyNet < 0;
+
+  // ---- historical line, cold-start-trimmed --------------------------------
+  // The export only holds cases created inside its window, so the open count
+  // ramps up from ~0 at the data's start — that early stretch understates the
+  // real backlog. Don't chart it until the dataset has run ~one typical case
+  // lifetime (median resolution time), by which point open-count churn reflects
+  // steady state rather than the fill-up artifact.
+  const resolvedDays = [];
+  for (const r of rows) if (r._resolvedMs != null) resolvedDays.push(r._resolvedMs / 864e5);
+  resolvedDays.sort((a, b) => a - b);
+  const warmupDays = Math.min(Math.max(percentile(resolvedDays, 50) ?? 0, 0), 45);
+
   const traj = dailyTrajectory(rows, refNow);
-  const histStart = refNow - historyDays * 864e5;
+  const dataStart = traj.length ? traj[0].date : refNow;
+  const histStart = Math.max(refNow - historyDays * 864e5, dataStart + warmupDays * 864e5);
   const series = traj
     .filter((d) => d.date >= histStart)
-    .map((d) => ({ date: d.date, open: d.open, projected: null }));
-  if (series.length) {
-    const last = series[series.length - 1];
-    last.projected = last.open; // seed so the dashed line connects to the solid one
-    const dailyBurn = weeklyBurn / 7; // >0 shrinking, <0 growing
-    const projWeeks = shrinking ? horizonWeeks : 12;
-    for (let day = 7; day <= projWeeks * 7; day += 7) {
-      let proj = last.open - dailyBurn * day;
-      if (shrinking) proj = Math.max(0, proj);
-      series.push({ date: last.date + day * 864e5, open: null, projected: Math.round(proj) });
-      if (shrinking && proj <= 0) break;
-    }
+    .map((d) => ({ date: d.date, open: d.open, band: null, mid: null }));
+
+  // Need a few weeks of variance to simulate a meaningful distribution.
+  if (pool.length < 3 || !series.length) {
+    return {
+      currentOpen, weeklyNet, shrinking, sampleWeeks: pool.length,
+      insufficient: pool.length < 3,
+      pClear: null, medianClearWeeks: null, clearDate: null, projHorizon: null, series,
+    };
   }
-  return { currentOpen, weeklyNet, weeklyBurn, shrinking, weeksToClear, clearDate, series };
+
+  // ---- Monte Carlo ---------------------------------------------------------
+  let seed = (0x9e3779b9 ^ currentOpen ^ (pool.length << 16)) | 0;
+  for (const w of pool) seed = (Math.imul(seed, 31) + (w.created * 7 + w.resolved)) | 0;
+  const rng = mulberry32(seed);
+  const weekMs = 7 * 864e5;
+  const lastDate = series[series.length - 1].date;
+  const weekOpens = Array.from({ length: horizonWeeks }, () => new Float64Array(trials));
+  const clearWeeks = [];
+  let clearedCount = 0;
+
+  for (let t = 0; t < trials; t++) {
+    let open = currentOpen;
+    let clearedAt = 0;
+    for (let w = 0; w < horizonWeeks; w++) {
+      const wk = pool[(rng() * pool.length) | 0];
+      const resolvedEff = Math.min(wk.resolved, open + wk.created); // can't resolve more than exists
+      open = Math.max(0, open + wk.created - resolvedEff);
+      weekOpens[w][t] = open;
+      if (!clearedAt && open <= 0) clearedAt = w + 1;
+    }
+    if (clearedAt) { clearedCount++; clearWeeks.push(clearedAt); }
+  }
+
+  // Per-week percentiles → cone. Anchor the final actual point to the true
+  // snapshot open (the trajectory's last partial day can over-count) so the
+  // solid line meets the cone cleanly at "now" and matches the headline figure.
+  series[series.length - 1].open = currentOpen;
+  series[series.length - 1].band = [currentOpen, currentOpen];
+  series[series.length - 1].mid = currentOpen;
+  for (let w = 0; w < horizonWeeks; w++) {
+    const sorted = Array.from(weekOpens[w]).sort((a, b) => a - b);
+    series.push({
+      date: lastDate + (w + 1) * weekMs,
+      open: null,
+      band: [Math.round(percentile(sorted, 10)), Math.round(percentile(sorted, 90))],
+      mid: Math.round(percentile(sorted, 50)),
+    });
+  }
+
+  clearWeeks.sort((a, b) => a - b);
+  const medianClearWeeks = clearWeeks.length ? percentile(clearWeeks, 50) : null;
+  const clearDate = medianClearWeeks != null ? refNow + Math.round(medianClearWeeks * 7) * 864e5 : null;
+  const last = series[series.length - 1];
+
+  return {
+    currentOpen, weeklyNet, shrinking, sampleWeeks: pool.length, insufficient: false,
+    pClear: clearedCount / trials,
+    medianClearWeeks,
+    clearDate,
+    projHorizon: { weeks: horizonWeeks, lo: last.band[0], mid: last.mid, hi: last.band[1] },
+    series,
+  };
 };
 
 /** First-response-time distribution: histogram buckets + percentile/avg stats.

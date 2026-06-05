@@ -31,3 +31,7 @@ export const INITIAL_RESPONSE_MS = {
   3: 2 * 60 * 60 * 1000,       // P3: 2h
   4: 4 * 60 * 60 * 1000,       // P4: 4h
 }
+
+// Status (ServiceNow `status` column) whose cases must still be updated at the
+// regular priority SOP cadence. Matched case-insensitively in queries.
+export const SOLUTION_PROPOSED_STATUS = 'Solution Proposed'

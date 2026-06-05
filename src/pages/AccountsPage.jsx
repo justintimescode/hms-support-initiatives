@@ -9,7 +9,7 @@ import { DevCompare } from "../components/dev/DevCompare.jsx"
 import { flattenByKey } from "../components/dev/devCompareUtils.js"
 
 export default function AccountsPage() {
-  const { rows, view, accountData, productData, analyst, dateRange, enrichedAllJoined, snapshotMs } = useOutletContext()
+  const { rows, view, accountData, accountDataAll, productData, analyst, dateRange, enrichedAllJoined, snapshotMs } = useOutletContext()
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const acctSql = useQuery(() => getAccountData({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
   const prodSql = useQuery(() => getProductData({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
@@ -33,7 +33,7 @@ export default function AccountsPage() {
         note={`analyst: ${analyst === "__all__" ? "all" : analyst}`}
         metrics={flattenByKey(productData, prodSql.data, "name", ["count"])}
       />
-      <AccountProductBlock accountData={accountData} productData={productData} />
+      <AccountProductBlock accountData={accountDataAll} productData={productData} scrollAccounts />
 
       <div style={{ marginTop: 12 }}>
         <AccountRiskBlock rows={enrichedAllJoined} snapshotMs={snapshotMs} />

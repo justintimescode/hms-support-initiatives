@@ -221,7 +221,53 @@ export default function MyDayPage() {
           {overdue.length > CAP && <MoreRow n={overdue.length - CAP} to="/update-queue" />}
         </ListCard>
 
-        {/* 2 — SLA at risk */}
+        {/* 2 — Updates due soon (approaching the SOP cadence, not yet overdue) */}
+        <ListCard
+          icon={Clock} title="Updates due soon" count={dueSoon.length}
+          to="/update-queue" linkLabel="Full Update Queue"
+          loading={uq.loading} error={uq.error}
+          emptyMsg="Nothing coming due — every open case is comfortably inside its cadence."
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: T.surfaceAlt }}>
+                <th style={TH}>Case</th>
+                <th style={TH}>Type / Priority</th>
+                <th style={TH}>Last Infor update</th>
+                <th style={TH}>Due in</th>
+                <th style={TH}>Account</th>
+                <th style={TH}>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dueSoon.slice(0, CAP).map((r) => {
+                const remainingMs =
+                  r.thresholdMs == null || r.elapsedMs == null ? null : r.thresholdMs - r.elapsedMs
+                return (
+                  <tr key={r.number} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
+                    <td className="mono" style={{ ...TD, fontWeight: 600 }}><CopyableNumber value={r.number} /></td>
+                    <td style={TD}>
+                      <span style={{ color: priorityColor(r.priority), fontWeight: 600 }}>
+                        {r.caseType === "development" ? "dev" : (r.priority || "—")}
+                      </span>
+                    </td>
+                    <td className="mono" style={{ ...TD, color: T.warn }}>
+                      {r.noInforUpdateYet ? "no update yet" : `${fmtDuration(r.elapsedMs)} ago`}
+                    </td>
+                    <td className="mono" style={{ ...TD, color: T.warn }}>
+                      {remainingMs == null ? "—" : remainingMs <= 0 ? "now" : fmtDuration(remainingMs)}
+                    </td>
+                    <td style={TD}>{r.account || "—"}</td>
+                    <td style={TD_DESC}>{r.shortDescription || "—"}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          {dueSoon.length > CAP && <MoreRow n={dueSoon.length - CAP} to="/update-queue" />}
+        </ListCard>
+
+        {/* 3 — SLA at risk */}
         <ListCard
           icon={Clock} title="SLA at risk" count={sla.atRisk.length}
           to="/sla" linkLabel="SLA Performance"
@@ -261,10 +307,10 @@ export default function MyDayPage() {
           {sla.atRisk.length > CAP && <MoreRow n={sla.atRisk.length - CAP} to="/sla" />}
         </ListCard>
 
-        {/* 3 — Stuck cases (reuse the shared list, scoped to this analyst) */}
+        {/* 4 — Stuck cases (reuse the shared list, scoped to this analyst) */}
         <StuckCasesList rows={enrichedAnalyst || []} />
 
-        {/* 4 — Jira-blocked */}
+        {/* 5 — Jira-blocked */}
         <ListCard
           icon={Ban} title="Jira-blocked open cases" count={jiraBlocked.length}
           to="/jira-blockers" linkLabel="Cases w/ Jira Blockers"

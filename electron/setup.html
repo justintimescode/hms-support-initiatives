@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KPI Analyzer — Setup</title>
+    <style>
+      :root {
+        --bg: #0f172a;
+        --panel: #1e293b;
+        --border: #334155;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent-strong: #0ea5e9;
+        --ok: #4ade80;
+        --err: #f87171;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+      }
+      .card {
+        width: 100%;
+        max-width: 520px;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 32px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin: 0 0 24px; line-height: 1.5; }
+      label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+      .hint { font-weight: 400; color: var(--muted); }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        background: #0b1220;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        font-size: 14px;
+        font-family: inherit;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      a { color: var(--accent); cursor: pointer; }
+      .row { display: flex; gap: 12px; margin-top: 24px; }
+      button {
+        flex: 1;
+        padding: 11px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .secondary { background: transparent; color: var(--text); }
+      .secondary:hover:not(:disabled) { border-color: var(--accent); }
+      .primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #04293a; }
+      .primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); }
+      #status {
+        margin-top: 18px;
+        font-size: 13px;
+        min-height: 18px;
+        line-height: 1.5;
+      }
+      #status.ok { color: var(--ok); }
+      #status.err { color: var(--err); }
+      #status.info { color: var(--muted); }
+      .note { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Connect to Jira</h1>
+      <p class="sub">
+        KPI Analyzer pulls issue data from Jira Cloud. Enter your Atlassian
+        account email and a personal API token. Your token is stored encrypted
+        on this machine, tied to your Windows login — it is never shared or sent
+        anywhere except Jira.
+      </p>
+
+      <label for="baseUrl">Jira site URL</label>
+      <input id="baseUrl" type="url" placeholder="https://infor.atlassian.net" />
+
+      <label for="email">Atlassian email</label>
+      <input id="email" type="email" placeholder="you@infor.com" autocomplete="off" />
+
+      <label for="token">
+        API token
+        <span class="hint">— <a id="tokenLink">create one here</a></span>
+      </label>
+      <input id="token" type="password" placeholder="paste your API token" autocomplete="off" />
+
+      <div class="row">
+        <button class="secondary" id="testBtn">Test connection</button>
+        <button class="primary" id="saveBtn">Save &amp; Launch</button>
+      </div>
+
+      <div id="status" class="info"></div>
+
+      <p class="note">
+        Need a token? Click “create one here” above to open Atlassian’s API token
+        page in your browser, generate a token, and paste it in. You can change
+        these later from the <strong>File → Reconfigure Jira credentials</strong> menu.
+      </p>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id)
+      const baseUrl = $('baseUrl')
+      const email = $('email')
+      const token = $('token')
+      const testBtn = $('testBtn')
+      const saveBtn = $('saveBtn')
+      const status = $('status')
+      const TOKEN_URL = 'https://id.atlassian.com/manage-profile/security/api-tokens'
+
+      function setStatus(msg, kind) {
+        status.textContent = msg
+        status.className = kind || 'info'
+      }
+      function creds() {
+        return { baseUrl: baseUrl.value.trim(), email: email.value.trim(), token: token.value.trim() }
+      }
+      function busy(on) {
+        testBtn.disabled = on
+        saveBtn.disabled = on
+      }
+
+      // Prefill from any existing config (token is never returned).
+      window.electronAPI.status().then((s) => {
+        baseUrl.value = s.baseUrl || 'https://infor.atlassian.net'
+        email.value = s.email || ''
+        if (s.configured) setStatus('Re-enter your API token to update your saved credentials.', 'info')
+      })
+
+      $('tokenLink').addEventListener('click', () => window.electronAPI.openExternal(TOKEN_URL))
+
+      testBtn.addEventListener('click', async () => {
+        busy(true)
+        setStatus('Testing connection…', 'info')
+        const r = await window.electronAPI.test(creds())
+        busy(false)
+        if (r.ok) setStatus(`✓ Connected as ${r.displayName}.`, 'ok')
+        else setStatus(`✗ ${r.message}`, 'err')
+      })
+
+      saveBtn.addEventListener('click', async () => {
+        busy(true)
+        setStatus('Verifying and saving…', 'info')
+        // Verify before committing so a bad token doesn't get saved silently.
+        const test = await window.electronAPI.test(creds())
+        if (!test.ok) {
+          busy(false)
+          setStatus(`✗ ${test.message}`, 'err')
+          return
+        }
+        const r = await window.electronAPI.saveAndLaunch(creds())
+        if (!r.ok) {
+          busy(false)
+          setStatus(`✗ ${r.message}`, 'err')
+        }
+        // On success the main process navigates this window to the app.
+      })
+    </script>
+  </body>
+</html>

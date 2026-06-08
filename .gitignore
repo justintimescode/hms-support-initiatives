@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# electron-builder output (installers / packaged app)
+release/
+
 # Local secrets — Jira API credentials for the dev proxy
 .env
 .env.*.local

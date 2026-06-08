@@ -99,6 +99,8 @@ Magic-byte validation and a size ceiling are now applied before any parser touch
 
 **Remaining concern:** the project has two CSV-row builders (`toCsvRow` in `csv-export.js` and `escapeCsv`/`rowsToCsv` in `UpdateQueue.jsx`). Any *new* export feature must route through the sanitizer; consider consolidating onto a single shared builder so the guard can't be forgotten again. Every new export PR must be reviewed for sanitizer coverage.
 
+> **AUDIT NOTE (2026-06):** the Solution Proposed queue export (added with the `/solution-proposed` page) reuses the existing `exportUpdateQueueCsv` → `rowsToCsv`/`escapeCsv` path in `UpdateQueue.jsx` — **no new row builder was introduced**, so the `sanitizeCellForExport` guard still covers it. The accompanying change was cosmetic only: name-first filenames (`open-case-update-que-*`, `solution-proposed-update-que-*`).
+
 ---
 
 ### 8. Analyst param from URL (SQL injection risk)

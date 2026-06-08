@@ -236,6 +236,49 @@ Currently moot: no proxy is configured (#1), so no payload ever leaves the brows
 
 ---
 
+### 16. Dev-server middleware has no origin / host / auth check on data + proxy routes (NEW)
+**Status: OPEN**
+**Severity: Medium** (the authenticated Jira-proxy relay sub-case is higher impact)
+**Files:** `vite.config.js` — `jiraFileCachePlugin`, `snFileCachePlugin`, the `/api/jira` proxy
+
+The `npm run dev` server mounts middlewares that read, write, and delete data with **no `Origin`/`Host` validation, no CSRF token, and no authentication**:
+
+- `GET /api/cache/sn` and `GET /api/cache/sn/{uuid}/source` stream the **raw, unscrubbed customer case exports** (full PII) to any caller; `GET /api/cache/jira` returns the full cached Jira issue set.
+- The `DELETE` routes (`/api/cache/sn`, `/api/cache/sn/{uuid}`, `/api/cache/jira`) and the `PUT`/`POST` write routes let a caller wipe or overwrite the on-disk caches. The Jira `POST` streams an **unbounded** body to disk (no size cap) — a disk-fill DoS.
+- The `/api/jira` proxy injects the org-wide HTTP Basic token on **every** forwarded request and deliberately strips `Origin`/`Referer`/`Cookie` and sets `X-Atlassian-Token: no-check` (to defeat Atlassian's XSRF guard). Net effect: anything that can reach the dev server can drive **authenticated read/write calls against the entire Atlassian org** with the developer's token — a confused-deputy relay (see #13 for the token's scope).
+
+**Threat model:** the dev server binds to localhost by default (`server.host` is unset), so it is not reachable from the LAN — but it **is** reachable from any web page open in the developer's own browser. Cross-origin reads of the JSON/blob responses are normally blocked by the same-origin policy (no `Access-Control-Allow-Origin` is set on these routes — **verify Vite 8's default `server.cors` does not reflect the request origin**), but a **DNS-rebinding** attack (rebind an attacker domain to `127.0.0.1`) makes the requests same-origin and bypasses that, exposing customer data and the Jira relay to a malicious site. Simple cross-origin `POST`s (e.g. to the Jira cache) can also be issued with no preflight. Error paths call `res.end(err.message)`, which can leak absolute server filesystem paths.
+
+This is the **normal runtime**, not a developer-only edge case: live Jira sync and the disk mirror (#14) both require `npm run dev`. A static `vite build` has none of these middlewares, so deployed builds are unaffected.
+
+**Suggested fix:**
+- Reject requests whose `Host` is not `localhost`/`127.0.0.1`, and deny cross-site requests (`Sec-Fetch-Site: cross-site`, or an `Origin` allowlist) on every `/api/cache/*` and `/api/jira` route — this closes both CSRF and DNS-rebinding.
+- Require a per-session shared token (minted at dev-server start, handed to the client) on the mutating and data-returning routes.
+- Add a body-size cap to the cache write routes and return generic error messages instead of `err.message`.
+- Scope the Jira proxy to the specific REST paths the app actually calls rather than forwarding everything under `/api/jira`.
+
+---
+
+### 17. Unpatched transitive dependency advisories (NEW)
+**Status: OPEN**
+**Severity: Low** (transitive / mostly build-time; not clearly reachable in the browser bundle)
+**Files:** `package.json`, `package-lock.json`
+
+`npm audit` currently reports 4 advisories (1 high, 3 moderate), all transitive:
+
+- **`tmp` < 0.2.6** (high) — path traversal via unsanitized prefix/postfix (GHSA-ph9p-34f9-6g65). Node-side build tooling, not shipped to the browser.
+- **`qs` 6.11.x** (moderate) — `qs.stringify` DoS on null/undefined entries in comma-format arrays (GHSA-q8mj-m7cp-5q26). Build/Node-side.
+- **`uuid` < 11.1.1** via **`exceljs`** (moderate) — missing buffer bounds check in v3/v5/v6 **when `buf` is provided** (GHSA-w5hq-g745-h8pq). exceljs is dynamically imported for XLSX parsing, so uuid can reach the client, but the advisory only triggers when a caller passes a `buf` to uuid v3/v5/v6 — exceljs uses random v4, so it is not exercised here.
+
+Real-world exploitability in this app is low, but these should be tracked and patched, consistent with #5/#10's "keep parser/sanitizer libraries current."
+
+**Suggested fix:**
+- Run `npm audit fix` for `tmp`/`qs` (non-breaking).
+- **Do not run `npm audit fix --force`** — it "resolves" the uuid advisory by *downgrading* `exceljs` to 3.4.0, a major regression from the 4.4 line the project deliberately migrated to in #5. Instead track an upstream `exceljs` release that bumps `uuid`, or accept the low risk with a note.
+- Re-run `npm audit` in CI so new advisories surface on each dependency change.
+
+---
+
 ## Summary
 
 | # | Issue | Severity | Status |
@@ -255,3 +298,5 @@ Currently moot: no proxy is configured (#1), so no payload ever leaves the brows
 | 13 | Jira API token in plaintext `.env` (+ token leaked to GitLab) | Informational | OPEN (by design) — **leaked token must be revoked** |
 | 14 | ServiceNow imports mirrored to plaintext disk files | Informational | MOSTLY RESOLVED — **NEW**: opt-in & OFF by default; delete/sweep fixed; plaintext when opted in |
 | 15 | AI free-text scrub is heuristic / incomplete | Informational | OPEN (latent — proxy not deployed) — **NEW** |
+| 16 | Dev-server middleware: no origin/host/auth on data + Jira-proxy routes | Medium | OPEN — **NEW** |
+| 17 | Unpatched transitive dependency advisories (`npm audit`) | Low | OPEN — **NEW** |

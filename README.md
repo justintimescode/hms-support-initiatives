@@ -545,7 +545,7 @@ npm run lint     # run ESLint
 
 ## Security
 
-See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (15 items, with statuses). Summary of the current posture:
+See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items, with statuses). Summary of the current posture:
 
 - **Customer data** stays on the machine. The only *network* egress is the optional AI proxy call, which scrubs PII (case numbers, account names, analyst names, emails) before leaving the browser. The AI proxy is not yet deployed, so today the feature is inert and nothing leaves the browser.
 - **Jira credentials** are read server-side by the Vite dev proxy and never bundled into client code.

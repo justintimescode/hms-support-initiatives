@@ -7,6 +7,7 @@ A browser-based analytics dashboard for ServiceNow case exports. Upload a CSV or
 ## Table of Contents
 
 - [Getting Started](#getting-started)
+- [Desktop App (Windows)](#desktop-app-windows)
 - [Architecture Overview](#architecture-overview)
 - [Data Ingestion](#data-ingestion)
 - [Pages & Features](#pages--features)
@@ -35,6 +36,39 @@ npm run dev
 Open `http://localhost:5173`, go to **Connections**, and drop a ServiceNow case export (CSV or XLSX). Every other page populates automatically.
 
 For Jira live sync, copy `.env.example` to `.env`, fill in your Atlassian email and API token, and restart the dev server. The token is read once at startup by Vite's Node-side proxy config and never reaches the browser bundle.
+
+> Distributing to teammates who don't run a dev server? See [Desktop App (Windows)](#desktop-app-windows) — it ships the same app as a double-click installer with a built-in Jira setup screen.
+
+---
+
+## Desktop App (Windows)
+
+The app is **not** a static website: live Jira sync and the disk caches depend on Node-side middleware that only runs under `npm run dev` (the `/api/jira` auth proxy and the `/api/cache/*` file stores in `vite.config.js`). To hand a working build to teammates who don't have Node installed, it's packaged as an **Electron desktop app**.
+
+Electron's main process runs a tiny loopback HTTP server (`electron/server.cjs`) that reimplements those three routes, then loads the built SPA from it — so the React code runs unchanged, with no CORS and the Jira token kept server-side. The caches move to the per-user `userData` directory (`%APPDATA%\KPI Analyzer\`) since a packaged app folder is read-only.
+
+### Building the installer
+
+```bash
+npm install              # first time only — pulls electron + electron-builder
+npm run electron:build   # → release/KPI Analyzer Setup <version>.exe
+```
+
+Share the resulting `.exe` from `release/` via a network share / SharePoint. Teammates double-click to install — no Node, no terminal, no `npm install`.
+
+To run the packaged app locally during development (builds `dist/`, then launches Electron against it):
+
+```bash
+npm run electron:dev
+```
+
+### First-run setup & credentials
+
+On first launch the app shows a **setup screen** (`electron/setup.html`): Jira site URL, Atlassian email, and API token, with a link to Atlassian's token page and a **Test connection** button that verifies against `/myself` before saving. Credentials are stored **per user, encrypted via Electron `safeStorage`** (Windows DPAPI — keyed to the Windows login, useless if copied elsewhere) at `%APPDATA%\KPI Analyzer\credentials.enc`. This replaces the dev-only plaintext `.env`; each teammate enters their own token, so Jira access is scoped to their own permissions.
+
+Credentials can be changed or cleared later from the **File** menu (*Reconfigure Jira credentials* / *Clear saved credentials*).
+
+> The desktop build only covers the Jira proxy + caches. The optional AI proxy (`VITE_AI_PROXY_URL`) is a build-time variable and is not wired into the setup screen; it stays disabled in packaged builds unless baked in at `npm run build` time.
 
 ---
 
@@ -535,10 +569,12 @@ All variables live in `.env` (gitignored). Copy `.env.example` to get started.
 ## Other Commands
 
 ```bash
-npm run dev      # start dev server with Jira proxy
-npm run build    # production build (no Jira proxy, no live sync)
-npm run preview  # preview the production build locally
-npm run lint     # run ESLint
+npm run dev             # start dev server with Jira proxy
+npm run build           # production build (no Jira proxy, no live sync)
+npm run preview         # preview the production build locally
+npm run lint            # run ESLint
+npm run electron:dev    # build + launch the Electron desktop app locally
+npm run electron:build  # build the Windows installer → release/
 ```
 
 ---

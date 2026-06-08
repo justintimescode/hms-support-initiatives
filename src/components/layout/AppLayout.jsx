@@ -1,6 +1,6 @@
 import { Outlet, NavLink } from "react-router-dom";
 import {
-  LayoutDashboard, Sun, ClipboardList, FileBarChart,
+  LayoutDashboard, Sun, ClipboardList, ClipboardCheck, FileBarChart,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban,
   ExternalLink, BarChart3,
@@ -19,6 +19,7 @@ const NAV_GROUPS = [
       { to: "/",             label: "Dashboard",    icon: LayoutDashboard },
       { to: "/my-day",       label: "My Day",       icon: Sun },
       { to: "/update-queue", label: "Update Queue", icon: ClipboardList },
+      { to: "/solution-proposed", label: "Solution Proposed", icon: ClipboardCheck },
       { to: "/report",       label: "Monthly Summary", icon: FileBarChart },
     ],
   },
@@ -79,44 +80,17 @@ export function AppLayout() {
 }
 
 function InforLogo({ height = 28 }) {
-  // Infor wordmark — lowercase, heavy weight, with the brand's signature
-  // triangular tittle above the "i" (using the dotless ı + an SVG wedge so
-  // there's no fight with the font's own dot).
-  const wedgeW = height * 0.22;
-  const wedgeH = height * 0.34;
-  const wedgeLeft = height * 0.04;
-  const wedgeTop = -height * 0.06;
+  // Official Infor wordmark — transparent PNG trimmed to its content bounds
+  // (src/../public/infor-logo.png). Rendered by height so it stays crisp and
+  // keeps its native aspect ratio.
   return (
-    <div
-      role="img"
-      aria-label="Infor"
-      style={{
-        position: "relative",
-        display: "inline-block",
-        fontFamily: "Geist, system-ui, sans-serif",
-        fontWeight: 900,
-        fontSize: height,
-        color: T.accent,
-        letterSpacing: "-0.045em",
-        lineHeight: 1,
-        userSelect: "none",
-      }}
-    >
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          left: wedgeLeft,
-          top: wedgeTop,
-          width: 0,
-          height: 0,
-          borderLeft: `${wedgeW}px solid ${T.accent}`,
-          borderRight: 0,
-          borderBottom: `${wedgeH}px solid transparent`,
-        }}
-      />
-      <span style={{ fontFeatureSettings: '"ss01"' }}>ınfor</span>
-    </div>
+    <img
+      src="/infor-logo.png"
+      alt="Infor"
+      height={height}
+      draggable={false}
+      style={{ height, width: "auto", display: "block", userSelect: "none" }}
+    />
   );
 }
 

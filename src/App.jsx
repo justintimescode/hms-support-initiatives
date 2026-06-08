@@ -19,6 +19,7 @@ import InsightsPage from "./pages/InsightsPage.jsx";
 import CasesPage from "./pages/CasesPage.jsx";
 import SurveysPage from "./pages/SurveysPage.jsx";
 import UpdateQueuePage from "./pages/UpdateQueuePage.jsx";
+import SolutionProposedQueuePage from "./pages/SolutionProposedQueuePage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
 import NotFoundPage from "./pages/NotFoundPage.jsx";
 import Connections from "./pages/Connections.jsx";
@@ -48,6 +49,7 @@ export default function App() {
           <Route path="/cases" element={<CasesPage />} />
           <Route path="/surveys" element={<SurveysPage />} />
           <Route path="/update-queue" element={<UpdateQueuePage />} />
+          <Route path="/solution-proposed" element={<SolutionProposedQueuePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/connections" element={<Connections />} />
           <Route path="/" element={<Home />} />

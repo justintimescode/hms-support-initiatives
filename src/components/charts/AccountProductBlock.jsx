@@ -3,15 +3,23 @@ import { T } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 
 /* ================= Accounts / Products ================= */
-export function AccountProductBlock({ accountData, productData }) {
+export function AccountProductBlock({ accountData, productData, scrollAccounts = false }) {
   const max = Math.max(...accountData.map((c) => c.count), 1);
   const COLORS = [T.accent, "#6B7A8F", T.ok, T.warn, "#8A5C9E", "#7A8F6B", "#B88A4C", "#8F6B7A"];
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 12 }}>
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Top accounts by case volume</div>
+        <div className="eyebrow" style={{ color: T.muted }}>
+          Top accounts by case volume{scrollAccounts ? ` · ${accountData.length}` : ""}
+        </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Customers driving the most cases. A heavily concentrated list can signal an unstable customer or one ripe for a deeper review.</div>
-        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div
+          className={scrollAccounts ? "scrollbar" : undefined}
+          style={{
+            marginTop: 16, display: "flex", flexDirection: "column", gap: 8,
+            ...(scrollAccounts ? { maxHeight: 380, overflowY: "auto", paddingRight: 6 } : null),
+          }}
+        >
           {accountData.map((a) => (
             <div key={a.name} style={{ display: "grid", gridTemplateColumns: "1fr 60px", alignItems: "center", gap: 12, fontSize: 13 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

@@ -704,6 +704,20 @@ export function useAppData() {
       .slice(0, 30)
   }, [enriched])
 
+  // Uncapped variant of `accountData` (no top-30 slice) for the standalone
+  // Accounts & Products page, which lists every serviced account in a scrollable
+  // panel. Same analyst/date filtering as `accountData`; only the cap differs.
+  const accountDataAll = useMemo(() => {
+    const groups = {}
+    for (const r of enriched) {
+      const a = r.account || "Unknown"
+      groups[a] = (groups[a] || 0) + 1
+    }
+    return Object.entries(groups)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [enriched])
+
   const productData = useMemo(() => {
     const groups = {}
     for (const r of enriched) {
@@ -800,7 +814,7 @@ export function useAppData() {
     compareWindow, compareEnriched,
     kpis, compareKpis,
     teamMembers, teamMembersAll, compareTeamKpis,
-    priorityData, categoryData, accountData, productData,
+    priorityData, categoryData, accountData, accountDataAll, productData,
     // ai
     aiState, runAiAnalysis, memberAi, runMemberAi,
     drillIntoMember,

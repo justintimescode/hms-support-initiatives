@@ -200,6 +200,13 @@ export async function getProductData({ analyst, dateRange } = {}) {
  * @param {object} args
  * @param {string|null} [args.analyst]   '__all__' or assignee
  * @param {number} args.snapshotMs       epoch ms anchor for "now"
+ * @param {string|null} [args.statusEquals] when set, scope the queue to cases
+ *   whose `status` column equals this value (case-insensitive, trimmed). The
+ *   default (`null`) leaves the query — SQL and params — identical to before.
+ * @param {boolean} [args.includeClosed] when true, do NOT apply the
+ *   `NOT is_closed` filter. Needed for status scopes that ride on a resolved
+ *   `state` (e.g. `Solution Proposed` cases sit in state=Resolved but still owe
+ *   a cadence update). Default `false` preserves the open-only queue.
  * @returns {Promise<{
  *   snapshotMs: number,
  *   overdue: object[],
@@ -208,7 +215,7 @@ export async function getProductData({ analyst, dateRange } = {}) {
  *   summary: { overdue: number, dueSoon: number, initialMisses: number },
  * }>}
  */
-export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
+export async function getUpdateQueue({ analyst, snapshotMs, statusEquals = null, includeClosed = false } = {}) {
   if (snapshotMs == null) {
     return {
       snapshotMs: null,
@@ -219,12 +226,27 @@ export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
     }
   }
 
-  // Build the analyst filter (reuse the same helper). Date filter is NOT
-  // applied — the queue is always "right now" against the snapshot.
-  const { sql: where, params: analystParams } = buildWhere({ analyst })
-
   // Anchored snapshot as a real TIMESTAMP literal we can subtract from in SQL.
   const snapshotIso = new Date(snapshotMs).toISOString()
+
+  // Row filters shared by both queries, composed as a list so the WHERE clause
+  // builds cleanly no matter which are active. The snapshot `?` lives in each
+  // SELECT (before the WHERE), so these params bind right after it. Date filter
+  // is NOT applied — the queue is always "right now" against the snapshot.
+  // Defaults (no analyst, includeClosed=false, statusEquals=null) reproduce the
+  // original `WHERE NOT is_closed` exactly, both SQL and params.
+  const filterConds = []
+  const filterParams = []
+  if (analyst && analyst !== '__all__') {
+    filterConds.push('assigned_to = ?')
+    filterParams.push(analyst)
+  }
+  if (!includeClosed) filterConds.push('NOT is_closed')
+  if (statusEquals != null) {
+    filterConds.push('lower(trim(status)) = lower(trim(?))')
+    filterParams.push(statusEquals)
+  }
+  const whereClause = filterConds.length ? `WHERE ${filterConds.join(' AND ')}` : ''
 
   // Bucket SQL — fed snapshotMs (as TIMESTAMP) plus WARN_FRACTION and
   // DEV_JIRA_CHECK_MS from sop-thresholds.js. The CASE expression keys off
@@ -248,7 +270,7 @@ export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
           coalesce(epoch_ms(last_infor_update), epoch_ms(created_at)) AS elapsed_ms,
         last_infor_update IS NULL AS no_infor_update_yet
       FROM cases
-      ${where ? where + ' AND' : 'WHERE'} NOT is_closed
+      ${whereClause}
     )
     SELECT
       *,
@@ -264,7 +286,7 @@ export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
     WHERE update_threshold_ms IS NOT NULL
     ORDER BY (elapsed_ms::DOUBLE / NULLIF(update_threshold_ms, 0)) DESC NULLS LAST
   `
-  const bucketRows = await dbClient.query(bucketSql, [snapshotIso, ...analystParams])
+  const bucketRows = await dbClient.query(bucketSql, [snapshotIso, ...filterParams])
 
   // Initial-response misses. priority_rank ∉ INITIAL_RESPONSE_MS → no target,
   // skip. Build a CASE expression instead of one query per priority.
@@ -289,14 +311,12 @@ export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
           ELSE NULL
         END AS target_ms
       FROM cases
-      ${where ? where + ' AND' : 'WHERE'} NOT is_closed
-        AND frt_ms IS NULL
-        AND created_at IS NOT NULL
+      WHERE ${[...filterConds, 'frt_ms IS NULL', 'created_at IS NOT NULL'].join('\n        AND ')}
     )
     WHERE target_ms IS NOT NULL AND age_ms > target_ms
     ORDER BY age_ms DESC
   `
-  const irRows = await dbClient.query(irSql, [snapshotIso, ...analystParams])
+  const irRows = await dbClient.query(irSql, [snapshotIso, ...filterParams])
 
   // Bucket the bucketRows into overdue / dueSoon. Cases with bucket='ok' are
   // excluded from the UI (no signal to surface).

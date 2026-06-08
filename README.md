@@ -110,7 +110,7 @@ The sidebar is organized into five groups. All pages respect the global analyst 
 Top-line KPI summary cards for the current view: total cases, open/closed counts, SLA rate, **median resolution time** (with p90 and average shown alongside — the median is the typical case, the p90 reveals the long tail the average hides), at-risk count, and breached count. Includes delta indicators when period comparison is active. Quick-access shortcut cards to Update Queue, SLA, and Team Leaderboard.
 
 #### My Day (`/my-day`)
-A personal triage landing page for a single analyst — a focused recomposition of data from the Update Queue and Backlog, scoped to whoever is selected. Pick an analyst (or use the top-bar selector) and see, in one screen: **overdue customer updates** (from the snapshot-anchored Update Queue), **SLA at risk** (breached / due < 24h / due this week on open cases), **stuck cases** (open 30 days+), and **Jira-blocked** open cases. Four summary tiles link to the full pages. This page deliberately **ignores the global date-range filter** — it reflects live open work, not a historical window.
+A personal triage landing page for a single analyst — a focused recomposition of data from the Update Queue and Backlog, scoped to whoever is selected. Pick an analyst (or use the top-bar selector) and see, in one screen: **overdue customer updates** (from the snapshot-anchored Update Queue), **updates due soon** (approaching the SOP cadence but not yet overdue), **SLA at risk** (breached / due < 24h / due this week on open cases), **stuck cases** (open 30 days+), and **Jira-blocked** open cases. Four summary tiles link to the full pages. This page deliberately **ignores the global date-range filter** — it reflects live open work, not a historical window.
 
 #### Monthly Summary (`/report`)
 A manager-ready, print-first **period-over-period** report. Computes a current window (30 / 60 / 90 days, anchored to the data snapshot) against the immediately-preceding equal window, across the full dataset (independent of the global filters). Headline KPIs carry deltas — cases created, SLA %, median resolution, average FRT, FCR %, reopen % — followed by a backlog outlook (open now, net/week, projected clear), an accounts-to-watch table (from the churn-risk signal), and a per-analyst snapshot. A **Print / Save as PDF** button produces a clean one-pager (the app chrome is `.no-print`). Also reachable from the top-bar **Print** menu.
@@ -132,7 +132,10 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 
 **Initial Response Misses** — open cases with no first response logged that have been open longer than their priority's initial-response target (P1: 30m, P2/P3: 2h, P4: 4h). Clicking any row in the overdue/due-soon table opens a `CaseDrilldown` panel.
 
-**CSV export** — the queue can be exported to a timestamped `.csv` (`YYYYMMDD-HHMMSS-updatequeue.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
+**CSV export** — the queue can be exported to a name-first, timestamped `.csv` (`open-case-update-que-YYYYMMDD-HHMMSS.csv`; the Solution Proposed queue exports as `solution-proposed-update-que-YYYYMMDD-HHMMSS.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
+
+#### Solution Proposed (`/solution-proposed`)
+The same SOP cadence engine as the Update Queue, scoped to cases sitting in the ServiceNow `Solution Proposed` status (resolved pending customer confirmation, but still owing an Infor-authored cadence update). It reuses the exact overdue/due-soon logic and look: `getUpdateQueue()` is generalized with a `statusEquals` filter and an `includeClosed` flag, because a proposed solution moves the case to a resolved `state` while `status` stays `Solution Proposed` — so the queue's default open-only filter would otherwise hide every one of them. The Initial Response section is dropped (first-response targets don't apply to already-proposed solutions). Exports through the same sanitized CSV path.
 
 ### Performance
 
@@ -157,7 +160,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 - Daily open-case trajectory line chart from the oldest record to today.
 - Weekly created-vs-resolved bar chart with a rolling 4-week net line. A net above zero means the backlog grew that week.
 - Optional date-range highlight band overlaid on both charts.
-- **Backlog burn-down forecast** — a simple linear projection: takes the recent 4-week average net (created − resolved) and extends the current open backlog forward, showing open-now, net/week, and a projected weeks-to-clear + clear date (or "not clearing" when intake ≥ resolution). The chart overlays the actual open trajectory with a dashed forecast line. Explicitly a straight-line estimate, not a model. (`backlogForecast()` in `stats.js`.)
+- **Backlog burn-down forecast** — a Monte Carlo projection rather than a single straight line. It bootstraps from the recent *mature* weekly history (each simulated future week replays a real past week's created/resolved pair, with resolution capped by what's actually open), runs ~2,000 trials, and reports a **p10–p90 cone** around the **p50 median** plus the probability the backlog clears and a median weeks-to-clear + clear date. Inputs are de-biased first: "now" is anchored to the snapshot and the resolution-immature tail (recent weeks whose cases haven't closed yet) is dropped before sampling, while the charted history is trimmed of its cold-start ramp. The chart overlays the actual open trajectory with the forecast cone. (`backlogForecast()` in `stats.js`.)
 
 #### Workload Cadence (`/cadence`)
 - Weekday bar charts: average open caseload by day of week, and case creation count by day of week.
@@ -173,7 +176,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 - Categories are derived by scanning `short_description` and `close_notes` for keyword patterns defined in `enrich.js`.
 
 #### Accounts & Products (`/accounts`)
-- Top 30 accounts by case volume (bar chart).
+- Every serviced account ranked by case volume, in a scrollable bar list (this standalone page is uncapped and shows the account count; the Dashboard's account block still shows only the top 30).
 - Product line breakdown.
 - Helps spot account concentration risk and recurring product hotspots.
 - **Account churn-risk signal** — ranks accounts by a transparent composite of three pressures: rising case volume (last 90 days vs the prior 90), falling SLA over the same comparison, and open Jira-blocked / breached cases right now. The contributing signals are shown as chips so the ranking is explainable. Uses the full dataset across all analysts, anchored to the snapshot. (`accountChurnRisk()` in `stats.js`.)
@@ -189,7 +192,7 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 #### Team Leaderboard (`/team`)
 Sortable table with one row per analyst: total cases, open cases, SLA %, average resolution time, **median · p90 resolution**, average first response time, at-risk count, breached count. Click any analyst name to drill into their full individual dashboard.
 
-**Member profiles** — condensed card per analyst showing priority mix bar chart, top 3 categories, top 3 accounts, and key KPIs. "Open full dashboard →" button drills into the analyst's individual view.
+**Member profiles** — condensed card per analyst showing priority mix bar chart, top 3 categories, top 3 accounts, and key KPIs. Clicking a card opens an **Analyst Profile modal** (`AnalystProfileModal.jsx`) — full per-analyst KPIs, quality signals, SLA-risk and stuck-case blocks, and the per-analyst AI insights path — without leaving the leaderboard. An "Open full dashboard →" action instead drills into the analyst's filtered individual view.
 
 **Resolution Quality** — two manager-grade quality signals plus a per-analyst breakdown:
 - **First-contact resolution (FCR)** — share of closed cases resolved in ≤1 analyst touch (approximated from Infor-authored journal turns). Higher is better.
@@ -411,7 +414,7 @@ CSV files are streamed through PapaParse in 10,000-row chunks. Each chunk is enr
 | `getCategoryData()` | Per-category counts |
 | `getAccountData()` | Top 30 accounts by volume |
 | `getProductData()` | Per-product-line counts |
-| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists |
+| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists (optional `statusEquals` / `includeClosed` scope the same engine to a status, e.g. Solution Proposed) |
 
 All queries use parameterized statements (`conn.prepare()` + `stmt.query(...params)`). User-controlled inputs (analyst name, date range) are never interpolated into SQL strings.
 
@@ -542,7 +545,7 @@ npm run lint     # run ESLint
 
 ## Security
 
-See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (15 items, with statuses). Summary of the current posture:
+See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items, with statuses). Summary of the current posture:
 
 - **Customer data** stays on the machine. The only *network* egress is the optional AI proxy call, which scrubs PII (case numbers, account names, analyst names, emails) before leaving the browser. The AI proxy is not yet deployed, so today the feature is inert and nothing leaves the browser.
 - **Jira credentials** are read server-side by the Vite dev proxy and never bundled into client code.
@@ -550,5 +553,5 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (15 items,
 - **File uploads** are validated by magic bytes and a 50 MB size ceiling before parsing.
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
-- **CSV export** (Update Queue) routes every cell through the formula-injection sanitizer in `src/lib/csv-export.js`.
+- **CSV exports** (Update Queue + Solution Proposed) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via a single shared `rowsToCsv`/`escapeCsv` path.
 - **Production builds** ship a Content-Security-Policy meta tag.

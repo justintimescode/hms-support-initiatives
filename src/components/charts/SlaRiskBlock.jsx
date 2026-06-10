@@ -18,8 +18,8 @@ export function SlaRiskBlock({ rows }) {
     return rows
       .filter((r) => !r._isClosed && slaRiskOf(r, now) === selected)
       .sort((a, b) => {
-        const ad = a._slaDue ? a._slaDue.getTime() : Infinity;
-        const bd = b._slaDue ? b._slaDue.getTime() : Infinity;
+        const ad = a._slaDueSop ? a._slaDueSop.getTime() : Infinity;
+        const bd = b._slaDueSop ? b._slaDueSop.getTime() : Infinity;
         return ad - bd;
       });
   }, [rows, selected]);

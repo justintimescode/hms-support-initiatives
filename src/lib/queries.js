@@ -62,15 +62,15 @@ export async function getKpis({ analyst, dateRange } = {}) {
       COUNT_IF(is_closed)::BIGINT AS closed,
       COUNT_IF(NOT is_closed)::BIGINT AS open,
       COUNT_IF(sla_eligible)::BIGINT AS sla_eligible,
-      COUNT_IF(sla_eligible AND made_sla)::BIGINT AS sla_met,
+      COUNT_IF(sla_eligible AND NOT sla_breached)::BIGINT AS sla_met,
       CASE WHEN COUNT_IF(sla_eligible) > 0
-        THEN COUNT_IF(sla_eligible AND made_sla) * 100.0 / COUNT_IF(sla_eligible)
+        THEN COUNT_IF(sla_eligible AND NOT sla_breached) * 100.0 / COUNT_IF(sla_eligible)
         ELSE NULL
       END AS sla_rate,
       AVG(CASE WHEN is_closed AND resolved_ms IS NOT NULL THEN resolved_ms::DOUBLE END) AS avg_res,
       AVG(frt_ms::DOUBLE) AS avg_frt,
-      COUNT_IF(NOT is_closed AND sla_due IS NOT NULL AND sla_due > now() AND sla_due < now() + INTERVAL 24 HOUR)::BIGINT AS at_risk_count,
-      COUNT_IF(NOT is_closed AND sla_due IS NOT NULL AND sla_due < now())::BIGINT AS breached_count
+      COUNT_IF(NOT is_closed AND sla_due_sop IS NOT NULL AND sla_due_sop > now() AND sla_due_sop < now() + INTERVAL 24 HOUR)::BIGINT AS at_risk_count,
+      COUNT_IF(NOT is_closed AND sla_due_sop IS NOT NULL AND sla_due_sop < now())::BIGINT AS breached_count
     FROM cases
     ${where}
     `,
@@ -100,7 +100,8 @@ export async function getCompareKpis({ analyst, compareWindow, field } = {}) {
 /**
  * Per-priority breakdown — matches the in-memory `priorityData` memo shape:
  * `{ priority, total, closed, sla_met, sla_total, res_sum, res_n, sla_pct,
- * avg_res_h, color }`. SLA eligibility = `sla_eligible` (made_sla non-empty);
+ * avg_res_h, color }`. SLA eligibility = `sla_eligible` (has an SOP cadence);
+ * "met" = eligible AND NOT `sla_breached` (the SOP cadence was held);
  * resolution average is over rows with a resolved_ms (created+closed), not
  * gated on is_closed, matching `_resolvedMs`. Ordered by priority rank.
  */
@@ -112,7 +113,7 @@ export async function getPriorityData({ analyst, dateRange } = {}) {
       CASE WHEN priority IS NULL OR priority = '' THEN 'Unknown' ELSE priority END AS priority,
       COUNT(*)::BIGINT AS total,
       COUNT_IF(is_closed)::BIGINT AS closed,
-      COUNT_IF(sla_eligible AND made_sla)::BIGINT AS sla_met,
+      COUNT_IF(sla_eligible AND NOT sla_breached)::BIGINT AS sla_met,
       COUNT_IF(sla_eligible)::BIGINT AS sla_total,
       SUM(resolved_ms) FILTER (WHERE resolved_ms IS NOT NULL)::DOUBLE AS res_sum,
       COUNT(*) FILTER (WHERE resolved_ms IS NOT NULL)::BIGINT AS res_n,

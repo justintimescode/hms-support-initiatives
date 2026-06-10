@@ -577,7 +577,12 @@ export function useAppData() {
     return [...set.entries()].sort((a, b) => b[1] - a[1])
   }, [rows])
 
-  const enrichedAll = useMemo(() => (rows ? rows.map(enrichRow) : []), [rows])
+  // Pass the active import's upload time as the SOP-SLA snapshot anchor so the
+  // in-memory pipeline bakes the same cadence-breach verdict as the SQL worker.
+  const enrichedAll = useMemo(
+    () => (rows ? rows.map((r) => enrichRow(r, snapshotMs ?? undefined)) : []),
+    [rows, snapshotMs],
+  )
 
   const jiraIssueMap = useMemo(() => {
     const m = new Map()
@@ -663,9 +668,9 @@ export function useAppData() {
       groups[p] = groups[p] || { priority: p, total: 0, closed: 0, sla_met: 0, sla_total: 0, res_sum: 0, res_n: 0 }
       groups[p].total++
       if (r._isClosed) groups[p].closed++
-      if (r.made_sla !== "" && r.made_sla != null) {
+      if (r._slaEligible) {
         groups[p].sla_total++
-        if (r._madeSla) groups[p].sla_met++
+        if (!r._slaBreached) groups[p].sla_met++
       }
       if (r._resolvedMs != null) {
         groups[p].res_sum += r._resolvedMs
@@ -745,7 +750,8 @@ export function useAppData() {
       short_description: r.short_description,
       close_notes: r.close_notes ? String(r.close_notes).slice(0, 400) : "",
       resolution_hours: r._resolvedMs != null ? +(r._resolvedMs / 36e5).toFixed(1) : null,
-      made_sla: r._madeSla,
+      // SOP-cadence SLA outcome (null when the case has no defined cadence).
+      sla_met: r._slaEligible ? !r._slaBreached : null,
     }))
     const localKpis = computeKpis(rowsIn)
     const cats = topCounts(rowsIn, (r) => r._category, 6)

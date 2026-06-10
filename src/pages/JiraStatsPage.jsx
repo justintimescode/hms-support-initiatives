@@ -195,7 +195,7 @@ function CrossSource({ blast, hasSn }) {
                     <React.Fragment key={b.key}>
                       <tr onClick={() => expandRow(b)} className="hoverlift"
                         style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isExpanded ? T.surfaceAlt : "transparent" }}>
-                        <td className="mono" style={{ padding: "9px 12px", color: T.accent, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}</td>
+                        <td className="mono" style={{ padding: "9px 12px", color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}</td>
                         <td style={{ padding: "9px 12px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.ink }} title={b.summary}>{b.summary || (b.hasLive ? "" : "(not in synced project)")}</td>
                         <td style={{ padding: "9px 12px", color: T.sub, whiteSpace: "nowrap" }}>{b.issueType}</td>
                         <td style={{ padding: "9px 12px", whiteSpace: "nowrap", color: priorityColor(b.priority), fontWeight: 600 }}>{b.priority || "—"}</td>
@@ -368,8 +368,8 @@ function Lifecycle({ issues, blast, hasSn }) {
                 {stale.map((b) => (
                   <div key={b.key} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center", fontSize: 12 }}>
                     {b.url
-                      ? <a href={b.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.accent, fontWeight: 600, textDecoration: "none" }}>{b.key}</a>
-                      : <span className="mono" style={{ color: T.accent, fontWeight: 600 }}>{b.key}</span>}
+                      ? <a href={b.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.jiraBlue, fontWeight: 600, textDecoration: "none" }}>{b.key}</a>
+                      : <span className="mono" style={{ color: T.jiraBlue, fontWeight: 600 }}>{b.key}</span>}
                     <span className="mono" style={{ color: T.warn }}>{b.daysSinceUpdate}d idle</span>
                     <span className="mono" style={{ color: T.sub }}>{b.openCount} open</span>
                   </div>
@@ -417,8 +417,8 @@ function Lifecycle({ issues, blast, hasSn }) {
                                 {v.issues.map((it) => (
                                   <div key={it.key} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
                                     {it.url
-                                      ? <a href={it.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.accent, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>{it.key}</a>
-                                      : <span className="mono" style={{ color: T.accent, fontWeight: 600, whiteSpace: "nowrap" }}>{it.key}</span>}
+                                      ? <a href={it.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.jiraBlue, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>{it.key}</a>
+                                      : <span className="mono" style={{ color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{it.key}</span>}
                                     <span style={{ color: T.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={it.summary}>{it.summary}</span>
                                     <span className="mono" style={{ color: it.openCount > 0 ? T.ink : T.muted, whiteSpace: "nowrap" }}>{it.openCount} open</span>
                                   </div>

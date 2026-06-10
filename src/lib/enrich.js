@@ -15,13 +15,17 @@ import {
   DEV_STATUS_MARKERS,
   DEV_HARD_RULE_MS,
   SUPPORT_THRESHOLDS_MS,
+  INITIAL_RESPONSE_MS,
 } from './sop-thresholds.js'
 
 // Bump when enrichForSql / SQL_COLUMNS change. Each persisted import records the
 // version it was built with; on boot, imports older than this are flagged in the
 // file manager with a "Rebuild needed" badge (re-parses the stored source blob).
 // Single source of truth — imported by the DuckDB worker.
-export const SCHEMA_VERSION = '4'
+// v5: SLA compliance re-based on the Infor SOP response cadence (computeSlaSop)
+// instead of ServiceNow's first-response-only `Made SLA` flag — adds the
+// `sla_breached` / `sla_due_sop` columns and redefines `sla_eligible`.
+export const SCHEMA_VERSION = '5'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -257,22 +261,113 @@ export function parseInteractions(text) {
   return { totalTurns: matches.length, customerTurns, analystTurns }
 }
 
-/** Walk a journal text and return the latest Infor-authored entry timestamp
- *  plus the total count of Infor-authored entries. Used to compute
- *  `last_infor_update` for the Update Queue. Entries without an Infor author
+/** Walk a journal text and return the Infor-authored update timeline: the
+ *  sorted list of entry timestamps (ms), the latest one, and the count. Used to
+ *  compute `last_infor_update` for the Update Queue AND the per-gap cadence the
+ *  SOP-SLA check needs (see `computeSlaSop`). Entries without an Infor author
  *  (customer replies, system events) are ignored. */
 export function parseInforUpdates(text) {
-  if (!text) return { lastTs: null, count: 0 }
-  let lastTs = null
-  let count = 0
+  if (!text) return { lastTs: null, count: 0, times: [] }
+  const times = []
   for (const m of String(text).matchAll(WORK_NOTE_HEADER)) {
     if (!ANALYST_AUTHOR.test(m[2])) continue
     const d = parseDate(m[1])
     if (!d) continue
-    count++
-    if (!lastTs || d > lastTs) lastTs = d
+    times.push(d.getTime())
   }
-  return { lastTs, count }
+  times.sort((a, b) => a - b)
+  const lastTs = times.length ? new Date(times[times.length - 1]) : null
+  return { lastTs, count: times.length, times }
+}
+
+/** The "real" SLA per Infor SOP — the response-cadence SLA, NOT ServiceNow's
+ *  `Made SLA` flag (which only judges the first response and ignores cadence).
+ *
+ *  A case is SLA-eligible when it has a defined SOP cadence (`cadenceMs`):
+ *  support cases get a per-priority cadence (SUPPORT_THRESHOLDS_MS); development
+ *  cases get the 30-day hard rule (both via `classifyCase`). Cases with no
+ *  cadence (no priority / unclassifiable) are excluded from the SLA %.
+ *
+ *  It BREACHES (lifetime view — judged across the whole case, open or closed) if
+ *  either of:
+ *    (1) Initial response — the first Infor response missed the priority's
+ *        first-response target (`initialMs`, INITIAL_RESPONSE_MS). Measured from
+ *        the recorded FRT when present, else the first journal entry, else (no
+ *        response at all) the time elapsed to `end`.
+ *    (2) Cadence — any gap between consecutive Infor updates, or the trailing
+ *        gap from the last update to the case end, exceeded the cadence. `end`
+ *        is the close time for closed cases and the data snapshot for open ones.
+ *
+ *  `breachReason` attributes a breach to its first point of failure
+ *  ('initial' | 'cadence' | null) so the SLA % can be split by *why* cases miss
+ *  — initial takes precedence, so the two buckets sum to the total missed.
+ *
+ *  `dueSop` (open cases only) is the SOP "next update due" deadline that drives
+ *  the At-Risk / Breach-Forecast / SLA-Risk surfaces: last update + cadence, or
+ *  before any response, creation + the (tighter) first-response target.
+ *
+ *  Pure of wall-clock: callers pass `snapshotMs` (the data-as-of anchor) so the
+ *  result is deterministic for a given dataset and identical across both
+ *  pipelines (in-memory `enrichRow` and the DuckDB worker's `enrichForSql`). */
+export function computeSlaSop({
+  createdMs,
+  closedMs,
+  isClosed,
+  frtMs,
+  updateTimes,
+  cadenceMs,
+  initialMs,
+  snapshotMs,
+}) {
+  if (cadenceMs == null || createdMs == null) {
+    return { eligible: false, breached: false, breachReason: null, dueSop: null }
+  }
+  const end = isClosed ? (closedMs ?? null) : (snapshotMs ?? Date.now())
+  const ts = updateTimes || []
+  let initialBreached = false
+  let cadenceBreached = false
+
+  // (1) Initial-response component — folds the priority's tighter first-response
+  //     target into the SLA. Prefer the recorded FRT; fall back to the first
+  //     Infor journal entry; if there is no response at all, judge the silence
+  //     since creation against the target.
+  if (initialMs != null) {
+    const firstResponseMs =
+      frtMs != null ? frtMs : ts.length ? ts[0] - createdMs : null
+    if (firstResponseMs != null) {
+      if (firstResponseMs > initialMs) initialBreached = true
+    } else if (end != null && end - createdMs > initialMs) {
+      initialBreached = true
+    }
+  }
+
+  // (2) Cadence component — every gap between consecutive Infor updates, plus
+  //     the trailing gap to the case end, must stay within the cadence. With no
+  //     updates at all, the whole stretch since creation is the gap.
+  if (ts.length) {
+    for (let i = 1; i < ts.length && !cadenceBreached; i++) {
+      if (ts[i] - ts[i - 1] > cadenceMs) cadenceBreached = true
+    }
+    if (!cadenceBreached && end != null && end - ts[ts.length - 1] > cadenceMs) cadenceBreached = true
+  } else if (end != null && end - createdMs > cadenceMs) {
+    cadenceBreached = true
+  }
+
+  // Attribute a breached case to its FIRST point of failure: a slow first
+  // response ('initial') takes precedence over a dropped update cadence
+  // ('cadence'). Buckets are mutually exclusive so they sum to the total missed.
+  const breached = initialBreached || cadenceBreached
+  const breachReason = initialBreached ? 'initial' : cadenceBreached ? 'cadence' : null
+
+  // SOP next-update-due deadline (open cases only).
+  let dueSop = null
+  if (!isClosed) {
+    dueSop = ts.length
+      ? ts[ts.length - 1] + cadenceMs
+      : createdMs + (initialMs != null ? initialMs : cadenceMs)
+  }
+
+  return { eligible: true, breached, breachReason, dueSop }
 }
 
 /** Per-SOP classification: development cases (status-driven, 30d hard rule)
@@ -292,8 +387,10 @@ export function classifyCase(state, priorityRankValue) {
 }
 
 /** Used by the UI's in-memory pipeline. Returns the original row plus the
- *  underscore-prefixed enriched fields. */
-export const enrichRow = (r) => {
+ *  underscore-prefixed enriched fields. `snapshotMs` is the data-as-of anchor
+ *  (the active import's upload time) used by the SOP-SLA cadence check for the
+ *  trailing gap on open cases; defaults to the live clock when not supplied. */
+export const enrichRow = (r, snapshotMs) => {
   const created = parseDate(r.sys_created_on)
   const closed = parseDate(r.closed_at)
   const slaDue = parseDate(r.sla_due)
@@ -313,6 +410,17 @@ export const enrichRow = (r) => {
   const inforUpdates = parseInforUpdates(r.additional_comments)
   const pr = priorityRank(r.priority)
   const cls = classifyCase(r.state, pr)
+  // SOP-cadence SLA (the real SLA): replaces ServiceNow's `made_sla` flag.
+  const sop = computeSlaSop({
+    createdMs: created ? created.getTime() : null,
+    closedMs: closed ? closed.getTime() : null,
+    isClosed,
+    frtMs,
+    updateTimes: inforUpdates.times,
+    cadenceMs: cls.threshold_ms,
+    initialMs: INITIAL_RESPONSE_MS[pr] ?? null,
+    snapshotMs,
+  })
   const jira = parseJiraRefs(r.system_log || r.work_notes, r.cause)
   const jiraDaysSinceLinked = jira.firstLinkedAt
     ? Math.floor((Date.now() - jira.firstLinkedAt.getTime()) / 86400000)
@@ -326,6 +434,14 @@ export const enrichRow = (r) => {
     _frtMs: frtMs,
     _isClosed: isClosed,
     _madeSla: madeSla,
+    // SOP-cadence SLA. `_slaEligible` = case has a defined cadence; `_slaBreached`
+    // = it missed first response or a cadence update; `_slaBreachReason` = which
+    // ('initial' | 'cadence' | null); `_slaDueSop` = next update due (open cases).
+    // These drive every SLA metric — see computeSlaSop.
+    _slaEligible: sop.eligible,
+    _slaBreached: sop.breached,
+    _slaBreachReason: sop.breachReason,
+    _slaDueSop: sop.dueSop != null ? new Date(sop.dueSop) : null,
     _category: categorizeCase(r.short_description, r.additional_comments),
     _combinedText: combinedText,
     _interactionCount: ix.totalTurns,
@@ -343,8 +459,11 @@ export const enrichRow = (r) => {
 }
 
 /** Used by the DuckDB worker. Returns column values shaped for the SQL schema
- *  (no underscore prefix; raw strings preserved alongside parsed forms). */
-export const enrichForSql = (r) => {
+ *  (no underscore prefix; raw strings preserved alongside parsed forms).
+ *  `snapshotMs` is the import's upload time — the data-as-of anchor the SOP-SLA
+ *  cadence check uses for the trailing gap on open cases. Must match the value
+ *  the in-memory `enrichRow` is given so both pipelines bake identical SLA. */
+export const enrichForSql = (r, snapshotMs) => {
   const created = parseDate(r.sys_created_on)
   const closed = parseDate(r.closed_at)
   const slaDue = parseDate(r.sla_due)
@@ -358,10 +477,22 @@ export const enrichForSql = (r) => {
     String(madeSlaRaw).toLowerCase() === "true" ||
     String(madeSlaRaw).toLowerCase() === "1" ||
     String(madeSlaRaw).toLowerCase() === "yes"
-  const slaEligible = madeSlaRaw != null && madeSlaRaw !== ""
   const pr = priorityRank(r.priority)
   const inforUpdates = parseInforUpdates(r.additional_comments)
   const cls = classifyCase(r.state, pr)
+  // SOP-cadence SLA (the real SLA). `sla_eligible` now means "has a defined SOP
+  // cadence" (was "Made SLA field present"); `sla_breached` is the lifetime
+  // cadence/first-response breach; `sla_due_sop` is the next-update deadline.
+  const sop = computeSlaSop({
+    createdMs: created ? created.getTime() : null,
+    closedMs: closed ? closed.getTime() : null,
+    isClosed,
+    frtMs,
+    updateTimes: inforUpdates.times,
+    cadenceMs: cls.threshold_ms,
+    initialMs: INITIAL_RESPONSE_MS[pr] ?? null,
+    snapshotMs,
+  })
   const ix = parseInteractions(r.work_notes)
   // Parsed Jira ticket refs, baked so SQL can aggregate per key. Stored as
   // '|'-joined VARCHAR (not Arrow LIST) to keep the worker insert path simple;
@@ -388,8 +519,10 @@ export const enrichForSql = (r) => {
     resolved_ms: resolvedMs == null ? null : BigInt(resolvedMs),
     frt_ms: frtMs == null ? null : BigInt(Math.round(frtMs)),
     is_closed: isClosed,
-    made_sla: madeSla,
-    sla_eligible: slaEligible,
+    made_sla: madeSla,              // ServiceNow flag — retained raw, no longer drives metrics
+    sla_eligible: sop.eligible,     // SOP: has a defined cadence threshold
+    sla_breached: sop.breached,     // SOP: missed first response or a cadence update
+    sla_due_sop: sop.dueSop != null ? new Date(sop.dueSop) : null, // next update due (open cases)
     category: categorizeCase(r.short_description, r.additional_comments),
     priority_rank: pr,
     // Update Queue columns. Classification is time-independent — bake at
@@ -448,4 +581,8 @@ export const SQL_COLUMNS = [
   "jira_keys",
   "jira_active_keys",
   "jira_first_linked",
+  // SOP-cadence SLA (v5). Appended so the column order stays aligned with the
+  // worker's CASES_COLUMNS DDL (the Arrow insert binds by position).
+  "sla_breached",
+  "sla_due_sop",
 ]

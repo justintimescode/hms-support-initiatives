@@ -52,7 +52,7 @@ export function CaseTable({ rows }) {
     { key: "account", label: "Account" },
     { key: "short_description", label: "Short description" },
     { key: "sys_created_on", label: "Created" },
-    { key: "made_sla", label: "SLA" },
+    { key: "_slaBreached", label: "SLA" },
   ];
 
   return (
@@ -113,11 +113,27 @@ export function CaseTable({ rows }) {
                 <td style={{ ...tdStyle, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account}</td>
                 <td style={{ ...tdStyle, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_description}</td>
                 <td className="mono" style={{ ...tdStyle, color: T.sub }}>{r._created ? r._created.toISOString().slice(0, 10) : "—"}</td>
-                <td style={tdStyle}>
-                  {r.made_sla === "" || r.made_sla == null ? "—" : r._madeSla ? (
+                <td
+                  style={tdStyle}
+                  title={
+                    !r._slaEligible
+                      ? "No SOP cadence for this case"
+                      : !r._slaBreached
+                        ? "Held the SOP response cadence"
+                        : r._slaBreachReason === "initial"
+                          ? "Missed the first-response target"
+                          : "Missed the SOP update cadence"
+                  }
+                >
+                  {!r._slaEligible ? "—" : !r._slaBreached ? (
                     <CheckCircle2 size={14} style={{ color: T.ok }} />
                   ) : (
-                    <XCircle size={14} style={{ color: T.danger }} />
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <XCircle size={14} style={{ color: T.danger, flexShrink: 0 }} />
+                      <span style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>
+                        {r._slaBreachReason === "initial" ? "first response" : "cadence"}
+                      </span>
+                    </span>
                   )}
                 </td>
               </tr>

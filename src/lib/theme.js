@@ -23,6 +23,17 @@ export const T = {
   accentSoft: "#FBE3E0",  // tinted fills
   accentTint: "#FEF3F2",  // ultra-soft red wash for hovers
 
+  // ServiceNow brand green — used to tint case numbers (CS…) since they are
+  // ServiceNow cases. Tuned a touch deeper than the bright logo green (#62D84E)
+  // so bold monospace stays legible on the light cards; brighten toward the logo
+  // here if you want more pop at the cost of contrast.
+  snGreen: "#1FA84C",
+
+  // Atlassian/Jira brand blue — used to tint active Jira keys (HMS-123…). Closed
+  // / non-Jira (RN-) refs stay muted/strikethrough. Brighten toward the logo
+  // gradient (~#2684FF) here for more pop at the cost of contrast.
+  jiraBlue: "#1868DB",
+
   // Semantic
   ok: "#137A4D",
   okSoft: "#DCF1E4",

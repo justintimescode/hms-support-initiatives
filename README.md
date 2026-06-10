@@ -1,12 +1,15 @@
 # ServiceNow KPI Analyzer
 
-A browser-based analytics dashboard for ServiceNow case exports. Upload a CSV or Excel file from your ServiceNow instance and get a full analyst-grade breakdown of SLA performance, team workload, backlog health, Jira blocker tracking, and AI-powered qualitative insights — all processed locally in your browser with no data leaving your machine (except the optional AI proxy call, which is scrubbed before it leaves).
+An analytics dashboard for ServiceNow case exports — runnable in the browser (`npm run dev`) or as a packaged Windows desktop app. Upload a CSV or Excel file from your ServiceNow instance and get a full analyst-grade breakdown of SLA performance, team workload, backlog health, Jira blocker tracking, and AI-powered qualitative insights — all processed locally on your machine with no data leaving it (except the optional AI proxy call, which is scrubbed before it leaves).
+
+> **SLA here means the Infor SOP response cadence**, not ServiceNow's first-response-only `Made SLA` flag. See [SLA Performance](#sla-performance-sla) and `computeSlaSop()` in `src/lib/enrich.js`.
 
 ---
 
 ## Table of Contents
 
 - [Getting Started](#getting-started)
+- [Desktop App (Windows)](#desktop-app-windows)
 - [Architecture Overview](#architecture-overview)
 - [Data Ingestion](#data-ingestion)
 - [Pages & Features](#pages--features)
@@ -22,6 +25,7 @@ A browser-based analytics dashboard for ServiceNow case exports. Upload a CSV or
 - [Environment Variables](#environment-variables)
 - [Other Commands](#other-commands)
 - [Security](#security)
+- [Roadmap & Code Reviews](#roadmap--code-reviews)
 
 ---
 
@@ -35,6 +39,39 @@ npm run dev
 Open `http://localhost:5173`, go to **Connections**, and drop a ServiceNow case export (CSV or XLSX). Every other page populates automatically.
 
 For Jira live sync, copy `.env.example` to `.env`, fill in your Atlassian email and API token, and restart the dev server. The token is read once at startup by Vite's Node-side proxy config and never reaches the browser bundle.
+
+> Distributing to teammates who don't run a dev server? See [Desktop App (Windows)](#desktop-app-windows) — it ships the same app as a double-click installer with a built-in Jira setup screen.
+
+---
+
+## Desktop App (Windows)
+
+The app is **not** a static website: live Jira sync and the disk caches depend on Node-side middleware that only runs under `npm run dev` (the `/api/jira` auth proxy and the `/api/cache/*` file stores in `vite.config.js`). To hand a working build to teammates who don't have Node installed, it's packaged as an **Electron desktop app**.
+
+Electron's main process runs a tiny loopback HTTP server (`electron/server.cjs`) that reimplements those three routes, then loads the built SPA from it — so the React code runs unchanged, with no CORS and the Jira token kept server-side. The caches move to the per-user `userData` directory (`%APPDATA%\KPI Analyzer\`) since a packaged app folder is read-only.
+
+### Building the installer
+
+```bash
+npm install              # first time only — pulls electron + electron-builder
+npm run electron:build   # → release/KPI Analyzer Setup <version>.exe
+```
+
+Share the resulting `.exe` from `release/` via a network share / SharePoint. Teammates double-click to install — no Node, no terminal, no `npm install`.
+
+To run the packaged app locally during development (builds `dist/`, then launches Electron against it):
+
+```bash
+npm run electron:dev
+```
+
+### First-run setup & credentials
+
+On first launch the app shows a **setup screen** (`electron/setup.html`): Jira site URL, Atlassian email, and API token, with a link to Atlassian's token page and a **Test connection** button that verifies against `/myself` before saving. Credentials are stored **per user, encrypted via Electron `safeStorage`** (Windows DPAPI — keyed to the Windows login, useless if copied elsewhere) at `%APPDATA%\KPI Analyzer\credentials.enc`. This replaces the dev-only plaintext `.env`; each teammate enters their own token, so Jira access is scoped to their own permissions.
+
+Credentials can be changed or cleared later from the **File** menu (*Reconfigure Jira credentials* / *Clear saved credentials*).
+
+> The desktop build only covers the Jira proxy + caches. The optional AI proxy (`VITE_AI_PROXY_URL`) is a build-time variable and is not wired into the setup screen; it stays disabled in packaged builds unless baked in at `npm run build` time.
 
 ---
 
@@ -63,7 +100,7 @@ Browser
 
 The app runs two parallel data pipelines:
 
-**In-memory pipeline** — `enrichRow()` in `src/lib/enrich.js` transforms raw CSV/XLSX rows into enriched objects with underscore-prefixed derived fields (`_created`, `_isClosed`, `_madeSla`, `_jiraTickets`, etc.). All Recharts-based charts consume this pipeline. It is synchronous and available immediately after upload.
+**In-memory pipeline** — `enrichRow()` in `src/lib/enrich.js` transforms raw CSV/XLSX rows into enriched objects with underscore-prefixed derived fields (`_created`, `_isClosed`, `_slaBreached`, `_slaDueSop`, `_jiraTickets`, etc.). All Recharts-based charts consume this pipeline. It is synchronous and available immediately after upload.
 
 **DuckDB SQL pipeline** — the same rows are also loaded into a DuckDB-WASM instance running in a Web Worker. SQL query helpers in `src/lib/queries.js` back the Update Queue and are being incrementally rolled out to replace in-memory computations. A `DevCompare` overlay on several pages shows side-by-side diffs between the two pipelines during the migration.
 
@@ -140,10 +177,21 @@ The same SOP cadence engine as the Update Queue, scoped to cases sitting in the 
 ### Performance
 
 #### SLA Performance (`/sla`)
-- Radial gauge showing overall SLA hit rate (color-coded: green ≥ 90%, yellow ≥ 75%, red below).
-- Bar chart breaking SLA rate down by priority level.
-- List of open cases approaching or already past their SLA deadline, segmented into: Breached, Due < 24h, Due this week, Comfortable, No SLA.
-- **Breach Forecast** — forward-looking complement to the Update Queue: open cases on track to breach SLA within the next 7 days, ranked soonest-first, with a momentum read (time since last Infor update). A **stalled** flag marks cases not touched in longer than the time they have left — i.e. on current cadence they're heading for a breach. Snapshot-anchored; covers all open work for the current analyst selection, independent of the date range. (`slaBreachForecast()` in `stats.js`.)
+
+> **SLA = the Infor SOP response cadence, not ServiceNow's `Made SLA` flag.**
+> ServiceNow only judges `Made SLA` on the *first* response and ignores
+> correspondence cadence afterward. Per Infor SOP, the real SLA is the response
+> cadence enforced on the Update Queue / Solution Proposed screens: a per-priority
+> required update interval (P1 1h … P4 7d; development cases 30d) plus the
+> first-response target (P1 30m … P4 4h). A case **breaches SLA** if it missed
+> its first-response target or let any update gap over its life exceed the
+> cadence — judged across the whole case, open or closed, by `computeSlaSop()`
+> in `enrich.js`. Eligibility (the denominator) = the case has a defined cadence.
+
+- Radial gauge showing overall SLA hit rate (color-coded: green ≥ 95%, amber ≥ 85%, red below).
+- Bar chart breaking the SLA rate down by priority level.
+- List of open cases approaching or already past their next-update-due deadline, segmented into: Breached, Due < 24h, Due this week, Comfortable, No SLA.
+- **Breach Forecast** — forward-looking complement to the Update Queue: open cases whose SOP next-update deadline lands within the next 7 days, ranked soonest-first, with a momentum read (time since last Infor update). A **stalled** flag marks cases not touched in longer than the time they have left — i.e. on current cadence they're heading for a breach. Snapshot-anchored; covers all open work for the current analyst selection, independent of the date range. (`slaBreachForecast()` in `stats.js`.)
 - **First Response Time distribution** — the full histogram of time-to-first-response with median, p90, and average, rather than the mean alone (which a few slow outliers distort). (`frtDistribution()` in `stats.js`.)
 
 #### Open Backlog (`/backlog`)
@@ -360,11 +408,11 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 |---|---|---|
 | `_created` | `sys_created_on` | Parsed Date |
 | `_closed` | `closed_at` | Parsed Date |
-| `_slaDue` | `sla_due` | Parsed Date |
+| `_slaDue` | `sla_due` | ServiceNow's raw "SLA due" date — retained for reference; no longer drives any metric |
 | `_resolvedMs` | `_closed - _created` | Resolution time in ms |
 | `_frtMs` | `first_response_time` | First response time in ms |
 | `_isClosed` | `state` | true if state is "closed" or "resolved" |
-| `_madeSla` | `made_sla` | Normalized boolean |
+| `_madeSla` | `made_sla` | ServiceNow's first-response-only flag — retained raw; no longer drives any metric |
 | `_category` | `short_description` + `close_notes` | Auto-categorized (11 categories) |
 | `_jiraTickets` | `work_notes` + `cause` | Parsed Jira ticket references |
 | `_jiraActiveTickets` | `_jiraTickets` | Tickets not yet closed |
@@ -375,6 +423,10 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 | `_lastInforUpdate` | `additional_comments` | Most recent Infor-authored timestamp |
 | `_caseType` | `state` | `'development'` or `'support'` |
 | `_updateThresholdMs` | `_caseType` + priority | SOP cadence threshold |
+| `_slaEligible` | `_updateThresholdMs` | true when the case has a defined SOP cadence (drives the SLA denominator) |
+| `_slaBreached` | journal timeline + SOP cadence | **the real SLA**: true if the case missed its first-response target or any cadence-update gap over its life (`computeSlaSop`) |
+| `_slaBreachReason` | `computeSlaSop` | why it missed — `'initial'` (first response) or `'cadence'`; `null` if met/ineligible. Powers the SLA breach-reason split |
+| `_slaDueSop` | last Infor update + cadence | SOP next-update-due deadline (open cases) — drives At-Risk / Breach Forecast / SLA Risk |
 
 ### Jira reference parsing
 
@@ -500,8 +552,8 @@ The app works with standard ServiceNow case table exports. XLSX is strongly reco
 | `Assigned to` | `assigned_to` | Analyst filtering |
 | `Account` | `account` | Account analytics |
 | `Product line` | `product_line` | Product analytics |
-| `Made SLA` | `made_sla` | SLA hit rate |
-| `SLA due` | `sla_due` | SLA risk segmentation |
+| `Made SLA` | `made_sla` | Retained raw (ServiceNow first-response flag); no longer drives metrics |
+| `SLA due` | `sla_due` | Retained raw; SLA risk now uses the SOP next-update deadline |
 | `Created` | `sys_created_on` | All time-based analytics |
 | `Closed` | `closed_at` | Resolution time, trajectory |
 | `First Response Time` | `first_response_time` | FRT metrics |
@@ -535,10 +587,12 @@ All variables live in `.env` (gitignored). Copy `.env.example` to get started.
 ## Other Commands
 
 ```bash
-npm run dev      # start dev server with Jira proxy
-npm run build    # production build (no Jira proxy, no live sync)
-npm run preview  # preview the production build locally
-npm run lint     # run ESLint
+npm run dev             # start dev server with Jira proxy
+npm run build           # production build (no Jira proxy, no live sync)
+npm run preview         # preview the production build locally
+npm run lint            # run ESLint
+npm run electron:dev    # build + launch the Electron desktop app locally
+npm run electron:build  # build the Windows installer → release/
 ```
 
 ---
@@ -555,3 +609,15 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
 - **CSV exports** (Update Queue + Solution Proposed) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via a single shared `rowsToCsv`/`escapeCsv` path.
 - **Production builds** ship a Content-Security-Policy meta tag.
+
+---
+
+## Roadmap & Code Reviews
+
+Living review documents track the codebase's health and where it's headed:
+
+| Document | Focus |
+|---|---|
+| [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | **Latest.** Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
+| [CODEREVIEW(5-31).md](./CODEREVIEW(5-31).md) | Prior review — code-quality / statistical-correctness findings (Jira percentile bias, join-key normalization, dev-SQL-in-prod) and the `feat/analytics-and-hardening` cycle. |
+| [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) | Security audit (17 items with statuses) — see [Security](#security) above. |

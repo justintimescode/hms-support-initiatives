@@ -55,7 +55,9 @@ const CASES_COLUMNS = `
     analyst_turns           BIGINT,
     jira_keys               VARCHAR,
     jira_active_keys        VARCHAR,
-    jira_first_linked       TIMESTAMP
+    jira_first_linked       TIMESTAMP,
+    sla_breached            BOOLEAN,
+    sla_due_sop             TIMESTAMP
 `
 const EMPTY_TABLE = 'cases_empty'
 const CREATE_INDEX_SQL = `
@@ -180,12 +182,14 @@ function flushBuffer(buffer, tableName) {
 }
 
 // Insert already-normalized raw rows into a freshly-created table, enriching
-// each via enrichForSql. Returns the inserted row count.
-function insertRows(tableName, rows) {
+// each via enrichForSql. `snapshotMs` (the import's upload time) anchors the
+// SOP-SLA cadence check so baked SLA matches the in-memory pipeline exactly.
+// Returns the inserted row count.
+function insertRows(tableName, rows, snapshotMs) {
   let inserted = 0
   let buffer = []
   for (const row of rows) {
-    buffer.push(enrichForSql(row))
+    buffer.push(enrichForSql(row, snapshotMs))
     if (buffer.length >= CHUNK_SIZE) {
       flushBuffer(buffer, tableName)
       inserted += buffer.length
@@ -229,14 +233,18 @@ function setActive(uuid) {
 // stamped with the current time.
 function createImport({ uuid, filename, displayName, fileSize, fileType, rows, uploadedAt }) {
   const tableName = tableNameFor(uuid)
+  // Anchor the SOP-SLA cadence bake to this import's upload time so it stays
+  // deterministic and matches the in-memory pipeline (which uses the same value
+  // as `snapshotMs`). Stamped once here, reused for the index row below.
+  const snapshot = uploadedAt ?? Date.now()
   try {
     createCasesTable(tableName)
-    const rowCount = insertRows(tableName, rows || [])
+    const rowCount = insertRows(tableName, rows || [], snapshot)
     upsertIndexRow({
       uuid,
       filename,
       displayName: displayName || filename,
-      uploadedAt: uploadedAt ?? Date.now(),
+      uploadedAt: snapshot,
       rowCount,
       fileSize,
       fileType,
@@ -288,9 +296,12 @@ function deleteImport(uuid) {
 // Re-parse produced fresh rows; drop+recreate the table and bump schema_version.
 function rebuildImport({ uuid, rows }) {
   const tableName = tableNameFor(uuid)
+  // Re-bake against the import's ORIGINAL upload time (not "now") so the
+  // SOP-SLA snapshot anchor is unchanged by the rebuild.
+  const snapshot = readIndex().find((i) => i.uuid === uuid)?.uploadedAt ?? Date.now()
   conn.query(`DROP TABLE IF EXISTS ${tableName}`)
   createCasesTable(tableName)
-  const rowCount = insertRows(tableName, rows || [])
+  const rowCount = insertRows(tableName, rows || [], snapshot)
   const stmt = conn.prepare('UPDATE imports_index SET schema_version = ?, row_count = ? WHERE uuid = ?')
   try { stmt.query(SCHEMA_VERSION, Number(rowCount), uuid) } finally { stmt.close() }
   if (activeUuid() === uuid) redefineView(uuid)
@@ -333,6 +344,11 @@ function legacyMigrateIfNeeded() {
   const tableName = tableNameFor(uuid)
   const rowCount = Number(rowsToPlain(conn.query('SELECT count(*) AS c FROM cases'))[0]?.c ?? 0)
   conn.query(`CREATE TABLE ${tableName} AS SELECT * FROM cases`)
+  // The legacy table predates current columns; add any the SQL queries now
+  // reference (NULL-filled) so they don't error before the user rebuilds. The
+  // "Rebuild needed" badge still prompts a full re-enrich from the source blob.
+  try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_breached BOOLEAN`) } catch { /* ignore */ }
+  try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_due_sop TIMESTAMP`) } catch { /* ignore */ }
   conn.query('DROP TABLE cases')
   try { conn.query('DROP TABLE IF EXISTS meta') } catch { /* ignore */ }
   upsertIndexRow({

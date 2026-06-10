@@ -32,7 +32,10 @@ export function CopyableNumber({ value, style, className }) {
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") copy(e) }}
         title="Click to copy"
         className={className}
-        style={{ cursor: "pointer", ...style }}
+        // ServiceNow green — these are ServiceNow case numbers (CS…). Applied
+        // after `...style` so it wins over the per-call-site color overrides
+        // (T.accent / T.sub / inherited) and every case number reads green.
+        style={{ cursor: "pointer", fontWeight: 600, ...style, color: T.snGreen }}
       >
         {value || "—"}
       </span>

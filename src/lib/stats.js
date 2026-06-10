@@ -8,9 +8,17 @@ export const computeKpis = (rows) => {
   const total = rows.length;
   const closed = rows.filter((r) => r._isClosed);
   const open = rows.filter((r) => !r._isClosed);
-  const slaEligible = rows.filter((r) => r.made_sla !== "" && r.made_sla != null);
-  const slaMet = slaEligible.filter((r) => r._madeSla).length;
+  // SLA = the Infor SOP response cadence (see computeSlaSop in enrich.js), not
+  // ServiceNow's first-response-only `made_sla` flag. Eligible = the case has a
+  // defined cadence; met = eligible and it never breached the cadence.
+  const slaEligible = rows.filter((r) => r._slaEligible);
+  const slaMet = slaEligible.filter((r) => !r._slaBreached).length;
   const slaRate = slaEligible.length ? (slaMet / slaEligible.length) * 100 : null;
+  // Split the missed cases by *why* they missed (mutually exclusive, so the two
+  // sum to slaEligible - slaMet). Drives the breach-reason breakdown on the SLA
+  // page and the reason column in the case register.
+  const slaMissedInitial = slaEligible.filter((r) => r._slaBreachReason === "initial").length;
+  const slaMissedCadence = slaEligible.filter((r) => r._slaBreachReason === "cadence").length;
   const resolved = closed.filter((r) => r._resolvedMs != null);
   const avgRes = resolved.length
     ? resolved.reduce((s, r) => s + r._resolvedMs, 0) / resolved.length
@@ -26,11 +34,12 @@ export const computeKpis = (rows) => {
   const frtP50 = percentile(frtSorted, 50);
   const frtP90 = percentile(frtSorted, 90);
   const now = new Date();
-  const atRisk = open.filter((r) => r._slaDue && r._slaDue > now && r._slaDue - now < 24 * 36e5);
-  const breached = open.filter((r) => r._slaDue && r._slaDue < now);
+  const atRisk = open.filter((r) => r._slaDueSop && r._slaDueSop > now && r._slaDueSop - now < 24 * 36e5);
+  const breached = open.filter((r) => r._slaDueSop && r._slaDueSop < now);
   return {
     total, closed: closed.length, open: open.length, slaRate, slaMet,
-    slaEligible: slaEligible.length, avgRes, resP50, resP90, avgFrt, frtP50, frtP90,
+    slaEligible: slaEligible.length, slaMissedInitial, slaMissedCadence,
+    avgRes, resP50, resP90, avgFrt, frtP50, frtP90,
     atRisk, breached,
   };
 };
@@ -240,11 +249,11 @@ export const slaRiskSegments = (rows) => {
   const counts = Object.fromEntries(SLA_RISK_BUCKETS.map((b) => [b.key, 0]));
   for (const r of rows) {
     if (r._isClosed) continue;
-    if (!r._slaDue) {
+    if (!r._slaDueSop) {
       counts.noSla++;
       continue;
     }
-    const ms = r._slaDue.getTime() - now;
+    const ms = r._slaDueSop.getTime() - now;
     if (ms < 0) counts.breached++;
     else if (ms < 24 * 36e5) counts.due24++;
     else if (ms < 7 * 24 * 36e5) counts.dueWeek++;
@@ -254,8 +263,8 @@ export const slaRiskSegments = (rows) => {
 };
 
 export const slaRiskOf = (r, now = Date.now()) => {
-  if (!r._slaDue) return "noSla";
-  const ms = r._slaDue.getTime() - now;
+  if (!r._slaDueSop) return "noSla";
+  const ms = r._slaDueSop.getTime() - now;
   if (ms < 0) return "breached";
   if (ms < 24 * 36e5) return "due24";
   if (ms < 7 * 24 * 36e5) return "dueWeek";
@@ -643,8 +652,8 @@ export const slaBreachForecast = (rows, refNow = Date.now(), horizonDays = 7) =>
   const horizon = now + horizonDays * 864e5;
   const out = [];
   for (const r of rows) {
-    if (r._isClosed || !r._slaDue) continue;
-    const due = r._slaDue.getTime();
+    if (r._isClosed || !r._slaDueSop) continue;
+    const due = r._slaDueSop.getTime();
     if (due <= now || due > horizon) continue; // already breached, or beyond window
     const timeToBreach = due - now;
     const lastTouch = r._lastInforUpdate
@@ -685,21 +694,21 @@ export const accountChurnRisk = (rows, refNow = Date.now(), windowDays = 90) => 
   };
   for (const r of rows) {
     const a = get(r.account || "Unknown");
-    const eligible = r.made_sla !== "" && r.made_sla != null;
+    const eligible = r._slaEligible;
     const created = r._created ? r._created.getTime() : null;
     if (created != null) {
       if (created >= nowStart && created <= now) {
         a.casesNow++;
-        if (eligible) { a.slaEligNow++; if (r._madeSla) a.slaMetNow++; }
+        if (eligible) { a.slaEligNow++; if (!r._slaBreached) a.slaMetNow++; }
       } else if (created >= prevStart && created < nowStart) {
         a.casesPrev++;
-        if (eligible) { a.slaEligPrev++; if (r._madeSla) a.slaMetPrev++; }
+        if (eligible) { a.slaEligPrev++; if (!r._slaBreached) a.slaMetPrev++; }
       }
     }
     if (!r._isClosed) {
       a.openCount++;
       if ((r._jiraActiveTickets?.length || 0) > 0) a.openBlockers++;
-      if (r._slaDue && r._slaDue.getTime() < now) a.breachedOpen++;
+      if (r._slaDueSop && r._slaDueSop.getTime() < now) a.breachedOpen++;
     }
   }
   const results = [];

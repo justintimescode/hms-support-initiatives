@@ -23,8 +23,9 @@ export function DeltaLine({ text, color }) {
   );
 }
 
-export function KpiRow({ kpis, compareKpis }) {
+export function KpiRow({ kpis, compareKpis, onSlaClick }) {
   const cmp = compareKpis;
+  const slaMissed = kpis.slaEligible - kpis.slaMet;
   const cards = [
     {
       label: "Cases in view",
@@ -41,6 +42,8 @@ export function KpiRow({ kpis, compareKpis }) {
       icon: <CheckCircle2 size={14} />,
       accent: kpis.slaRate != null && kpis.slaRate >= 95 ? T.ok : kpis.slaRate != null && kpis.slaRate >= 85 ? T.warn : T.danger,
       delta: cmp ? { text: fmtDeltaPct(kpis.slaRate, cmp.slaRate), color: deltaColor((kpis.slaRate ?? 0) - (cmp.slaRate ?? 0), "up") } : null,
+      onClick: onSlaClick && slaMissed > 0 ? onSlaClick : null,
+      clickHint: `View the ${slaMissed} case${slaMissed === 1 ? "" : "s"} that missed SLA`,
     },
     {
       label: "Median resolution",
@@ -72,7 +75,23 @@ export function KpiRow({ kpis, compareKpis }) {
             position: "relative",
             overflow: "hidden",
             padding: "20px 22px 22px",
+            cursor: c.onClick ? "pointer" : undefined,
           }}
+          {...(c.onClick
+            ? {
+                onClick: c.onClick,
+                role: "button",
+                tabIndex: 0,
+                title: c.clickHint,
+                "aria-label": `${c.label} — ${c.clickHint}`,
+                onKeyDown: (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    c.onClick();
+                  }
+                },
+              }
+            : {})}
         >
           {/* top accent bar */}
           <div

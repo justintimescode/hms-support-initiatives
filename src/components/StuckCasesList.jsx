@@ -50,8 +50,8 @@ export function StuckCasesList({ rows, thresholdDays = 30, showAssignee = false 
                   const now = Date.now();
                   let slaText = "—";
                   let slaColor = T.muted;
-                  if (r._slaDue) {
-                    const ms = r._slaDue.getTime() - now;
+                  if (r._slaDueSop) {
+                    const ms = r._slaDueSop.getTime() - now;
                     if (ms < 0) { slaText = `breached ${fmtDuration(-ms)}`; slaColor = T.danger; }
                     else if (ms < 24 * 36e5) { slaText = `due in ${fmtDuration(ms)}`; slaColor = T.warn; }
                     else { slaText = `in ${fmtDuration(ms)}`; slaColor = T.sub; }

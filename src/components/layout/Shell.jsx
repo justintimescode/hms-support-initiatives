@@ -121,7 +121,7 @@ export function Shell({ children }) {
       <div
         className="body"
         style={{
-          maxWidth: 1600,
+          maxWidth: 2000,
           margin: "0 auto",
           padding: "28px 36px 96px",
           position: "relative",

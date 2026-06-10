@@ -1,13 +1,11 @@
 import React, { useState, useMemo } from "react";
 import DOMPurify from "dompurify";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Loader2, AlertTriangle, XCircle, Activity } from "lucide-react";
 import { T } from "../../lib/theme.js";
-import { fmtDuration, fmtDateTime, fmtWeekLabel, fmtAgo, priorityColor } from "../../lib/format.js";
+import { fmtDuration, fmtDateTime, fmtAgo, priorityColor } from "../../lib/format.js";
 import { fetchIssueDetail, PROJECT_KEY } from "../../lib/jira-client.js";
-import { jiraSummary, recentlyCreated, recentlyResolved, weeklyCreated } from "../../lib/jira-enrich.js";
+import { jiraSummary, recentlyCreated, recentlyResolved } from "../../lib/jira-enrich.js";
 import { Card } from "../layout/Card.jsx";
-import { TrajectoryBlock } from "../charts/TrajectoryBlock.jsx";
 
 /* ================= Jira Analysis (live project) ================= */
 
@@ -96,7 +94,7 @@ export function JiraIssueDetail({ issue, detail }) {
         <JiraField label="Labels">{issue.labels.length ? issue.labels.join(", ") : "—"}</JiraField>
         <JiraField label="Fix versions">{issue.fixVersions.length ? issue.fixVersions.join(", ") : "—"}</JiraField>
         <JiraField label="Link">
-          <a href={issue.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.accent, textDecoration: "none", fontWeight: 600 }}>{issue.key} ↗</a>
+          <a href={issue.url} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.jiraBlue, textDecoration: "none", fontWeight: 600 }}>{issue.key} ↗</a>
         </JiraField>
       </div>
       <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>Description</div>
@@ -123,7 +121,7 @@ export function JiraIssueDetail({ issue, detail }) {
   )
 }
 
-const JIRA_LIST_PAGE = 50
+const JIRA_LIST_PAGE = 100
 
 // Searchable / sortable / expandable issue table. mode 'created' is sorted by
 // created date; mode 'resolved' is sorted by resolved date and adds a
@@ -144,7 +142,9 @@ function JiraIssueList({ issues, mode }) {
       { key: "summary", label: "Summary" },
       { key: "status", label: "Status" },
       { key: "assignee", label: "Assignee" },
+      { key: "components", label: "Components" },
       { key: dateKey, label: mode === "resolved" ? "Resolved" : "Created", align: "right" },
+      { key: "updated", label: "Updated", align: "right" },
     ]
     if (mode === "resolved") base.push({ key: "_leadMs", label: "Time to resolve", align: "right" })
     return base
@@ -177,7 +177,7 @@ function JiraIssueList({ issues, mode }) {
   const toggleSort = (key) =>
     setSort((s) => s.key === key
       ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
-      : { key, dir: ["created", "resolved", "_leadMs"].includes(key) ? "desc" : "asc" })
+      : { key, dir: ["created", "resolved", "updated", "_leadMs"].includes(key) ? "desc" : "asc" })
 
   const expandRow = (key) => {
     setExpandedKey((cur) => (cur === key ? null : key))
@@ -192,11 +192,12 @@ function JiraIssueList({ issues, mode }) {
 
   const renderCell = (it, key) => {
     if (key === "key") return it.url
-      ? <a href={it.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="mono" style={{ color: T.accent, fontWeight: 600, textDecoration: "none" }}>{it.key}</a>
-      : <span className="mono" style={{ color: T.accent, fontWeight: 600 }}>{it.key}</span>
+      ? <a href={it.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="mono" style={{ color: T.jiraBlue, fontWeight: 600, textDecoration: "none" }}>{it.key}</a>
+      : <span className="mono" style={{ color: T.jiraBlue, fontWeight: 600 }}>{it.key}</span>
     if (key === "priority") return <span style={{ color: priorityColor(it.priority), fontWeight: 600 }}>{it.priority || "—"}</span>
-    if (key === "created" || key === "resolved") return fmtDateTime(it[key])
+    if (key === "created" || key === "resolved" || key === "updated") return fmtDateTime(it[key])
     if (key === "_leadMs") return it._leadMs != null ? fmtDuration(it._leadMs) : "—"
+    if (key === "components") return it.components?.length ? it.components.join(", ") : "—"
     return it[key] || "—"
   }
 
@@ -245,17 +246,22 @@ function JiraIssueList({ issues, mode }) {
                     style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isExpanded ? T.surfaceAlt : "transparent" }}>
                     {cols.map((c) => {
                       const isSummary = c.key === "summary"
-                      const isMono = c.key === "created" || c.key === "resolved" || c.key === "_leadMs"
+                      const isComponents = c.key === "components"
+                      const isMono = c.key === "created" || c.key === "resolved" || c.key === "updated" || c.key === "_leadMs"
                       return (
                         <td key={c.key}
                           className={isMono ? "mono" : undefined}
-                          title={isSummary ? it.summary : undefined}
+                          title={isSummary ? it.summary : isComponents ? (it.components?.join(", ") || undefined) : undefined}
                           style={{
                             padding: "10px 14px",
                             textAlign: c.align || "left",
                             whiteSpace: "nowrap",
-                            color: c.align === "right" ? T.sub : T.ink,
-                            ...(isSummary ? { maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis" } : {}),
+                            color: c.align === "right" ? T.sub : isComponents ? T.sub : T.ink,
+                            // Summary is the flexible column: it wraps and absorbs
+                            // the leftover width so the table always fits the
+                            // container (no horizontal scroll) and shows full text.
+                            ...(isSummary ? { whiteSpace: "normal", wordBreak: "break-word", minWidth: 260 } : {}),
+                            ...(isComponents ? { maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" } : {}),
                           }}>
                           {renderCell(it, c.key)}
                         </td>
@@ -292,55 +298,6 @@ function JiraTimeStat({ label, v }) {
       <div className="eyebrow" style={{ color: T.muted, fontSize: 10 }}>{label}</div>
       <div className="mono" style={{ fontSize: 15, marginTop: 2 }}>{v}</div>
     </div>
-  )
-}
-
-function JiraWeeklyTip({ active, payload }) {
-  if (!active || !payload?.length) return null
-  const d = payload[0].payload
-  return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
-      <div style={{ fontWeight: 600 }}>Week of {fmtWeekLabel(d.week)}</div>
-      <div className="mono" style={{ color: T.sub, marginTop: 2 }}>{d.created} created</div>
-    </div>
-  )
-}
-
-function JiraWeeklyCreationBars({ issues }) {
-  const data = useMemo(() => weeklyCreated(issues, 12), [issues])
-  const weekPad = 3.5 * 864e5 // half-a-week buffer so end bars don't clip
-  return (
-    <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Ticket creation · last 12 weeks</div>
-      <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
-        New Jiras created per week (Monday-anchored). A quick read on whether intake is climbing,
-        flat, or slowing — independent of resolution rate.
-      </div>
-      <div style={{ height: 220, marginTop: 12 }}>
-        <ResponsiveContainer>
-          <BarChart data={data} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
-            <XAxis
-              dataKey="week"
-              type="number"
-              domain={[(min) => min - weekPad, (max) => max + weekPad]}
-              tickFormatter={fmtWeekLabel}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
-            />
-            <YAxis
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
-              allowDecimals={false}
-            />
-            <Tooltip content={<JiraWeeklyTip />} cursor={{ fill: T.surfaceAlt }} />
-            <Bar dataKey="created" fill={T.accent} radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </Card>
   )
 }
 
@@ -407,10 +364,6 @@ function JiraAnalysisReady({ issues, meta, onSync, scopeNote }) {
           ))}
         </div>
       </Card>
-
-      <JiraWeeklyCreationBars issues={issues} />
-
-      <TrajectoryBlock rows={issues} highlightRange={null} />
 
       <JiraIssueList issues={created} mode="created" />
       <JiraIssueList issues={resolved} mode="resolved" />

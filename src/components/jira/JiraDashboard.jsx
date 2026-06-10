@@ -90,7 +90,7 @@ function JiraCaseDetail({ row, onClose }) {
         <Field label="Priority"><span style={{ color: priorityColor(row.priority), fontWeight: 600 }}>{row.priority || "—"}</span></Field>
         <Field label="Category">{row._category || "—"}</Field>
         <Field label="Created">{fmtDate(row._created)}</Field>
-        <Field label="SLA due">{fmtDate(row._slaDue)}</Field>
+        <Field label="Next update due">{fmtDate(row._slaDueSop)}</Field>
         <Field label="Days open"><span className="mono" style={{ color: daysOpen > 30 ? T.warn : T.ink }}>{daysOpen ?? "—"}</span></Field>
         <Field label="Product line">{row.product_line || "—"}</Field>
       </div>
@@ -101,7 +101,7 @@ function JiraCaseDetail({ row, onClose }) {
           {(row._jiraTickets || []).map((t) => (
             <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, flexWrap: "wrap" }}>
               {t.clickable ? (
-                <a href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.accent, textDecoration: "none", fontWeight: 600 }}>{t.id}</a>
+                <a href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.jiraBlue, textDecoration: "none", fontWeight: 600 }}>{t.id}</a>
               ) : (
                 <span className="mono" style={{ color: T.muted, fontWeight: 600 }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{t.id}</span>
               )}
@@ -127,7 +127,7 @@ function JiraCaseDetail({ row, onClose }) {
       </div>
 
       <div style={{ padding: "16px 0", borderBottom: `1px solid ${T.borderSoft}`, display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-        <Field label="SLA met">{row._madeSla ? <span style={{ color: T.ok, fontWeight: 600 }}>Yes</span> : <span style={{ color: T.danger, fontWeight: 600 }}>No</span>}</Field>
+        <Field label="SLA met (SOP)">{!row._slaEligible ? <span style={{ color: T.muted }}>—</span> : !row._slaBreached ? <span style={{ color: T.ok, fontWeight: 600 }}>Yes</span> : <span style={{ color: T.danger, fontWeight: 600 }}>No</span>}</Field>
         <Field label="First response"><span className="mono">{fmtDuration(row._frtMs)}</span></Field>
         <Field label="Resolution time"><span className="mono">{fmtDuration(row._resolvedMs)}</span></Field>
         <Field label="Total interactions"><span className="mono">{row._interactionCount || 0} ({row._customerTurns || 0} customer / {row._analystTurns || 0} Infor)</span></Field>
@@ -304,7 +304,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
             {mismatches.map((r) => (
               <div key={r.number} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, flexWrap: "wrap" }}>
                 <button onClick={() => setSelectedNumber(r.number)}
-                  className="mono" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontWeight: 600, padding: 0 }}>
+                  className="mono" style={{ background: "none", border: "none", color: T.snGreen, cursor: "pointer", fontWeight: 600, padding: 0 }}>
                   {r.number}
                 </button>
                 <span style={{ color: T.sub, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_description}</span>
@@ -381,7 +381,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         {row.tickets.map((t) => {
                           const eff = jiraTicketStatusOf(t)
-                          const color = eff === "active" ? T.accent : T.muted
+                          const color = eff === "active" ? T.jiraBlue : T.muted
                           const style = { color, fontSize: 12, textDecoration: "none", textDecorationStyle: eff === "jira_closed" ? "line-through" : "none" }
                           return t.clickable ? (
                             <a key={t.id} href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer"
@@ -451,7 +451,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                 <tr key={g.id} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
                   <td className="mono" style={{ padding: "8px 12px" }}>
                     {g.clickable ? (
-                      <a href={JIRA_BROWSE_URL + g.id} target="_blank" rel="noopener noreferrer" style={{ color: T.accent, textDecoration: "none" }}>{g.id}</a>
+                      <a href={JIRA_BROWSE_URL + g.id} target="_blank" rel="noopener noreferrer" style={{ color: T.jiraBlue, textDecoration: "none" }}>{g.id}</a>
                     ) : (
                       <span style={{ color: T.muted }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{g.id}</span>
                     )}

@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react"
 import { useOutletContext, Link } from "react-router-dom"
 import { FileSpreadsheet, ExternalLink, ClipboardList, Clock, Users } from "lucide-react"
 import { T } from "../lib/theme.js"
@@ -6,6 +7,7 @@ import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { Pill } from "../components/Pill.jsx"
 import { KpiRow } from "../components/KpiRow.jsx"
+import { CaseListModal } from "../components/CaseListModal.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { useQuery } from "../lib/useQuery.js"
 import { getKpis, getCompareKpis } from "../lib/queries.js"
@@ -14,8 +16,15 @@ import { kpiMetrics } from "../components/dev/devCompareUtils.js"
 
 export default function Home() {
   const ctx = useOutletContext()
-  const { rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, dateRange, compareWindow } = ctx
+  const { rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, dateRange, compareWindow, enriched } = ctx
   const dr = dateRange || { from: null, to: null, field: "_created" }
+  const [showMissedSla, setShowMissedSla] = useState(false)
+  // The complement of the card's "met" count: SLA-eligible cases in the
+  // current slice that breached the SOP cadence (open or closed).
+  const missedSlaRows = useMemo(
+    () => (enriched || []).filter((r) => r._slaEligible && r._slaBreached),
+    [enriched],
+  )
   const kpiSql = useQuery(() => getKpis({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
   const cmpSql = useQuery(
     () => getCompareKpis({ analyst, compareWindow, field: dr.field }),
@@ -40,7 +49,7 @@ export default function Home() {
         title="Dashboard"
         subtitle="Top-line numbers for the current view, plus quick access to every page."
       >
-        <KpiRow kpis={kpis} compareKpis={compareKpis} />
+        <KpiRow kpis={kpis} compareKpis={compareKpis} onSlaClick={() => setShowMissedSla(true)} />
         <DevCompare label="getKpis" note={`analyst: ${analyst === "__all__" ? "all" : analyst}`} metrics={kpiMetrics(kpis, kpiSql.data)} />
         {compareWindow && <DevCompare label="getCompareKpis" note={`analyst: ${analyst === "__all__" ? "all" : analyst}`} metrics={kpiMetrics(compareKpis, cmpSql.data)} />}
       </Section>
@@ -71,6 +80,15 @@ export default function Home() {
           <ShortcutCard to="/team" icon={Users} label="Team Leaderboard" hint="Side-by-side metrics" />
         </div>
       </Section>
+
+      {showMissedSla && (
+        <CaseListModal
+          title="Cases that missed SLA"
+          subtitle={`${missedSlaRows.length} of ${kpis.slaEligible} SLA-eligible cases in the current view breached the SOP response cadence.`}
+          rows={missedSlaRows}
+          onClose={() => setShowMissedSla(false)}
+        />
+      )}
     </>
   )
 }

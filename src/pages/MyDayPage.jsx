@@ -63,7 +63,7 @@ export default function MyDayPage() {
       else if (k === "due24") due24.push(r)
       else if (k === "dueWeek") dueWeek.push(r)
     }
-    const byDue = (a, b) => (a._slaDue?.getTime() || 0) - (b._slaDue?.getTime() || 0)
+    const byDue = (a, b) => (a._slaDueSop?.getTime() || 0) - (b._slaDueSop?.getTime() || 0)
     breached.sort(byDue); due24.sort(byDue); dueWeek.sort(byDue)
     return { breached, due24, dueWeek, atRisk: [...breached, ...due24, ...dueWeek] }
   }, [open])
@@ -285,7 +285,7 @@ export default function MyDayPage() {
             </thead>
             <tbody>
               {sla.atRisk.slice(0, CAP).map((r) => {
-                const ms = msUntil(r._slaDue)
+                const ms = msUntil(r._slaDueSop)
                 let slaText = "—", slaColor = T.muted
                 if (ms != null) {
                   if (ms < 0) { slaText = `breached ${fmtDuration(-ms)}`; slaColor = T.danger }

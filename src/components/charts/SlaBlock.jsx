@@ -1,6 +1,6 @@
 import {
   BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  RadialBarChart, RadialBar,
+  PieChart, Pie,
 } from "recharts";
 import { CheckCircle2, XCircle, Clock } from "lucide-react";
 import { T } from "../../lib/theme.js";
@@ -10,26 +10,52 @@ import { CopyableNumber } from "../CopyableNumber.jsx";
 import { Pill } from "../Pill.jsx";
 
 /* ================= SLA ================= */
-export function SlaBlock({ kpis, priorityData, enriched }) {
+export function SlaBlock({ kpis, priorityData }) {
   const pct = kpis.slaRate == null ? 0 : kpis.slaRate;
-  const radialData = [{ name: "SLA met", value: pct, fill: pct >= 95 ? T.ok : pct >= 85 ? T.warn : T.danger }];
+  const hasData = kpis.slaEligible > 0;
+  const missed = kpis.slaEligible - kpis.slaMet;
+  // Health color for the headline number (green ≥ 95, amber ≥ 85, red below).
+  const centerColor = pct >= 95 ? T.ok : pct >= 85 ? T.warn : T.danger;
+  // Proportional donut: green = met, red = missed. Zero-value slices are dropped
+  // so a 100%-met (or 0%) ring renders as a single clean arc.
+  const donutData = !hasData
+    ? [{ name: "No data", value: 1, fill: T.surfaceAlt }]
+    : [
+        kpis.slaMet > 0 && { name: "Met", value: kpis.slaMet, fill: T.ok },
+        missed > 0 && { name: "Missed", value: missed, fill: T.danger },
+      ].filter(Boolean);
+  const missedInitial = kpis.slaMissedInitial ?? 0;
+  const missedCadence = kpis.slaMissedCadence ?? 0;
   const nearestBreach = [...kpis.atRisk, ...kpis.breached]
-    .sort((a, b) => (a._slaDue || 0) - (b._slaDue || 0))
+    .sort((a, b) => (a._slaDueSop || 0) - (b._slaDueSop || 0))
     .slice(0, 6);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "340px 1fr", gap: 12 }}>
       <Card>
         <div className="eyebrow" style={{ color: T.muted }}>Overall SLA</div>
-        <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>The percentage of SLA-eligible cases resolved within their contractual window. Green ≥ 95%, amber ≥ 85%, red below.</div>
+        <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>The share of cases that held the Infor SOP response cadence — first response on target and no overdue update gaps. Green ring = met, red = missed. Headline color: green ≥ 95%, amber ≥ 85%, red below.</div>
         <div style={{ position: "relative", height: 240, marginTop: 12 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <RadialBarChart innerRadius="70%" outerRadius="95%" data={radialData} startAngle={90} endAngle={-270}>
-              <RadialBar dataKey="value" cornerRadius={8} background={{ fill: T.surfaceAlt }} />
-            </RadialBarChart>
+            <PieChart>
+              <Pie
+                data={donutData}
+                dataKey="value"
+                innerRadius="70%"
+                outerRadius="95%"
+                startAngle={90}
+                endAngle={-270}
+                stroke="none"
+                isAnimationActive={false}
+                paddingAngle={donutData.length > 1 ? 1.5 : 0}
+                cornerRadius={4}
+              >
+                {donutData.map((d, i) => (<Cell key={i} fill={d.fill} />))}
+              </Pie>
+            </PieChart>
           </ResponsiveContainer>
           <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-            <div className="display mono" style={{ fontSize: 48, fontWeight: 500, color: radialData[0].fill, lineHeight: 1 }}>
+            <div className="display mono" style={{ fontSize: 48, fontWeight: 500, color: hasData ? centerColor : T.muted, lineHeight: 1 }}>
               {kpis.slaRate == null ? "—" : `${pct.toFixed(1)}%`}
             </div>
             <div style={{ fontSize: 12, color: T.sub, marginTop: 4 }}>within SLA</div>
@@ -38,15 +64,29 @@ export function SlaBlock({ kpis, priorityData, enriched }) {
         <div className="hairline" style={{ margin: "12px -20px 0", borderColor: T.borderSoft }} />
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 12, color: T.sub }}>
           <span><CheckCircle2 size={12} style={{ color: T.ok, verticalAlign: "middle" }} /> Met: <span className="mono" style={{ color: T.ink }}>{kpis.slaMet}</span></span>
-          <span><XCircle size={12} style={{ color: T.danger, verticalAlign: "middle" }} /> Missed: <span className="mono" style={{ color: T.ink }}>{kpis.slaEligible - kpis.slaMet}</span></span>
+          <span><XCircle size={12} style={{ color: T.danger, verticalAlign: "middle" }} /> Missed: <span className="mono" style={{ color: T.ink }}>{missed}</span></span>
           <span><Clock size={12} style={{ color: T.muted, verticalAlign: "middle" }} /> Avg FRT: <span className="mono" style={{ color: T.ink }}>{fmtDuration(kpis.avgFrt)}</span></span>
         </div>
+        {missed > 0 && (
+          <>
+            <div className="hairline" style={{ margin: "12px -20px 0", borderColor: T.borderSoft }} />
+            <div className="eyebrow" style={{ color: T.muted, marginTop: 12 }}>Why cases missed</div>
+            <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginTop: 8, background: T.surfaceAlt }}>
+              {missedInitial > 0 && <div style={{ flex: missedInitial, background: T.warn }} title={`First response: ${missedInitial}`} />}
+              {missedCadence > 0 && <div style={{ flex: missedCadence, background: T.danger }} title={`Cadence: ${missedCadence}`} />}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, color: T.sub }}>
+              <span><Dot color={T.warn} /> First response: <span className="mono" style={{ color: T.ink }}>{missedInitial}</span></span>
+              <span><Dot color={T.danger} /> Cadence: <span className="mono" style={{ color: T.ink }}>{missedCadence}</span></span>
+            </div>
+          </>
+        )}
       </Card>
 
       <Card>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <div className="eyebrow" style={{ color: T.muted }}>SLA compliance by priority</div>
-          <div style={{ fontSize: 11, color: T.muted }}>closed + in-flight, where SLA data is present</div>
+          <div style={{ fontSize: 11, color: T.muted }}>closed + in-flight, cases with an SOP cadence</div>
         </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Hit rate broken out per priority level — surfaces whether a single priority is dragging the overall number down.</div>
         <div style={{ height: 200, marginTop: 12 }}>
@@ -74,8 +114,8 @@ export function SlaBlock({ kpis, priorityData, enriched }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {nearestBreach.map((r) => {
               const now = new Date();
-              const breached = r._slaDue && r._slaDue < now;
-              const ms = r._slaDue ? Math.abs(r._slaDue - now) : 0;
+              const breached = r._slaDueSop && r._slaDueSop < now;
+              const ms = r._slaDueSop ? Math.abs(r._slaDueSop - now) : 0;
               return (
                 <div key={r.number} style={{ display: "grid", gridTemplateColumns: "100px 70px 1fr 120px", gap: 12, alignItems: "center", fontSize: 12, padding: "6px 0", borderBottom: `1px solid ${T.borderSoft}` }}>
                   <CopyableNumber value={r.number} className="mono" style={{ color: T.sub }} />
@@ -91,6 +131,15 @@ export function SlaBlock({ kpis, priorityData, enriched }) {
         )}
       </Card>
     </div>
+  );
+}
+
+function Dot({ color }) {
+  return (
+    <span
+      aria-hidden
+      style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: color, marginRight: 5, verticalAlign: "middle" }}
+    />
   );
 }
 

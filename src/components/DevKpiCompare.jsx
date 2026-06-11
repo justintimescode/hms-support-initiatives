@@ -1,4 +1,4 @@
-import { T } from "../lib/theme.js";
+import { T, alpha } from "../lib/theme.js";
 import { useQuery } from "../lib/useQuery.js";
 import { getKpis } from "../lib/queries.js";
 import { Card } from "./layout/Card.jsx";
@@ -67,7 +67,7 @@ export function DevKpiCompare({ jsKpis, analyst, dateRange, dbReady }) {
   const anyDrift = rows.some(([, a, b]) => !closeEnough(a, b));
 
   return (
-    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: (anyDrift ? T.dangerSoft : T.okSoft) + "33" }}>
+    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: alpha(anyDrift ? T.dangerSoft : T.okSoft, 0.2) }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div>
           <div className="eyebrow" style={{ color: anyDrift ? T.danger : T.ok }}>

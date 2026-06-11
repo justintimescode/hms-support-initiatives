@@ -34,7 +34,7 @@ export function CaseListModal({ title, subtitle, rows, onClose }) {
       className="no-print"
       style={{
         position: "fixed", inset: 0, zIndex: 50,
-        background: "rgba(14,14,16,0.55)",
+        background: T.scrim,
         display: "flex", alignItems: "flex-start", justifyContent: "center",
         padding: "40px 20px", overflowY: "auto",
       }}

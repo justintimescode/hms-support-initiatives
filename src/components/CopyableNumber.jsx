@@ -55,7 +55,7 @@ export function CopyableNumber({ value, style, className }) {
             fontWeight: 600,
             padding: "8px 12px",
             borderRadius: 6,
-            boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+            boxShadow: T.shadowMd,
           }}
         >
           <Check size={14} /> Copied {value}

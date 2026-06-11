@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom"
 import { Database } from "lucide-react"
-import { T } from "../lib/theme.js"
+import { T, alpha } from "../lib/theme.js"
 import { Card } from "./layout/Card.jsx"
 
 /* Shared "no data loaded" state used by every analytical page. */
@@ -31,7 +31,7 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          border: `1px solid ${T.accent}22`,
+          border: `1px solid ${alpha(T.accent, 0.13)}`,
           marginBottom: 4,
         }}
       >
@@ -50,13 +50,13 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
           marginTop: 12,
           padding: "10px 20px",
           background: T.accent,
-          color: "#fff",
+          color: T.onAccent,
           border: `1px solid ${T.accentDeep}`,
           borderRadius: 8,
           fontSize: 13,
           fontWeight: 600,
           textDecoration: "none",
-          boxShadow: `0 1px 0 ${T.accentDeep}, 0 4px 12px rgba(218, 41, 28, 0.25)`,
+          boxShadow: `0 1px 0 ${T.accentDeep}, 0 4px 12px ${alpha(T.accent, 0.25)}`,
           transition: "transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
           fontFamily: "Geist, DM Sans, sans-serif",
         }}

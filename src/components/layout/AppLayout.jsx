@@ -11,6 +11,7 @@ import { useAppData } from "../../lib/useAppData.js";
 import { Shell } from "./Shell.jsx";
 import { TopBar } from "./TopBar.jsx";
 import { DataRetentionNotice } from "./DataRetentionNotice.jsx";
+import { ThemeToggle } from "../ThemeToggle.jsx";
 
 const NAV_GROUPS = [
   {
@@ -158,6 +159,19 @@ function Sidebar({ importCount, storageBytes }) {
       </nav>
 
       <div style={{ padding: "0 0 14px" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            margin: "0 14px 10px",
+            paddingTop: 12,
+            borderTop: `1px solid ${T.borderSoft}`,
+          }}
+        >
+          <span className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>Appearance</span>
+          <ThemeToggle />
+        </div>
         <DataRetentionNotice importCount={importCount} storageBytes={storageBytes} />
       </div>
     </aside>

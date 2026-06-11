@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { TrendingUp, TrendingDown, Ban, AlertTriangle } from "lucide-react";
-import { T } from "../../lib/theme.js";
+import { T, alpha } from "../../lib/theme.js";
 import { accountChurnRisk } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
@@ -112,7 +112,7 @@ function Trend({ up, flat, badWhenUp }) {
 
 function Chip({ icon: Icon, label, tone }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 4, background: tone + "1a", color: tone, fontSize: 10.5, fontWeight: 600 }}>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 4, background: alpha(tone, 0.1), color: tone, fontSize: 10.5, fontWeight: 600 }}>
       <Icon size={11} /> {label}
     </span>
   );

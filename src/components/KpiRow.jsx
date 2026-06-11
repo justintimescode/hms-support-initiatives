@@ -1,5 +1,5 @@
 import { ClipboardList, CheckCircle2, Clock, AlertTriangle } from "lucide-react";
-import { T } from "../lib/theme.js";
+import { T, alpha } from "../lib/theme.js";
 import { fmtDuration, deltaColor, fmtDeltaCount, fmtDeltaPct, fmtDeltaDuration } from "../lib/format.js";
 import { Card } from "./layout/Card.jsx";
 
@@ -117,7 +117,7 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
                 width: 26,
                 height: 26,
                 borderRadius: 7,
-                background: c.accent + "10",
+                background: alpha(c.accent, 0.06),
               }}
             >
               {c.icon}

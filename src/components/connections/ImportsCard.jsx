@@ -3,7 +3,7 @@ import {
   FileSpreadsheet, Upload, Loader2, AlertTriangle, MoreVertical,
   Check, Pencil, RotateCcw, Trash2, CircleDot, Circle,
 } from "lucide-react"
-import { T } from "../../lib/theme.js"
+import { T, alpha } from "../../lib/theme.js"
 import { fmtFullDateTime } from "../../lib/format.js"
 import { Card } from "../layout/Card.jsx"
 import { Pill } from "../Pill.jsx"
@@ -206,7 +206,7 @@ export function ImportsCard(ctx) {
           position: "fixed", bottom: 20, right: 20, zIndex: 60,
           display: "inline-flex", alignItems: "center", gap: 6,
           background: T.ink, color: T.surface, fontSize: 12, fontWeight: 600,
-          padding: "8px 14px", borderRadius: 6, boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+          padding: "8px 14px", borderRadius: 6, boxShadow: T.shadowMd,
         }}>
           <Check size={14} /> {toast}
         </div>
@@ -226,7 +226,7 @@ function DropTarget({ drag, setDrag, uploading, inputRef, onPick }) {
         display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 8,
         padding: "40px 16px", borderRadius: 6,
         border: `1.5px dashed ${drag ? T.accent : T.border}`,
-        background: drag ? T.accentSoft + "55" : T.surfaceAlt, cursor: "pointer",
+        background: drag ? alpha(T.accentSoft, 0.33) : T.surfaceAlt, cursor: "pointer",
       }}>
       <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }}
         onChange={(e) => onPick(e.target.files?.[0])} />
@@ -250,7 +250,7 @@ function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRe
       {open && (
         <>
           <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, minWidth: 190, boxShadow: "0 4px 12px rgba(0,0,0,0.12)", zIndex: 11, overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, minWidth: 190, boxShadow: T.shadowMd, zIndex: 11, overflow: "hidden" }}>
             {!isActive && <MenuItem icon={CircleDot} label="Activate" onClick={onActivate} />}
             <MenuItem icon={Pencil} label="Rename" onClick={onRename} />
             <MenuItem icon={RotateCcw} label="Rebuild from source" onClick={onRebuild} disabled={!hasBlob}
@@ -285,8 +285,8 @@ function ConfirmDialog({ target, onCancel, onConfirm }) {
   const needsType = isAll
   const canConfirm = !needsType || typed.trim().toUpperCase() === "DELETE"
   return (
-    <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20, maxWidth: 420, boxShadow: "0 8px 28px rgba(0,0,0,0.2)" }}>
+    <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: T.scrim, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20, maxWidth: 420, boxShadow: T.shadowLg }}>
         <div className="display" style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>
           {isAll ? "Clear all imports?" : `Delete ${target.displayName}?`}
         </div>
@@ -302,7 +302,7 @@ function ConfirmDialog({ target, onCancel, onConfirm }) {
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onCancel} style={{ ...iconBtn, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 13 }}>Cancel</button>
           <button onClick={canConfirm ? onConfirm : undefined} disabled={!canConfirm}
-            style={{ padding: "8px 14px", background: canConfirm ? T.danger : T.surfaceAlt, color: canConfirm ? "#fff" : T.muted, border: `1px solid ${canConfirm ? T.danger : T.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: canConfirm ? "pointer" : "not-allowed", fontFamily: "DM Sans, sans-serif" }}>
+            style={{ padding: "8px 14px", background: canConfirm ? T.danger : T.surfaceAlt, color: canConfirm ? T.onAccent : T.muted, border: `1px solid ${canConfirm ? T.danger : T.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: canConfirm ? "pointer" : "not-allowed", fontFamily: "DM Sans, sans-serif" }}>
             {isAll ? "Clear all" : "Delete"}
           </button>
         </div>

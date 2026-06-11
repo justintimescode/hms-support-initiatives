@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Upload, AlertTriangle, Loader2 } from "lucide-react";
-import { T } from "../lib/theme.js";
+import { T, alpha } from "../lib/theme.js";
 
 /* ================= Upload ================= */
 export function UploadScreen({ onPick, uploading, error, inputRef }) {
@@ -123,7 +123,7 @@ export function UploadScreen({ onPick, uploading, error, inputRef }) {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                border: `1px solid ${T.accent}26`,
+                border: `1px solid ${alpha(T.accent, 0.15)}`,
               }}
             >
               <Upload size={26} strokeWidth={1.75} />
@@ -146,7 +146,7 @@ export function UploadScreen({ onPick, uploading, error, inputRef }) {
             gap: 8,
             padding: "8px 14px",
             background: T.dangerSoft,
-            border: `1px solid ${T.danger}33`,
+            border: `1px solid ${alpha(T.danger, 0.2)}`,
             borderRadius: 8,
           }}
         >
@@ -161,7 +161,7 @@ export function UploadScreen({ onPick, uploading, error, inputRef }) {
           alignItems: "flex-start",
           gap: 12,
           background: T.warnSoft,
-          border: `1px solid ${T.warn}33`,
+          border: `1px solid ${alpha(T.warn, 0.2)}`,
           borderRadius: T.radiusMd,
           padding: "14px 18px",
           maxWidth: 560,

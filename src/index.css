@@ -1,17 +1,155 @@
+/* ---------- theme palettes ----------
+ * Source of truth for every color token. JS reads these through var() refs in
+ * src/lib/theme.js (T.bg === "var(--t-bg)"), so components keep using T.* and
+ * the [data-theme] attribute on <html> decides what they resolve to.
+ * index.html sets data-theme before first paint; src/lib/theme-mode.js owns it
+ * at runtime.
+ */
 :root {
   --sans: 'Geist', 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --display: 'Instrument Serif', 'Fraunces', Georgia, serif;
   --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
 
+  /* Surfaces */
+  --t-bg: #F6F6F7;
+  --t-surface: #FFFFFF;
+  --t-surface-alt: #F1F2F4;
+  --t-surface-sunk: #FAFAFB;
+
+  /* Ink */
+  --t-ink: #0E0E10;
+  --t-sub: #52525B;
+  --t-muted: #9A9AA3;
+  --t-border: #E4E4E7;
+  --t-border-soft: #EEEEF0;
+
+  /* Brand — Infor red */
+  --t-accent: #DA291C;
+  --t-accent-deep: #B11E14;
+  --t-accent-soft: #FBE3E0;
+  --t-accent-tint: #FEF3F2;
+  --t-on-accent: #FFFFFF;
+
+  /* Brand tints for external systems */
+  --t-sn-green: #1FA84C;
+  --t-jira-blue: #1868DB;
+
+  /* Semantic */
+  --t-ok: #137A4D;
+  --t-ok-soft: #DCF1E4;
+  --t-warn: #B45309;
+  --t-warn-soft: #FCE9C5;
+  --t-danger: #B91C1C;
+  --t-danger-soft: #FBDDDB;
+
+  /* Priority palette */
+  --t-priority-critical: #B91C1C;
+  --t-priority-major: #B45309;
+  --t-priority-medium: #137A4D;
+  --t-priority-standard: #475569;
+
+  /* Effects */
+  --t-scrim: rgba(14, 14, 16, 0.55);
+  --t-shadow-sm: 0 1px 2px rgba(15, 15, 17, 0.04), 0 1px 1px rgba(15, 15, 17, 0.03);
+  --t-shadow-md: 0 4px 12px rgba(15, 15, 17, 0.06), 0 1px 3px rgba(15, 15, 17, 0.04);
+  --t-shadow-lg: 0 12px 32px rgba(15, 15, 17, 0.08), 0 2px 6px rgba(15, 15, 17, 0.04);
+  --t-ring: 0 0 0 3px rgba(218, 41, 28, 0.18);
+
   font: 14px/1.5 var(--sans);
   letter-spacing: 0.005em;
   color-scheme: light;
-  color: #0E0E10;
-  background: #F6F6F7;
+  color: var(--t-ink);
+  background: var(--t-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Dark palette. The accent lifts toward coral so Infor red keeps contrast on
+ * near-black; soft fills become deep washes of the same hue. */
+html[data-theme="dark"] {
+  --t-bg: #101114;
+  --t-surface: #17181C;
+  --t-surface-alt: #1F2026;
+  --t-surface-sunk: #141518;
+
+  --t-ink: #F2F2F4;
+  --t-sub: #A8A8B3;
+  --t-muted: #70707B;
+  --t-border: #2A2B33;
+  --t-border-soft: #222329;
+
+  --t-accent: #F25C50;
+  --t-accent-deep: #E0382B;
+  --t-accent-soft: #46201C;
+  --t-accent-tint: #2C1715;
+  /* Coral is effectively a light accent — white on it fails AA (3.27:1),
+   * near-black ink gives 5.8:1. */
+  --t-on-accent: #101114;
+
+  --t-sn-green: #3BCB6D;
+  --t-jira-blue: #5C9DFF;
+
+  --t-ok: #34C384;
+  --t-ok-soft: #14301F;
+  --t-warn: #E09A3E;
+  --t-warn-soft: #332608;
+  --t-danger: #EF5350;
+  --t-danger-soft: #3B1716;
+
+  --t-priority-critical: #EF5350;
+  --t-priority-major: #E09A3E;
+  --t-priority-medium: #34C384;
+  --t-priority-standard: #94A3B8;
+
+  --t-scrim: rgba(0, 0, 0, 0.65);
+  --t-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
+  --t-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --t-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
+  /* Focus ring is the app's ONLY focus indicator (Shell.jsx removes
+   * outlines), so it needs ≥3:1 against dark surfaces — 0.75 alpha ≈ 3.5:1. */
+  --t-ring: 0 0 0 3px rgba(242, 92, 80, 0.75);
+
+  color-scheme: dark;
+}
+
+/* Printed reports stay light no matter what theme is active on screen. */
+@media print {
+  :root, html[data-theme="dark"] {
+    --t-bg: #F6F6F7;
+    --t-surface: #FFFFFF;
+    --t-surface-alt: #F1F2F4;
+    --t-surface-sunk: #FAFAFB;
+    --t-ink: #0E0E10;
+    --t-sub: #52525B;
+    --t-muted: #9A9AA3;
+    --t-border: #E4E4E7;
+    --t-border-soft: #EEEEF0;
+    --t-accent: #DA291C;
+    --t-accent-deep: #B11E14;
+    --t-accent-soft: #FBE3E0;
+    --t-accent-tint: #FEF3F2;
+    --t-on-accent: #FFFFFF;
+    --t-sn-green: #1FA84C;
+    --t-jira-blue: #1868DB;
+    --t-ok: #137A4D;
+    --t-ok-soft: #DCF1E4;
+    --t-warn: #B45309;
+    --t-warn-soft: #FCE9C5;
+    --t-danger: #B91C1C;
+    --t-danger-soft: #FBDDDB;
+    --t-priority-critical: #B91C1C;
+    --t-priority-major: #B45309;
+    --t-priority-medium: #137A4D;
+    --t-priority-standard: #475569;
+    --t-scrim: rgba(14, 14, 16, 0.55);
+    --t-shadow-sm: none;
+    --t-shadow-md: none;
+    --t-shadow-lg: none;
+    --t-ring: 0 0 0 3px rgba(218, 41, 28, 0.18);
+    color-scheme: light;
+  }
 }
 
 html, body, #root {
@@ -19,7 +157,7 @@ html, body, #root {
   padding: 0;
   min-height: 100vh;
   width: 100%;
-  background: #F6F6F7;
+  background: var(--t-bg);
   display: block;
 }
 
@@ -30,8 +168,129 @@ body {
 h1, h2, h3 {
   font-family: var(--display);
   font-weight: 400;
-  color: #0E0E10;
+  color: var(--t-ink);
   margin: 0;
 }
 
 p { margin: 0; }
+
+/* ---------- theme switch: circular ripple via the View Transitions API ----
+ * ThemeToggle.jsx calls document.startViewTransition and then animates
+ * clip-path on ::view-transition-new(root) from a 0px circle at the button to
+ * the farthest viewport corner. The UA's default crossfade would fight that,
+ * so it is disabled here; the old snapshot simply sits underneath while the
+ * new theme is revealed by the expanding circle.
+ */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Fallback for browsers without view transitions: ThemeToggle briefly tags
+ * <html> with .theme-fade so every color smoothly interpolates to the new
+ * palette instead of snapping. The toggle's own subtree is excluded — this
+ * `transition` shorthand would otherwise override the icon's d/transform/
+ * opacity transitions and kill the sun/moon morph in exactly the browsers
+ * that rely on this fallback. */
+html.theme-fade,
+html.theme-fade *:not(.theme-toggle, .theme-toggle *),
+html.theme-fade *:not(.theme-toggle, .theme-toggle *)::before,
+html.theme-fade *:not(.theme-toggle, .theme-toggle *)::after {
+  transition:
+    background-color 0.45s ease,
+    color 0.45s ease,
+    border-color 0.45s ease,
+    fill 0.45s ease,
+    stroke 0.45s ease,
+    box-shadow 0.45s ease !important;
+}
+
+/* ---------- theme toggle button: sun ⇄ moon path morph ----------
+ * .tt-disc carries two morph-compatible paths (M + 5 cubics + Z, generated by
+ * scripts/gen-sun-moon-paths.mjs): the sun disc in the `d` attribute and the
+ * moon crescent here via the CSS `d` property, so the shape itself tweens.
+ * Rays swirl out as the disc swells into the crescent and the icon tilts.
+ */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--t-sub);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.theme-toggle:hover {
+  background: var(--t-surface-alt);
+  border-color: var(--t-border);
+  color: var(--t-ink);
+}
+.theme-toggle:active {
+  transform: scale(0.88);
+}
+
+.theme-toggle svg {
+  display: block;
+  transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+}
+html[data-theme="dark"] .theme-toggle svg {
+  transform: rotate(-30deg);
+}
+
+.tt-disc {
+  transition: d 0.5s cubic-bezier(0.65, 0, 0.35, 1);
+}
+html[data-theme="dark"] .tt-disc {
+  d: path("M18.893 13.218C18.275 16.715 15.137 19.195 11.592 18.988C8.047 18.781 5.219 15.953 5.012 12.408C4.805 8.863 7.285 5.725 10.782 5.107C10.083 7.403 10.706 9.899 12.404 11.596C14.101 13.294 16.597 13.917 18.893 13.218Z");
+}
+
+.tt-rays {
+  transform-origin: 12px 12px;
+  transform: scale(1) rotate(0deg);
+  opacity: 1;
+  transition: transform 0.5s cubic-bezier(0.65, 0, 0.35, 1), opacity 0.35s ease;
+}
+html[data-theme="dark"] .tt-rays {
+  transform: scale(0.4) rotate(70deg);
+  opacity: 0;
+}
+
+/* Browsers that can't animate (or apply) the CSS `d` property crossfade
+ * between the static sun disc and a dedicated moon path instead. */
+.tt-moon-fallback {
+  opacity: 0;
+}
+@supports not (d: path("M0 0L1 1")) {
+  .tt-disc,
+  .tt-moon-fallback {
+    transition: opacity 0.35s ease;
+  }
+  html[data-theme="dark"] .tt-disc {
+    opacity: 0;
+  }
+  html[data-theme="dark"] .tt-moon-fallback {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle,
+  .theme-toggle svg,
+  .tt-disc,
+  .tt-rays,
+  .tt-moon-fallback {
+    transition: none !important;
+  }
+  html.theme-fade,
+  html.theme-fade *,
+  html.theme-fade *::before,
+  html.theme-fade *::after {
+    transition: none !important;
+  }
+}

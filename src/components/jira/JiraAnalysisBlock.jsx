@@ -19,7 +19,7 @@ const jiraBtn = (primary, disabled) => ({
   opacity: disabled ? 0.55 : 1,
   border: `1px solid ${primary ? T.accent : T.border}`,
   background: primary ? T.accent : T.surface,
-  color: primary ? "#FBF8F2" : T.sub,
+  color: primary ? T.onAccent : T.sub,
 })
 
 export function JiraSyncControls({ meta, onSync }) {

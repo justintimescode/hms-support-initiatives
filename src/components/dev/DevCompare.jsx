@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { T } from "../../lib/theme.js"
+import { T, alpha } from "../../lib/theme.js"
 import { Card } from "../layout/Card.jsx"
 import { closeEnough } from "./devCompareUtils.js"
 
@@ -52,7 +52,7 @@ export function DevCompare({ label, metrics, eps = 0.05, note }) {
   if (!DEV || !rows.length) return null
 
   return (
-    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: (anyDrift ? T.dangerSoft : T.okSoft) + "33" }}>
+    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: alpha(anyDrift ? T.dangerSoft : T.okSoft, 0.2) }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div className="eyebrow" style={{ color: anyDrift ? T.danger : T.ok }}>
           DEV · {label} {anyDrift ? "· drift detected" : "· match"}

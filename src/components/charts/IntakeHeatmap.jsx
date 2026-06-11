@@ -1,5 +1,10 @@
 import React, { useState, useMemo } from "react";
 import { T } from "../../lib/theme.js";
+
+/* Heat ramp mixed from the accent into the empty-cell color so it carries in
+ * both themes — a raw alpha ramp tuned for white backgrounds goes nearly
+ * invisible at the low end on dark surfaces. */
+const heat = (frac) => `color-mix(in srgb, ${T.accent} ${Math.round(frac * 100)}%, ${T.surfaceAlt})`;
 import { WEEKDAY_NAMES, WEEKDAY_ORDER } from "../../lib/constants.js";
 import { hourHeatmap } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
@@ -20,7 +25,7 @@ export function IntakeHeatmap({ rows }) {
   return (
     <Card>
       <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Intake heatmap · weekday × hour</div>
-      <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>When new cases come in. Darker = more cases created in that slot. Click a tile to drill in.</div>
+      <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>When new cases come in. Deeper red = more cases created in that slot. Click a tile to drill in.</div>
       <div style={{ marginTop: 16, overflowX: "auto", textAlign: "left" }} className="scrollbar">
         <div style={{ display: "grid", gridTemplateColumns: `36px repeat(24, minmax(20px, 1fr))`, gap: 2, minWidth: "100%" }}>
           <div />
@@ -36,7 +41,7 @@ export function IntakeHeatmap({ rows }) {
                 const intensity = max ? v / max : 0;
                 const bg = v === 0
                   ? T.surfaceAlt
-                  : `rgba(184, 69, 44, ${0.12 + intensity * 0.78})`;
+                  : heat(0.18 + intensity * 0.72);
                 const isSelected = selected && selected.rowIdx === ri && selected.hourIdx === hi;
                 return (
                   <div
@@ -64,8 +69,8 @@ export function IntakeHeatmap({ rows }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 10, fontSize: 11, color: T.muted }}>
         <span className="mono">0</span>
         <div style={{ display: "flex", gap: 2 }}>
-          {[0.12, 0.3, 0.5, 0.7, 0.9].map((a) => (
-            <div key={a} style={{ width: 18, height: 10, background: `rgba(184, 69, 44, ${a})`, borderRadius: 2 }} />
+          {[0.18, 0.36, 0.54, 0.72, 0.9].map((a) => (
+            <div key={a} style={{ width: 18, height: 10, background: heat(a), borderRadius: 2 }} />
           ))}
         </div>
         <span className="mono">{max}</span>

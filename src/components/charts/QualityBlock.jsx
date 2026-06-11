@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { CheckCircle2, RotateCcw } from "lucide-react";
-import { T } from "../../lib/theme.js";
+import { T, alpha } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 
 /* ================= Resolution Quality =================
@@ -110,7 +110,7 @@ function Headline({ icon: Icon, label, value, color, sub, hint }) {
       <div aria-hidden style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: color, opacity: 0.85 }} />
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div className="eyebrow" style={{ color: T.muted }}>{label}</div>
-        <span style={{ color, display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: color + "10" }}>
+        <span style={{ color, display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 7, background: alpha(color, 0.06) }}>
           <Icon size={14} />
         </span>
       </div>

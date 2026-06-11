@@ -44,7 +44,7 @@ export function FrtDistributionBlock({ rows }) {
               <Tooltip content={<FrtTip total={dist.n} />} cursor={{ fill: T.surfaceAlt }} />
               <Bar dataKey="count" radius={[3, 3, 0, 0]}>
                 {dist.buckets.map((b, i) => (
-                  <Cell key={i} fill={b.count === peak ? T.accent : T.accent + "99"} />
+                  <Cell key={i} fill={T.accent} fillOpacity={b.count === peak ? 1 : 0.6} />
                 ))}
               </Bar>
             </BarChart>

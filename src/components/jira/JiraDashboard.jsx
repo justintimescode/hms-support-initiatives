@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Download } from "lucide-react";
-import { T } from "../../lib/theme.js";
+import { T, alpha } from "../../lib/theme.js";
 import { fmtDuration, fmtDate, priorityColor } from "../../lib/format.js";
 import { priorityRank } from "../../lib/enrich.js";
 // SECURITY #7 — rowsToCsv passes every exported cell through the formula-
@@ -30,7 +30,7 @@ function JiraLiveStatusBadge({ jira }) {
   const cat = jira.statusCategory
   const color = cat === "Done" ? T.ok : cat === "In Progress" ? T.warn : T.muted
   return (
-    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, background: color + "22", color, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
+    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, background: alpha(color, 0.13), color, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
       {jira.status}
     </span>
   )
@@ -52,7 +52,7 @@ function JiraStatusBadge({ status }) {
   const color = status === "active" ? T.warn : status === "mentioned" ? T.muted : T.ok
   const label = status === "active" ? "Active" : status === "mentioned" ? "Mentioned" : "Jira resolved"
   return (
-    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, background: color + "22", color, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
+    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, background: alpha(color, 0.13), color, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
       {label}
     </span>
   )
@@ -445,7 +445,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                 return (
                   <tr key={row.number}
                     onClick={() => setSelectedNumber(isSelected ? null : row.number)}
-                    style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isSelected ? T.surfaceAlt : row.mismatch ? T.warnSoft + "55" : "transparent" }}
+                    style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isSelected ? T.surfaceAlt : row.mismatch ? alpha(T.warnSoft, 0.33) : "transparent" }}
                     className="hoverlift">
                     <td className="mono" style={{ padding: "10px 14px", color: T.accent, fontWeight: isSelected ? 600 : 400 }}><CopyableNumber value={row.number} /></td>
                     <td style={{ padding: "10px 14px" }} onClick={(e) => e.stopPropagation()}>

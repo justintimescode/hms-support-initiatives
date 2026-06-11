@@ -110,7 +110,7 @@ export default function MonthlySummaryReport() {
         </div>
         <button
           onClick={() => window.print()}
-          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, background: T.accent, color: "#fff", border: `1px solid ${T.accentDeep}` }}
+          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, background: T.accent, color: T.onAccent, border: `1px solid ${T.accentDeep}` }}
         >
           <Printer size={14} /> Print / Save as PDF
         </button>

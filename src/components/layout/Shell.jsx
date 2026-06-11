@@ -1,4 +1,4 @@
-import { T } from "../../lib/theme.js";
+import { T, alpha } from "../../lib/theme.js";
 
 export function Shell({ children }) {
   return (
@@ -69,7 +69,7 @@ export function Shell({ children }) {
         body { scrollbar-width: thin; scrollbar-color: ${T.border} transparent; }
 
         /* ----- Selection ----- */
-        ::selection { background: ${T.accent}; color: #fff; }
+        ::selection { background: ${T.accent}; color: ${T.onAccent}; }
 
         /* ----- Animations ----- */
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -91,8 +91,8 @@ export function Shell({ children }) {
           inset: 0;
           pointer-events: none;
           background:
-            radial-gradient(900px 600px at 100% 0%, rgba(218, 41, 28, 0.035), transparent 60%),
-            radial-gradient(700px 500px at 0% 100%, rgba(14, 14, 16, 0.025), transparent 55%);
+            radial-gradient(900px 600px at 100% 0%, ${alpha(T.accent, 0.035)}, transparent 60%),
+            radial-gradient(700px 500px at 0% 100%, ${alpha(T.ink, 0.025)}, transparent 55%);
           z-index: 0;
         }
 

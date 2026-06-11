@@ -2,59 +2,70 @@
  * Refined enterprise palette. Light, neutral canvas with Infor red as the
  * signature accent. Tokens are deliberately stable in NAME so the rest of
  * the app keeps working when the palette swings; only values move.
+ *
+ * Every color token is a var() reference resolved by src/index.css, where the
+ * light and dark palettes live. The [data-theme] attribute on <html> picks the
+ * palette, which is what lets the theme toggle restyle the whole app without
+ * re-rendering. Numeric tokens (radii) stay literal. If you ever need a raw
+ * hex (canvas, color math), read the computed style — don't paste hex here.
  */
 export const T = {
   // Surfaces
-  bg: "#F6F6F7",          // page background — cool neutral
-  surface: "#FFFFFF",     // cards, sidebars
-  surfaceAlt: "#F1F2F4",  // raised wells, hover, segmented bg
-  surfaceSunk: "#FAFAFB", // pre-card wells (filter bar background, etc.)
+  bg: "var(--t-bg)",              // page background — cool neutral
+  surface: "var(--t-surface)",    // cards, sidebars
+  surfaceAlt: "var(--t-surface-alt)",   // raised wells, hover, segmented bg
+  surfaceSunk: "var(--t-surface-sunk)", // pre-card wells (filter bar background, etc.)
 
   // Ink
-  ink: "#0E0E10",         // primary text / strong numerals
-  sub: "#52525B",         // secondary text
-  muted: "#9A9AA3",       // tertiary / decorative labels
-  border: "#E4E4E7",      // standard hairline
-  borderSoft: "#EEEEF0",  // softer divider
+  ink: "var(--t-ink)",            // primary text / strong numerals
+  sub: "var(--t-sub)",            // secondary text
+  muted: "var(--t-muted)",        // tertiary / decorative labels
+  border: "var(--t-border)",      // standard hairline
+  borderSoft: "var(--t-border-soft)", // softer divider
 
   // Brand — Infor red
-  accent: "#DA291C",      // primary accent / interactive emphasis
-  accentDeep: "#B11E14",  // pressed / dense red moments
-  accentSoft: "#FBE3E0",  // tinted fills
-  accentTint: "#FEF3F2",  // ultra-soft red wash for hovers
+  accent: "var(--t-accent)",          // primary accent / interactive emphasis
+  accentDeep: "var(--t-accent-deep)", // pressed / dense red moments
+  accentSoft: "var(--t-accent-soft)", // tinted fills
+  accentTint: "var(--t-accent-tint)", // ultra-soft red wash for hovers
+  onAccent: "var(--t-on-accent)",     // text/icons sitting on accent fills
 
-  // ServiceNow brand green — used to tint case numbers (CS…) since they are
-  // ServiceNow cases. Tuned a touch deeper than the bright logo green (#62D84E)
-  // so bold monospace stays legible on the light cards; brighten toward the logo
-  // here if you want more pop at the cost of contrast.
-  snGreen: "#1FA84C",
+  // ServiceNow brand green — tints case numbers (CS…). Tune in index.css.
+  snGreen: "var(--t-sn-green)",
 
-  // Atlassian/Jira brand blue — used to tint ALL Jira/ticket keys (HMS-123…,
-  // RN-…): closed state is conveyed by strikethrough and non-Jira (RN-) refs by
-  // tooltip, never by greying the id. Brighten toward the logo gradient
-  // (~#2684FF) here for more pop at the cost of contrast.
-  jiraBlue: "#1868DB",
+  // Atlassian/Jira brand blue — tints ALL Jira/ticket keys (HMS-123…, RN-…):
+  // closed state is conveyed by strikethrough and non-Jira (RN-) refs by
+  // tooltip, never by greying the id. Tune in index.css.
+  jiraBlue: "var(--t-jira-blue)",
 
   // Semantic
-  ok: "#137A4D",
-  okSoft: "#DCF1E4",
-  warn: "#B45309",
-  warnSoft: "#FCE9C5",
-  danger: "#B91C1C",
-  dangerSoft: "#FBDDDB",
+  ok: "var(--t-ok)",
+  okSoft: "var(--t-ok-soft)",
+  warn: "var(--t-warn)",
+  warnSoft: "var(--t-warn-soft)",
+  danger: "var(--t-danger)",
+  dangerSoft: "var(--t-danger-soft)",
 
   // Priority palette — modernized tones
-  priorityCritical: "#B91C1C",
-  priorityMajor:    "#B45309",
-  priorityMedium:   "#137A4D",
-  priorityStandard: "#475569",
+  priorityCritical: "var(--t-priority-critical)",
+  priorityMajor:    "var(--t-priority-major)",
+  priorityMedium:   "var(--t-priority-medium)",
+  priorityStandard: "var(--t-priority-standard)",
 
   // Effects (additive — safe to ignore in older callsites)
-  shadowSm: "0 1px 2px rgba(15, 15, 17, 0.04), 0 1px 1px rgba(15, 15, 17, 0.03)",
-  shadowMd: "0 4px 12px rgba(15, 15, 17, 0.06), 0 1px 3px rgba(15, 15, 17, 0.04)",
-  shadowLg: "0 12px 32px rgba(15, 15, 17, 0.08), 0 2px 6px rgba(15, 15, 17, 0.04)",
-  ring:     "0 0 0 3px rgba(218, 41, 28, 0.18)",
+  scrim: "var(--t-scrim)",        // modal/dialog backdrop
+  shadowSm: "var(--t-shadow-sm)",
+  shadowMd: "var(--t-shadow-md)",
+  shadowLg: "var(--t-shadow-lg)",
+  ring:     "var(--t-ring)",
   radiusSm: 6,
   radiusMd: 10,
   radiusLg: 14,
 };
+
+/* Translucent version of any token (or CSS color). Replaces the old
+ * `T.accent + "22"` hex-alpha concatenation, which can't work now that token
+ * values are var() references. */
+export function alpha(color, fraction) {
+  return `color-mix(in srgb, ${color} ${+(fraction * 100).toFixed(1)}%, transparent)`;
+}

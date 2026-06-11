@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Clock } from "lucide-react";
-import { T } from "../../lib/theme.js";
+import { T, alpha } from "../../lib/theme.js";
 import { fmtDuration, fmtFullDate, priorityColor } from "../../lib/format.js";
 import { slaBreachForecast } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
@@ -133,7 +133,7 @@ function HorizonChip({ label, value, tone, icon: Icon }) {
 
 function RiskTag({ label, tone }) {
   return (
-    <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: tone + "1a", color: tone, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+    <span style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 4, background: alpha(tone, 0.1), color: tone, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
       {label}
     </span>
   );

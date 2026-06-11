@@ -140,6 +140,9 @@ export function blastRadius(rows, jiraIssueMap) {
   for (const r of rows || []) {
     const seen = new Set() // a case counts once per distinct key
     for (const t of r._jiraTickets || []) {
+      // Free-text mentions are not blockers — a prose name-drop must not count
+      // the case as "blocked by" the ticket in the impact rankings.
+      if (t.source === 'mention') continue
       if (!t.id || seen.has(t.id)) continue
       seen.add(t.id)
       const e = counts.get(t.id) || { total: 0, open: 0, cases: [] }

@@ -320,7 +320,9 @@ The app tries the newer cursor-based `/search/jql` endpoint first and falls back
 
 ### Jira Blockers page (`/jira-blockers`)
 
-Shows open ServiceNow cases that have at least one active Jira ticket reference. Ticket IDs are parsed from `work_notes` / `system_log` (looking for "Jira Reference ID ... has been linked" patterns) and from the `cause` field (any `[A-Z]+-\d+` pattern). `RN-` prefixed IDs are recognized as ServiceNow-internal Resolution Notes references and are not linked to Atlassian.
+Shows open ServiceNow cases that have at least one active Jira ticket reference. Ticket IDs are parsed from the case journals — `system_log`, `work_notes`, and `additional_comments` — looking for the System note "Jira Reference ID ... has been linked" / "... has been created and linked" plus any free-text `HMS-XXXXX` mention, and from the `cause` field (any `[A-Z]+-\d+` pattern). `RN-` prefixed IDs are recognized as ServiceNow-internal Resolution Notes references and are not linked to Atlassian. Days linked is anchored to the System link note only: cases whose tickets came solely from `cause` or a free-text mention show "Not linked" instead of a fake 0.
+
+Free-text mentions are **display-only**: the ticket appears on the case (clickable, tagged "mentioned", with live Jira data when synced), but a prose name-drop never marks the case as blocked — mentions are excluded from `_jiraActiveTickets`/`jira_active_keys` (My Day triage, account-risk `openBlockers`), the "Likely closeable" mismatch flag, the blast-radius "cases blocked" counts, and the "Tickets blocking multiple cases" ranking. Only the `cause` field and System notes assert a real linkage.
 
 When Jira is synced, each ticket gets live status, assignee, priority, fix versions, and engineering cycle time from the Jira API. The "Likely closeable" panel surfaces cases where every linked Jira ticket is already Done but the ServiceNow case is still open.
 
@@ -414,9 +416,9 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 | `_isClosed` | `state` | true if state is "closed" or "resolved" |
 | `_madeSla` | `made_sla` | ServiceNow's first-response-only flag — retained raw; no longer drives any metric |
 | `_category` | `short_description` + `close_notes` | Auto-categorized (11 categories) |
-| `_jiraTickets` | `work_notes` + `cause` | Parsed Jira ticket references |
+| `_jiraTickets` | journals + `cause` | Parsed Jira ticket references |
 | `_jiraActiveTickets` | `_jiraTickets` | Tickets not yet closed |
-| `_jiraFirstLinked` | `work_notes` | Earliest "linked" event timestamp |
+| `_jiraFirstLinked` | journals | Earliest "linked" event timestamp; `null` when no System link note exists |
 | `_interactionCount` | `work_notes` | Total conversation turns |
 | `_customerTurns` | `work_notes` | Customer-authored turns |
 | `_analystTurns` | `work_notes` | Infor-authored turns |
@@ -432,7 +434,7 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 
 `parseJiraRefs()` does a two-pass walk:
 
-1. **Pass 1** — scans `work_notes` / `system_log` line by line for "Jira Reference ID `[KEY]` has been linked" and "...has been closed" events, recording timestamps.
+1. **Pass 1** — scans each journal (`system_log`, `work_notes`, `additional_comments` — deduped via `jiraJournals`, each segment walked independently so header dates never bleed across journals) line by line for "Jira Reference ID `[KEY]` has been linked" / "...has been created and linked" and "...has been closed" events. The event itself is recorded even when the journal header (and thus the timestamp) is missing — so a truncated closed note still marks the ticket `jira_closed`. Each journal is also scanned for free-text `HMS-XXXXX` mentions, which attach the ticket display-only: no link date, never an active blocker (mention-mining is restricted to the real Jira project key so prose tokens like "UTF-8" can't become phantom tickets).
 2. **Pass 2** — extracts every `[A-Z]+-\d+` pattern from the `cause` field (canonical blockers).
 
 `RN-` prefixed IDs are flagged as ServiceNow-internal and marked `clickable: false` so they don't generate broken Atlassian links.
@@ -607,7 +609,7 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 - **File uploads** are validated by magic bytes and a 50 MB size ceiling before parsing.
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
-- **CSV exports** (Update Queue + Solution Proposed) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via a single shared `rowsToCsv`/`escapeCsv` path.
+- **CSV exports** (Update Queue, Solution Proposed, Jira Blockers) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via the single shared `rowsToCsv` → `toCsvRow` → `sanitizeCellForExport` path.
 - **Production builds** ship a Content-Security-Policy meta tag.
 
 ---

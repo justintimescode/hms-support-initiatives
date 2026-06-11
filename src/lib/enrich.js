@@ -25,7 +25,16 @@ import {
 // v5: SLA compliance re-based on the Infor SOP response cadence (computeSlaSop)
 // instead of ServiceNow's first-response-only `Made SLA` flag — adds the
 // `sla_breached` / `sla_due_sop` columns and redefines `sla_eligible`.
-export const SCHEMA_VERSION = '5'
+// v6: Jira link detection now matches the "has been created and linked" System
+// note variant and scans every journal field (system_log, work_notes,
+// additional_comments) — changes baked `jira_keys` / `jira_first_linked` values.
+// v7: free-text HMS-XXXXX mentions in the journals also attach the ticket to
+// the case — display/live-join only: no link date (Days linked still requires
+// the System note) and never counted in `jira_active_keys` (mentions are not
+// blocker assertions). System linked/closed notes now drive ticket status even
+// when the journal header is missing. Changes baked `jira_keys` /
+// `jira_active_keys` values.
+export const SCHEMA_VERSION = '7'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -179,37 +188,72 @@ export function normalizeXlsxRow(r) {
 const WORK_NOTE_HEADER = /^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-\s*(.+)/gm
 const ANALYST_AUTHOR = /\(Infor\)/i
 
-const JIRA_LINKED = /Jira Reference ID\s+([A-Z]+-\d+)\s+has been linked/i
+// ServiceNow's System user posts the link event in two phrasings:
+//   "Jira Reference ID HMS-12345 has been linked to this case."
+//   "Jira Reference ID HMS-12345 has been created and linked to this case."
+const JIRA_LINKED = /Jira Reference ID\s+([A-Z]+-\d+)\s+has been (?:created and )?linked/i
 const JIRA_CLOSED = /Jira Reference ID\s+([A-Z]+-\d+)\s+linked to this case has been closed/i
 const JIRA_ID_ANY = /[A-Z]+-\d+/g
+// Free-text ticket mentions in the journals. Deliberately restricted to the
+// real Jira project key(s): journals are prose, and the broad [A-Z]+-\d+ class
+// used on the curated `cause` field would turn tokens like "UTF-8" or
+// "COVID-19" into phantom tickets. Add prefixes here as new projects appear.
+const JIRA_MENTION = /\bHMS-\d+\b/gi
 // ServiceNow internal "Resolution Notes" references use the RN- prefix and do
 // NOT correspond to Jira tickets — they have no working atlassian.net URL.
 // Everything else (HMS-, INF-, etc.) is treated as a real Jira ticket.
 const SN_INTERNAL_PREFIX = /^RN-/i
 
+/** Every journal field that can carry the System "Jira Reference ID … linked"
+ *  note, deduped (XLSX maps both `work_notes` and `additional_comments` from
+ *  the same column). Returned as separate segments — parseJiraRefs scans each
+ *  journal independently, because scanning only one field missed link events
+ *  recorded in the others. */
+export function jiraJournals(r) {
+  return [...new Set([r.system_log, r.work_notes, r.additional_comments].filter(Boolean))]
+}
+
 export function parseJiraRefs(text, cause) {
   const linkedTs = {}
   const closedTs = {}
+  // System notes are authoritative even when their journal header is missing
+  // or truncated away: the EVENT (linked/closed) is recorded in these sets
+  // unconditionally; only the timestamp requires a parseable header. Without
+  // this split, a header-less closed note would leave the ticket 'active'.
+  const linkedSeen = new Set()
+  const closedSeen = new Set()
+  const mentionIds = new Set()
 
-  // Pass 1: walk work_notes / system log for "linked"/"closed" events with timestamps.
-  if (text) {
+  // Pass 1: walk each journal for "linked"/"closed" events with timestamps.
+  // `currentHeaderDate` is scoped per journal: a line may only inherit a header
+  // date from its OWN journal — never from a previously scanned one, which
+  // would fabricate link dates for header-less journal exports.
+  const journals = Array.isArray(text) ? text : text ? [text] : []
+  for (const journal of journals) {
+    // Free-text HMS-XXXXX mentions anywhere in the journal attach the ticket
+    // to the case. Mentions are NOT link events: they carry no linkedAt (Days
+    // linked stays "Not linked") and never count as active blockers.
+    for (const m of String(journal).matchAll(JIRA_MENTION)) mentionIds.add(m[0].toUpperCase())
     let currentHeaderDate = null
-    for (const line of String(text).split('\n')) {
+    for (const line of String(journal).split('\n')) {
       const h = line.match(/^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-/)
       if (h) {
         const d = new Date(h[1].replace(' ', 'T'))
         if (!isNaN(d.getTime())) currentHeaderDate = d
       }
-      if (!currentHeaderDate) continue
       const linked = line.match(JIRA_LINKED)
       if (linked) {
-        const id = linked[1]
-        if (!linkedTs[id] || currentHeaderDate < linkedTs[id]) linkedTs[id] = currentHeaderDate
+        // /i-matched ids are canonicalized to uppercase so they merge with the
+        // case-sensitive cause-field ids.
+        const id = linked[1].toUpperCase()
+        linkedSeen.add(id)
+        if (currentHeaderDate && (!linkedTs[id] || currentHeaderDate < linkedTs[id])) linkedTs[id] = currentHeaderDate
       }
       const closed = line.match(JIRA_CLOSED)
       if (closed) {
-        const id = closed[1]
-        if (!closedTs[id] || currentHeaderDate > closedTs[id]) closedTs[id] = currentHeaderDate
+        const id = closed[1].toUpperCase()
+        closedSeen.add(id)
+        if (currentHeaderDate && (!closedTs[id] || currentHeaderDate > closedTs[id])) closedTs[id] = currentHeaderDate
       }
     }
   }
@@ -221,7 +265,7 @@ export function parseJiraRefs(text, cause) {
     for (const m of String(cause).matchAll(JIRA_ID_ANY)) causeIds.add(m[0])
   }
 
-  const allIds = new Set([...Object.keys(linkedTs), ...causeIds])
+  const allIds = new Set([...linkedSeen, ...causeIds, ...mentionIds])
   const tickets = [...allIds].map((id) => {
     const isInternal = SN_INTERNAL_PREFIX.test(id)
     const fromCause = causeIds.has(id)
@@ -229,16 +273,30 @@ export function parseJiraRefs(text, cause) {
       id,
       linkedAt: linkedTs[id] || null,
       closedAt: closedTs[id] || null,
-      status: closedTs[id] ? 'jira_closed' : 'active',
+      status: closedSeen.has(id) ? 'jira_closed' : 'active',
       // clickable = points to a real Jira URL on infor.atlassian.net.
       // RN- prefixes are ServiceNow internal Resolution Notes refs, not Jira.
       clickable: !isInternal,
-      // source helps the UI label where the ID came from.
-      source: fromCause ? 'cause' : 'work_notes',
+      // source helps the UI label where the ID came from: the curated cause
+      // field, a System linked/closed note in the journal, or a free-text
+      // mention.
+      source: fromCause ? 'cause' : (linkedSeen.has(id) || closedSeen.has(id)) ? 'work_notes' : 'mention',
     }
   })
 
-  const activeTickets = tickets.filter((t) => t.status === 'active').map((t) => t.id)
+  // The "blocked on engineering" signal (_jiraActiveTickets, jira_active_keys,
+  // My Day triage, account-risk openBlockers). Free-text mentions are excluded:
+  // a note that merely name-drops a ticket — even "not related to HMS-123" —
+  // must not mark the case as blocked. Only the cause field and System notes
+  // assert a real linkage.
+  const activeTickets = tickets
+    .filter((t) => t.status === 'active' && t.source !== 'mention')
+    .map((t) => t.id)
+  // RN- (SN-internal) link notes count toward firstLinkedAt BY DESIGN: the
+  // System "created and linked" note marks the moment the case started waiting
+  // on engineering, whether the tracked record is a real Jira ticket or an
+  // internal Resolution Notes record. Only `clickable` (the Atlassian URL)
+  // distinguishes them.
   const linkedDates = tickets.map((t) => t.linkedAt).filter(Boolean)
   const firstLinkedAt = linkedDates.length
     ? new Date(Math.min(...linkedDates.map((d) => d.getTime())))
@@ -421,7 +479,7 @@ export const enrichRow = (r, snapshotMs) => {
     initialMs: INITIAL_RESPONSE_MS[pr] ?? null,
     snapshotMs,
   })
-  const jira = parseJiraRefs(r.system_log || r.work_notes, r.cause)
+  const jira = parseJiraRefs(jiraJournals(r), r.cause)
   const jiraDaysSinceLinked = jira.firstLinkedAt
     ? Math.floor((Date.now() - jira.firstLinkedAt.getTime()) / 86400000)
     : null
@@ -498,7 +556,7 @@ export const enrichForSql = (r, snapshotMs) => {
   // '|'-joined VARCHAR (not Arrow LIST) to keep the worker insert path simple;
   // queries explode via UNNEST(string_split(jira_keys, '|')). The rich
   // _jiraTickets objects are reconstructed in JS on bounded result sets.
-  const jira = parseJiraRefs(r.system_log || r.work_notes, r.cause)
+  const jira = parseJiraRefs(jiraJournals(r), r.cause)
   return {
     number: r.number ?? null,
     short_description: r.short_description ?? null,

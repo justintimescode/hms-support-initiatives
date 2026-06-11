@@ -333,7 +333,7 @@ export default function MyDayPage() {
                 return (
                   <tr key={r.number} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
                     <td className="mono" style={{ ...TD, fontWeight: 600 }}><CopyableNumber value={r.number} /></td>
-                    <td className="mono" style={{ ...TD, color: T.accent }}>{(r._jiraActiveTickets || []).join(", ") || "—"}</td>
+                    <td className="mono" style={{ ...TD, color: T.jiraBlue }}>{(r._jiraActiveTickets || []).join(", ") || "—"}</td>
                     <td style={TD}><span style={{ color: priorityColor(r.priority), fontWeight: 600 }}>{r.priority || "—"}</span></td>
                     <td className="mono" style={{ ...TD, color: age != null && age > 30 ? T.danger : T.sub }}>{age == null ? "—" : `${age}d`}</td>
                     <td style={TD}>{r.account || "—"}</td>

@@ -82,11 +82,13 @@ export default function SettingsPage() {
             <div style={{ maxWidth: 420 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Back up imports to disk</div>
               <div style={{ fontSize: 13, color: T.sub, marginTop: 4, lineHeight: 1.5 }}>
-                When on, each new upload is also mirrored to <span className="mono">.servicenow-cache/</span> in
-                the project folder so imports can be recovered in a different browser or after clearing this
-                one. The mirror stores the <strong>raw, unencrypted</strong> case export, so this is{" "}
-                <strong>off by default</strong>. Applies to imports saved while it's on; existing on-disk
-                backups are still used for recovery and cleaned up when their import is deleted.
+                When on, each new upload is also mirrored to <span className="mono">.servicenow-cache/</span>{" "}
+                so imports can be recovered after clearing the browser, in a different browser, or — in the
+                desktop app — across restarts. The mirror stores the <strong>raw, unencrypted</strong> case
+                export. <strong>On by default in the desktop app</strong> (saved under your Windows profile);{" "}
+                <strong>off by default in the browser</strong>, where the mirror writes into the project
+                folder. Applies to imports saved while it's on; existing on-disk backups are still used for
+                recovery and cleaned up when their import is deleted.
               </div>
             </div>
             <Toggle checked={diskBackup} onChange={toggleDiskBackup} />

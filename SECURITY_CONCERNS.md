@@ -203,8 +203,10 @@ This is the standard pattern for Vite dev proxies and is acceptable for a local 
 ---
 
 ### 14. ServiceNow imports mirrored to plaintext files on disk (NEW)
-**Status: MOSTLY RESOLVED (2026-05) — opt-in & off by default; deletion paths fixed. Residual: still plaintext when opted in.**
+**Status: MOSTLY RESOLVED (2026-05) — opt-in & off by default in the browser; deletion paths fixed. Residual: still plaintext when enabled.**
 **Files:** `vite.config.js` (`snFileCachePlugin`), `src/lib/imports-cache.js`, `src/lib/settings.js`, `src/lib/useAppData.js`, `src/pages/SettingsPage.jsx`
+
+> **AUDIT NOTE (2026-06, desktop build):** in the Electron app the disk mirror defaults **ON** (`getDiskBackup()` returns true when `window.electronAPI` is present and no explicit toggle is stored). Rationale: there the mirror lives under the user's own profile (`%APPDATA%\KPI Analyzer\.servicenow-cache`, written by `electron/server.cjs`) — the same trust boundary as the Jira `cache.json` already stored there — and it is the mechanism that persists imports across app restarts (paired with the stable loopback port in `server.cjs`, since OPFS is keyed to the origin). The browser default remains OFF. Data is still plaintext at rest in both contexts; the Settings toggle still disables mirroring either way.
 
 The multi-import refactor added a server-side disk mirror: during `npm run dev`, an uploaded ServiceNow export can be streamed to `<project>/.servicenow-cache/{uuid}/source.{ext}` (the raw, unmodified CSV/XLSX) plus a `meta.json`. This lets a different browser or a cleared profile recover imports on next boot. It is a **new data-at-rest surface that did not exist when items #1–#13 were written**, and it is *not* covered by the OPFS discussion in #4.
 

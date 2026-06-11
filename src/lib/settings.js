@@ -20,20 +20,28 @@ export function setAutoDelete({ enabled, days }) {
   } catch { /* quota / unavailable — fine */ }
 }
 
-// SECURITY #14 — whether new imports are mirrored to the dev-server disk cache
+// SECURITY #14 — whether new imports are mirrored to the disk cache
 // (.servicenow-cache/). That mirror holds RAW, unencrypted customer case data,
-// so it is OFF by default: the secure default keeps customer data out of the
-// project directory entirely. Users who want cross-browser / cleared-profile
-// recovery can opt in. Governs *new* writes only (uploads + rename meta sync);
-// existing on-disk backups are read for recovery and pruned by the orphan sweep
-// regardless of this flag.
+// so in the BROWSER it is OFF by default: the secure default keeps customer
+// data out of the (shared) project directory. Users who want cross-browser /
+// cleared-profile recovery can opt in. Governs *new* writes only (uploads +
+// rename meta sync); existing on-disk backups are read for recovery and pruned
+// by the orphan sweep regardless of this flag.
+//
+// In the DESKTOP (Electron) build the mirror lives in the user's own profile
+// (%APPDATA%\KPI Analyzer\.servicenow-cache — same trust boundary as the Jira
+// cache already stored there), and it is what makes imports survive an app
+// restart. So the desktop default is ON; an explicit Settings toggle still
+// wins either way.
+const IS_ELECTRON = typeof window !== "undefined" && !!window.electronAPI
+
 /** @returns {boolean} */
 export function getDiskBackup() {
   try {
     const v = JSON.parse(localStorage.getItem(DISK_BACKUP_KEY) || "null")
     if (v && typeof v === "object") return !!v.enabled
   } catch { /* corrupt / unavailable */ }
-  return false
+  return IS_ELECTRON
 }
 
 export function setDiskBackup(enabled) {

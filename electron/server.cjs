@@ -265,7 +265,7 @@ function startServer({ distDir, userDataDir, getCreds }) {
   const jiraCacheDir = path.join(userDataDir, '.jira-cache')
   const snCacheDir = path.join(userDataDir, '.servicenow-cache')
 
-  const server = http.createServer((req, res) => {
+  const handler = (req, res) => {
     const pathname = new URL(req.url, 'http://x').pathname
 
     if (pathname.startsWith('/api/jira')) return void handleJira(req, res, getCreds)
@@ -275,17 +275,47 @@ function startServer({ distDir, userDataDir, getCreds }) {
       return void handleSnCache(req, res, snCacheDir, sub)
     }
     return void serveStatic(req, res, distDir)
-  })
+  }
 
-  return new Promise((resolve, reject) => {
-    server.once('error', reject)
-    // Port 0 = OS picks a free port; bind to loopback only so nothing on the
-    // network can reach it.
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address()
-      resolve({ url: `http://127.0.0.1:${port}`, port, close: () => server.close() })
+  // The port must be STABLE across launches: browser storage (OPFS imports,
+  // localStorage settings) is keyed to the origin, and the port is part of
+  // the origin — a different port every launch means the renderer boots with
+  // empty storage every time. First run: take an OS-assigned free port and
+  // remember it under userData; later runs re-bind it, falling back to a
+  // fresh one only if something else grabbed it (rare; the disk mirror
+  // restores imports in that case).
+  const portFile = path.join(userDataDir, 'server-port.json')
+  const savedPort = () => {
+    try {
+      const p = Number(JSON.parse(fs.readFileSync(portFile, 'utf8'))?.port)
+      return Number.isInteger(p) && p >= 1024 && p <= 65535 ? p : 0
+    } catch { return 0 }
+  }
+  const rememberPort = (port) => {
+    try {
+      fs.mkdirSync(userDataDir, { recursive: true })
+      fs.writeFileSync(portFile, JSON.stringify({ port }))
+    } catch { /* best-effort — worst case the next launch picks a new port */ }
+  }
+  const listenOn = (port) =>
+    new Promise((resolve, reject) => {
+      const server = http.createServer(handler)
+      server.once('error', reject)
+      // Bind to loopback only so nothing on the network can reach it.
+      server.listen(port, '127.0.0.1', () => resolve(server))
     })
-  })
+
+  return (async () => {
+    let server = null
+    const preferred = savedPort()
+    if (preferred) {
+      try { server = await listenOn(preferred) } catch { server = null }
+    }
+    if (!server) server = await listenOn(0) // 0 = OS picks a free port
+    const { port } = server.address()
+    rememberPort(port)
+    return { url: `http://127.0.0.1:${port}`, port, close: () => server.close() }
+  })()
 }
 
 module.exports = { startServer }

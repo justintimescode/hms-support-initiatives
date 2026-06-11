@@ -275,7 +275,7 @@ Full sortable and searchable case register. Every column from the enriched datas
 Placeholder for future CSAT/survey data integration.
 
 #### Settings (`/settings`)
-Local, browser-only app preferences (stored in `localStorage`, no backend). Exposes **Auto-delete old imports** (prune imports older than a threshold on startup; the active import is always kept) and **Back up imports to disk** (opt into the `.servicenow-cache/` disk mirror for cross-browser recovery — see [Security](#security)). Both off by default.
+Local, browser-only app preferences (stored in `localStorage`, no backend). Exposes **Auto-delete old imports** (prune imports older than a threshold on startup; the active import is always kept) and **Back up imports to disk** (the `.servicenow-cache/` disk mirror for cross-browser / cross-restart recovery — see [Security](#security)). Auto-delete is off by default; disk backup defaults off in the browser and **on in the desktop (Electron) app**, where the mirror under `%APPDATA%\KPI Analyzer` is what persists imports across restarts.
 
 ---
 
@@ -605,7 +605,7 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 
 - **Customer data** stays on the machine. The only *network* egress is the optional AI proxy call, which scrubs PII (case numbers, account names, analyst names, emails) before leaving the browser. The AI proxy is not yet deployed, so today the feature is inert and nothing leaves the browser.
 - **Jira credentials** are read server-side by the Vite dev proxy and never bundled into client code.
-- **Data at rest** lives in OPFS (browser) and — only if you opt in via **Settings → Back up imports to disk** (off by default) — the gitignored `.servicenow-cache/` disk mirror (raw, unencrypted exports). Neither has an automatic expiry by default; retention is controlled by the opt-in **Settings → Auto-delete old imports** (off by default), which now cleans all layers, plus the one-click delete in the Connections file manager and a boot-time orphan sweep. *(The previously-documented 24h auto-TTL was removed by the multi-import refactor — see #4.)*
+- **Data at rest** lives in OPFS (browser) and the `.servicenow-cache/` disk mirror (raw, unencrypted exports), governed by **Settings → Back up imports to disk**: **off by default in the browser** (where the mirror writes into the gitignored project folder) and **on by default in the desktop app** (where it writes under `%APPDATA%\KPI Analyzer` and is what makes imports survive an app restart). Neither layer has an automatic expiry by default; retention is controlled by the opt-in **Settings → Auto-delete old imports** (off by default), which now cleans all layers, plus the one-click delete in the Connections file manager and a boot-time orphan sweep. *(The previously-documented 24h auto-TTL was removed by the multi-import refactor — see #4.)*
 - **File uploads** are validated by magic bytes and a 50 MB size ceiling before parsing.
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.

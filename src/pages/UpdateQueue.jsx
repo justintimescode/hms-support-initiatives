@@ -10,37 +10,9 @@ import { Card } from "../components/layout/Card.jsx";
 import { Pill } from "../components/Pill.jsx";
 import { CaseDrilldown } from "../components/CaseDrilldown.jsx";
 import { CopyableNumber } from "../components/CopyableNumber.jsx";
-import { sanitizeCellForExport } from "../lib/csv-export.js";
-
-/* ---- CSV export helper ---- */
-// SECURITY #7 — every exported cell passes through sanitizeCellForExport first,
-// which neutralizes spreadsheet formula-injection (a ServiceNow description like
-// `=cmd|'/c calc'!A1` is inert in the app but executes when the .csv is opened
-// in Excel/Sheets). The RFC-4180 quoting below is a separate concern (commas/
-// quotes/newlines) and runs after the injection guard.
-function escapeCsv(val) {
-  if (val == null) return "";
-  const s = sanitizeCellForExport(String(val));
-  return s.includes(",") || s.includes('"') || s.includes("\n")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
-function rowsToCsv(headers, rows) {
-  const lines = [headers.map(escapeCsv).join(",")];
-  for (const r of rows) lines.push(r.map(escapeCsv).join(","));
-  return lines.join("\r\n");
-}
-
-function downloadCsv(filename, csv) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+// SECURITY #7 — rowsToCsv passes every exported cell through the formula-
+// injection guard in csv-export.js before RFC-4180 quoting.
+import { rowsToCsv, downloadCsv, csvTimestamp } from "../lib/csv-export.js";
 
 function exportUpdateQueueCsv({
   overdue,
@@ -103,11 +75,7 @@ function exportUpdateQueueCsv({
     parts.push("", "## Initial Response Misses", rowsToCsv(irHeaders, irRows));
   }
   const csv = parts.join("\r\n");
-
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, "");
-  const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, "");
-  downloadCsv(`${csvName}-${dateStr}-${timeStr}.csv`, csv);
+  downloadCsv(`${csvName}-${csvTimestamp()}.csv`, csv);
 }
 
 /* ================= Update Queue (analyst-facing) =================

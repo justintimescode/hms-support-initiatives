@@ -1,7 +1,11 @@
 import { useState, useMemo } from "react";
+import { Download } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { fmtDuration, fmtDate, priorityColor } from "../../lib/format.js";
 import { priorityRank } from "../../lib/enrich.js";
+// SECURITY #7 — rowsToCsv passes every exported cell through the formula-
+// injection guard in csv-export.js before RFC-4180 quoting.
+import { rowsToCsv, downloadCsv, csvTimestamp } from "../../lib/csv-export.js";
 import { Card } from "../layout/Card.jsx";
 import { CopyableNumber } from "../CopyableNumber.jsx";
 
@@ -12,8 +16,14 @@ const JIRA_BROWSE_URL = "https://infor.atlassian.net/browse/"
 // available, otherwise the status inferred from ServiceNow work notes.
 const jiraTicketStatusOf = (t) =>
   t.jira ? (t.jira.statusCategory === "Done" ? "jira_closed" : "active") : t.status
-const jiraRowIsActive = (r) =>
-  (r._jiraTickets || []).some((t) => jiraTicketStatusOf(t) === "active")
+// Case-level status considers LINKED tickets only (cause field / System note).
+// Free-text mentions are display-only — a case whose tickets are all prose
+// mentions is "mentioned", never an active blocker.
+const jiraRowStatus = (r) => {
+  const linked = (r._jiraTickets || []).filter((t) => t.source !== "mention")
+  if (!linked.length) return "mentioned"
+  return linked.some((t) => jiraTicketStatusOf(t) === "active") ? "active" : "resolved"
+}
 
 function JiraLiveStatusBadge({ jira }) {
   if (!jira) return null
@@ -39,8 +49,8 @@ const JIRA_CASE_HEADERS = [
 ]
 
 function JiraStatusBadge({ status }) {
-  const color = status === "active" ? T.warn : T.ok
-  const label = status === "active" ? "Active" : "Jira resolved"
+  const color = status === "active" ? T.warn : status === "mentioned" ? T.muted : T.ok
+  const label = status === "active" ? "Active" : status === "mentioned" ? "Mentioned" : "Jira resolved"
   return (
     <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, background: color + "22", color, fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}>
       {label}
@@ -103,10 +113,11 @@ function JiraCaseDetail({ row, onClose }) {
               {t.clickable ? (
                 <a href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer" className="mono" style={{ color: T.jiraBlue, textDecoration: "none", fontWeight: 600 }}>{t.id}</a>
               ) : (
-                <span className="mono" style={{ color: T.muted, fontWeight: 600 }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{t.id}</span>
+                <span className="mono" style={{ color: T.jiraBlue, fontWeight: 600 }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{t.id}</span>
               )}
-              {t.jira ? <JiraLiveStatusBadge jira={t.jira} /> : <JiraStatusBadge status={t.status} />}
+              {t.jira ? <JiraLiveStatusBadge jira={t.jira} /> : <JiraStatusBadge status={t.source === "mention" ? "mentioned" : t.status} />}
               {!t.clickable && <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>ServiceNow ref</span>}
+              {t.source === "mention" && <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>mentioned in notes — not formally linked</span>}
               {t.jira && (
                 <span style={{ color: T.sub }}>
                   {t.jira.assignee}
@@ -166,16 +177,19 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
   const [selectedNumber, setSelectedNumber] = useState(null)
 
   const summary = useMemo(() => {
-    let active = 0, resolved = 0, totalDays = 0, maxDays = 0, withDays = 0, mismatched = 0
+    let active = 0, resolved = 0, mentionOnly = 0, totalDays = 0, maxDays = 0, withDays = 0, mismatched = 0
     const activeTicketSet = new Set()
     for (const r of rows) {
-      if (jiraRowIsActive(r)) {
+      const st = jiraRowStatus(r)
+      if (st === "active") {
         active++
         for (const t of (r._jiraTickets || [])) {
-          if (jiraTicketStatusOf(t) === "active") activeTicketSet.add(t.id)
+          if (t.source !== "mention" && jiraTicketStatusOf(t) === "active") activeTicketSet.add(t.id)
         }
-      } else {
+      } else if (st === "resolved") {
         resolved++
+      } else {
+        mentionOnly++
       }
       if (r._jiraMismatch) mismatched++
       if (r._jiraDaysSinceLinked != null) {
@@ -188,6 +202,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
       total: rows.length,
       active,
       resolved,
+      mentionOnly,
       mismatched,
       avgDays: withDays ? totalDays / withDays : 0,
       maxDays,
@@ -208,7 +223,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
         raw: r,
         number: r.number || "",
         tickets,
-        status: jiraRowIsActive(r) ? "active" : "resolved",
+        status: jiraRowStatus(r),
         jiraStatus: liveTicket?.jira?.status || "",
         engWaitMs: r._jiraEngWaitMs ?? 0,
         mismatch: !!r._jiraMismatch,
@@ -216,7 +231,9 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
         account: r.account || "",
         assignedTo: r.assigned_to || "Unassigned",
         category: r._category || "",
-        daysLinked: r._jiraDaysSinceLinked ?? 0,
+        // null = no System "Jira Reference ID … linked" note found in the
+        // journal — rendered as "Not linked", never as a fake 0 days.
+        daysLinked: r._jiraDaysSinceLinked ?? null,
         daysOpen: daysOpen ?? 0,
       }
     })
@@ -224,7 +241,9 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
 
   const sorted = useMemo(() => {
     return [...tableRows].sort((a, b) => {
-      const av = a[sort.key], bv = b[sort.key]
+      // Unlinked rows (daysLinked null) sort below 0-day rows in either direction.
+      const norm = (v) => (sort.key === "daysLinked" && v == null ? (sort.dir === "asc" ? Infinity : -1) : v)
+      const av = norm(a[sort.key]), bv = norm(b[sort.key])
       if (typeof av === "number" && typeof bv === "number") return sort.dir === "asc" ? av - bv : bv - av
       const aStr = String(av || ""), bStr = String(bv || "")
       return sort.dir === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr)
@@ -245,12 +264,45 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
   const toggleSort = (key) =>
     setSort((s) => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: ["daysLinked", "daysOpen", "engWaitMs"].includes(key) ? "desc" : "asc" })
 
+  // Export the table as the user currently sees it (same rows, same sort order),
+  // plus the description and first-linked date for offline context. Days linked
+  // keeps the "Not linked" contract — never a fake 0.
+  const exportCsv = () => {
+    const headers = [
+      "Case", "Description", "Jira tickets", "Status",
+      ...(jiraConnected ? ["Jira status"] : []),
+      "Priority", "Account", "Analyst", "Category",
+      "Days linked", "Days open",
+      ...(jiraConnected ? ["Eng wait"] : []),
+      "First linked",
+    ]
+    const data = sorted.map((row) => [
+      row.number,
+      row.raw.short_description || "",
+      row.tickets.map((t) => (t.source === "mention" ? `${t.id} (mentioned)` : t.id)).join(" | "),
+      row.status === "active" ? "Active" : row.status === "mentioned" ? "Mentioned" : "Jira resolved",
+      ...(jiraConnected ? [row.jiraStatus || ""] : []),
+      row.priority,
+      row.account,
+      row.assignedTo,
+      row.category,
+      row.daysLinked ?? "Not linked",
+      row.daysOpen,
+      ...(jiraConnected ? [row.engWaitMs ? fmtDuration(row.engWaitMs) : ""] : []),
+      row.raw._jiraFirstLinked ? fmtDate(row.raw._jiraFirstLinked) : "",
+    ])
+    downloadCsv(`jira-cases-${csvTimestamp()}.csv`, rowsToCsv(headers, data))
+  }
+
   // Group tickets across cases — surface blockers affecting multiple cases,
   // ranked by the aggregate open-case impact one fix would unblock.
   const ticketGroups = useMemo(() => {
     const groups = {}
     for (const r of rows) {
       for (const t of (r._jiraTickets || [])) {
+        // Prose mentions don't block — only linked tickets count toward the
+        // "Tickets blocking multiple cases" impact ranking.
+        if (t.source === "mention") continue
         if (!groups[t.id]) {
           groups[t.id] = { id: t.id, status: jiraTicketStatusOf(t), clickable: t.clickable, jira: t.jira || null, cases: [], accounts: new Set() }
         }
@@ -263,10 +315,13 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
     return Object.values(groups)
       .filter((g) => g.cases.length >= 2)
       .map((g) => {
-        const oldestDays = Math.max(...g.cases.map((c) => c._jiraDaysSinceLinked || 0))
+        // null when no case in the group has a System link note — shown as "—",
+        // not a fake 0 (same contract as the Days-linked column above).
+        const linkedDays = g.cases.map((c) => c._jiraDaysSinceLinked).filter((d) => d != null)
+        const oldestDays = linkedDays.length ? Math.max(...linkedDays) : null
         // Impact = cases blocked (weighted) + priority pressure + an age factor.
         const priorityWeight = g.cases.reduce((s, c) => s + (5 - Math.min(4, priorityRank(c.priority))), 0)
-        const impact = g.cases.length * 2 + priorityWeight + Math.min(20, oldestDays / 7)
+        const impact = g.cases.length * 2 + priorityWeight + Math.min(20, (oldestDays ?? 0) / 7)
         return { ...g, accountsArr: [...g.accounts], oldestDays, impact }
       })
       .sort((a, b) => b.impact - a.impact)
@@ -310,7 +365,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                 <span style={{ color: T.sub, maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_description}</span>
                 {(r._jiraLiveTickets || []).map((t) => (
                   <a key={t.id} href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer"
-                    className="mono" style={{ color: T.muted, fontSize: 12, textDecoration: "line-through" }}>{t.id}</a>
+                    className="mono" style={{ color: T.jiraBlue, fontSize: 12, textDecoration: "line-through" }}>{t.id}</a>
                 ))}
               </div>
             ))}
@@ -323,7 +378,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
         <Card>
           <div className="eyebrow" style={{ color: T.muted }}>Open cases with Jira</div>
           <div className="display" style={{ fontSize: 32, fontWeight: 500, marginTop: 4 }}>{summary.total}</div>
-          <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>{summary.active} active · {summary.resolved} Jira resolved</div>
+          <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>{summary.active} active · {summary.resolved} Jira resolved{summary.mentionOnly > 0 ? ` · ${summary.mentionOnly} mention-only` : ""}</div>
         </Card>
         <Card>
           <div className="eyebrow" style={{ color: T.muted }}>Unique active tickets</div>
@@ -351,9 +406,25 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
 
       {/* Cases waiting on Jira */}
       <Card style={{ padding: 0, overflow: "hidden" }}>
-        <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.borderSoft}` }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Cases waiting on Jira</div>
-          <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Sorted by days since Jira was first linked. Click a row for detail, or a ticket to open it in Atlassian.</div>
+        <div style={{ padding: "16px 20px 12px", borderBottom: `1px solid ${T.borderSoft}`, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div className="eyebrow" style={{ color: T.muted }}>Cases waiting on Jira</div>
+            <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Sorted by days since Jira was first linked. Click a row for detail, or a ticket to open it in Atlassian.</div>
+          </div>
+          <button
+            onClick={exportCsv}
+            title="Download this table as a CSV (current sort order)"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12, fontWeight: 600, padding: "5px 12px",
+              borderRadius: 6, border: `1px solid ${T.border}`,
+              background: T.surface, color: T.ink,
+              cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            <Download size={13} />
+            Export CSV
+          </button>
         </div>
         <div style={{ overflowX: "auto" }} className="scrollbar">
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -381,18 +452,29 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                         {row.tickets.map((t) => {
                           const eff = jiraTicketStatusOf(t)
-                          const color = eff === "active" ? T.jiraBlue : T.muted
-                          const style = { color, fontSize: 12, textDecoration: "none", textDecorationStyle: eff === "jira_closed" ? "line-through" : "none" }
-                          return t.clickable ? (
-                            <a key={t.id} href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer"
-                              className="mono" style={style}
-                              title={t.jira ? `${t.jira.status} · ${t.jira.assignee}` : (eff === "jira_closed" ? "Jira closed; case may still be open" : "Open in Jira")}>
-                              {t.id}
-                            </a>
-                          ) : (
-                            <span key={t.id} className="mono" style={{ ...style, color: T.muted }}
-                              title="ServiceNow Resolution Notes reference — not a Jira ticket">
-                              {t.id}
+                          // All ticket ids render Jira blue; closed state is
+                          // conveyed by the strikethrough, RN- by the tooltip.
+                          const style = { color: T.jiraBlue, fontSize: 12, textDecoration: eff === "jira_closed" ? "line-through" : "none" }
+                          return (
+                            <span key={t.id} style={{ display: "inline-flex", alignItems: "baseline", gap: 5 }}>
+                              {t.clickable ? (
+                                <a href={JIRA_BROWSE_URL + t.id} target="_blank" rel="noopener noreferrer"
+                                  className="mono" style={style}
+                                  title={t.jira ? `${t.jira.status} · ${t.jira.assignee}` : (eff === "jira_closed" ? "Jira closed; case may still be open" : "Open in Jira")}>
+                                  {t.id}
+                                </a>
+                              ) : (
+                                <span className="mono" style={style}
+                                  title="ServiceNow Resolution Notes reference — not a Jira ticket">
+                                  {t.id}
+                                </span>
+                              )}
+                              {t.source === "mention" && (
+                                <span style={{ color: T.muted, fontSize: 10, fontStyle: "italic" }}
+                                  title="Found as a free-text mention in the case notes — not formally linked">
+                                  mentioned
+                                </span>
+                              )}
                             </span>
                           )
                         })}
@@ -410,7 +492,11 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                     <td style={{ padding: "10px 14px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.account}>{row.account}</td>
                     <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>{row.assignedTo}</td>
                     <td style={{ padding: "10px 14px", color: T.sub, whiteSpace: "nowrap" }}>{row.category}</td>
-                    <td className="mono" style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: row.daysLinked > 60 ? T.danger : row.daysLinked > 30 ? T.warn : T.ink }}>{row.daysLinked}</td>
+                    <td className="mono" style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: row.daysLinked > 60 ? T.danger : row.daysLinked > 30 ? T.warn : T.ink }}>
+                      {row.daysLinked == null
+                        ? <span style={{ color: T.muted, fontWeight: 400, fontStyle: "italic" }} title="No System 'Jira Reference ID … linked' note found in this case's journal">Not linked</span>
+                        : row.daysLinked}
+                    </td>
                     <td className="mono" style={{ padding: "10px 14px", textAlign: "right", color: T.sub }}>{row.daysOpen}</td>
                     {jiraConnected && (
                       <td className="mono" style={{ padding: "10px 14px", textAlign: "right", color: T.sub }}>
@@ -453,14 +539,14 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                     {g.clickable ? (
                       <a href={JIRA_BROWSE_URL + g.id} target="_blank" rel="noopener noreferrer" style={{ color: T.jiraBlue, textDecoration: "none" }}>{g.id}</a>
                     ) : (
-                      <span style={{ color: T.muted }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{g.id}</span>
+                      <span style={{ color: T.jiraBlue }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{g.id}</span>
                     )}
                   </td>
                   <td style={{ padding: "8px 12px" }}>
                     {g.jira ? <JiraLiveStatusBadge jira={g.jira} /> : <JiraStatusBadge status={g.status} />}
                   </td>
                   <td className="mono" style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600 }}>{g.cases.length}</td>
-                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: g.oldestDays > 60 ? T.danger : g.oldestDays > 30 ? T.warn : T.ink }}>{g.oldestDays}</td>
+                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: g.oldestDays > 60 ? T.danger : g.oldestDays > 30 ? T.warn : T.ink }}>{g.oldestDays ?? "—"}</td>
                   <td style={{ padding: "8px 12px", color: T.sub, fontSize: 12 }}>{g.accountsArr.join(", ") || "—"}</td>
                 </tr>
               ))}

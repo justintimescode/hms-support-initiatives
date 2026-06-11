@@ -1,8 +1,7 @@
 // SECURITY #7 — CSV / formula-injection sanitizer for data EXPORT.
 //
-// NOTE: this app has no export feature today. This util exists so that the
-// moment one is added (a common request — "download the case table"), the
-// safe primitive is already here and reviewers can require its use.
+// Every export feature (Update Queue, Jira Blockers) must build its CSV
+// through rowsToCsv/toCsvRow below — never by joining raw strings.
 //
 // The risk: a ServiceNow cell like `=cmd|'/c calc'!A1` or `+HYPERLINK(...)` is
 // inert in the browser, but if written verbatim into a .csv and opened in
@@ -42,4 +41,37 @@ export function toCsvRow(values) {
       return `"${String(safe ?? "").replace(/"/g, '""')}"`;
     })
     .join(",");
+}
+
+/**
+ * Build a complete CSV document (header line + data rows, CRLF-joined) with
+ * every cell passed through the injection guard above.
+ *
+ * @param {Array<*>} headers
+ * @param {Array<Array<*>>} rows
+ * @returns {string}
+ */
+export function rowsToCsv(headers, rows) {
+  const lines = [toCsvRow(headers)];
+  for (const r of rows) lines.push(toCsvRow(r));
+  return lines.join("\r\n");
+}
+
+/** Trigger a browser download of `csv` as `filename`. The leading BOM is
+ *  required: without it, Excel on Windows decodes the file as the ANSI code
+ *  page and mangles non-ASCII account/analyst names. */
+export function downloadCsv(filename, csv) {
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Local-time filename stamp, e.g. "20260611-153042". */
+export function csvTimestamp(d = new Date()) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }

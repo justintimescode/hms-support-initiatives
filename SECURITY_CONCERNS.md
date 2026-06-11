@@ -97,9 +97,11 @@ Magic-byte validation and a size ceiling are now applied before any parser touch
 
 > **AUDIT NOTE:** the "Export Update Queue → CSV" feature (`UpdateQueue.jsx`, added after the original audit) initially shipped with its **own** `escapeCsv()` helper that only did RFC-4180 quoting (commas/quotes/newlines) and **bypassed the formula-injection guard entirely.** A ServiceNow `account` or `short_description` beginning with `=`, `+`, `-`, or `@` was written verbatim and would execute on open in Excel/Sheets. This has been fixed: `escapeCsv()` now calls `sanitizeCellForExport()` on every cell before quoting.
 
-**Remaining concern:** the project has two CSV-row builders (`toCsvRow` in `csv-export.js` and `escapeCsv`/`rowsToCsv` in `UpdateQueue.jsx`). Any *new* export feature must route through the sanitizer; consider consolidating onto a single shared builder so the guard can't be forgotten again. Every new export PR must be reviewed for sanitizer coverage.
+**Remaining concern:** ~~the project has two CSV-row builders (`toCsvRow` in `csv-export.js` and `escapeCsv`/`rowsToCsv` in `UpdateQueue.jsx`); consider consolidating onto a single shared builder~~ **consolidated (2026-06):** `UpdateQueue.jsx`'s local `escapeCsv`/`rowsToCsv`/`downloadCsv` were deleted; the only row builder is now `rowsToCsv` → `toCsvRow` → `sanitizeCellForExport` in `csv-export.js`, so the guard can't be bypassed by reusing the shared helpers. Any *new* export feature must still route through `rowsToCsv`; every new export PR must be reviewed for sanitizer coverage.
 
 > **AUDIT NOTE (2026-06):** the Solution Proposed queue export (added with the `/solution-proposed` page) reuses the existing `exportUpdateQueueCsv` → `rowsToCsv`/`escapeCsv` path in `UpdateQueue.jsx` — **no new row builder was introduced**, so the `sanitizeCellForExport` guard still covers it. The accompanying change was cosmetic only: name-first filenames (`open-case-update-que-*`, `solution-proposed-update-que-*`).
+
+> **AUDIT NOTE (2026-06, Jira Blockers export):** the "Cases waiting on Jira" table export (`JiraDashboard.jsx` → `jira-cases-<timestamp>.csv`) uses the shared `rowsToCsv`/`downloadCsv` from `csv-export.js` — no new row builder, sanitizer coverage intact. `downloadCsv` also gained a UTF-8 BOM so Excel on Windows decodes non-ASCII account/analyst names correctly.
 
 ---
 

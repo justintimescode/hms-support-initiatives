@@ -396,25 +396,31 @@ export function mergeJiraIntoRows(row, jiraIssueMap) {
     }
   })
 
-  const liveTickets = tickets.filter((t) => t.jira)
-  const liveActive = liveTickets.filter((t) => t.jira.statusCategory !== 'Done')
+  // Case-level signals are computed over LINKED tickets only (cause field or
+  // System note). Free-text mentions keep their live join for display, but a
+  // prose name-drop must neither trigger "Likely closeable" (mention of a Done
+  // ticket) nor suppress it (mention of an unrelated still-open ticket), and
+  // its engineering times are not this case's wait.
+  const linkedLive = tickets.filter((t) => t.jira && t.source !== 'mention')
+  const linkedLiveActive = linkedLive.filter((t) => t.jira.statusCategory !== 'Done')
 
   // SN case still open, but every linked live Jira ticket is Done → the case
   // is very likely closeable. The key new signal the join unlocks.
   const mismatch =
-    !row._isClosed && liveTickets.length > 0 && liveActive.length === 0
+    !row._isClosed && linkedLive.length > 0 && linkedLiveActive.length === 0
   // SN case closed but a linked Jira ticket is still open — minor inverse flag.
-  const staleBlock = row._isClosed && liveActive.length > 0
+  const staleBlock = row._isClosed && linkedLiveActive.length > 0
 
-  const cycleVals = liveTickets.map((t) => t.jira.cycleMs).filter((x) => x != null)
-  const queueVals = liveTickets.map((t) => t.jira.queueMs).filter((x) => x != null)
+  const cycleVals = linkedLive.map((t) => t.jira.cycleMs).filter((x) => x != null)
+  const queueVals = linkedLive.map((t) => t.jira.queueMs).filter((x) => x != null)
 
   return {
     ...row,
     _jiraTickets: tickets,
-    _jiraLiveTickets: liveTickets,
-    _jiraLiveActiveTickets: liveActive.map((t) => t.id),
-    _jiraAnyLive: liveTickets.length > 0,
+    // Linked-only: these back the mismatch panel and downstream blocker logic.
+    _jiraLiveTickets: linkedLive,
+    _jiraLiveActiveTickets: linkedLiveActive.map((t) => t.id),
+    _jiraAnyLive: tickets.some((t) => t.jira),
     _jiraMismatch: mismatch,
     _jiraStaleBlock: staleBlock,
     _jiraEngWaitMs: cycleVals.length ? Math.max(...cycleVals) : null,

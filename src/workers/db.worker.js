@@ -359,7 +359,11 @@ function legacyMigrateIfNeeded() {
     rowCount,
     fileSize: 0,
     fileType: filename.split('.').pop()?.toLowerCase() || '',
-    schemaVersion: SCHEMA_VERSION,
+    // NOT the current SCHEMA_VERSION: the copied columns were baked by an old
+    // build, so the import must show the "rebuild needed" badge (blob-less, so
+    // the menu directs the user to re-upload). Must stay truthy — falsy values
+    // get replaced by upsertIndexRow's `|| SCHEMA_VERSION` fallback.
+    schemaVersion: 'legacy',
   })
   setActive(uuid)
   log(`migrated legacy "cases" table to import ${uuid} (${rowCount} rows)`, 'warn')

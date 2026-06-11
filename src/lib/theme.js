@@ -29,9 +29,10 @@ export const T = {
   // here if you want more pop at the cost of contrast.
   snGreen: "#1FA84C",
 
-  // Atlassian/Jira brand blue — used to tint active Jira keys (HMS-123…). Closed
-  // / non-Jira (RN-) refs stay muted/strikethrough. Brighten toward the logo
-  // gradient (~#2684FF) here for more pop at the cost of contrast.
+  // Atlassian/Jira brand blue — used to tint ALL Jira/ticket keys (HMS-123…,
+  // RN-…): closed state is conveyed by strikethrough and non-Jira (RN-) refs by
+  // tooltip, never by greying the id. Brighten toward the logo gradient
+  // (~#2684FF) here for more pop at the cost of contrast.
   jiraBlue: "#1868DB",
 
   // Semantic

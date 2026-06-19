@@ -147,7 +147,10 @@ export function blastRadius(rows, jiraIssueMap) {
       seen.add(t.id)
       const e = counts.get(t.id) || { total: 0, open: 0, cases: [] }
       e.total++
-      if (!r._isClosed) e.open++
+      // "open impact" = TRULY-open cases only. A Solution-Proposed case (awaiting
+      // customer) is no longer active engineering-blocked work. `isClosed` stays
+      // truly-closed so the drilldown never labels a Resolved case "Closed".
+      if (r._isOpen) e.open++
       e.cases.push({
         number: r.number || "",
         isClosed: !!r._isClosed,

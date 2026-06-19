@@ -57,7 +57,8 @@ const CASES_COLUMNS = `
     jira_active_keys        VARCHAR,
     jira_first_linked       TIMESTAMP,
     sla_breached            BOOLEAN,
-    sla_due_sop             TIMESTAMP
+    sla_due_sop             TIMESTAMP,
+    lifecycle               VARCHAR
 `
 const EMPTY_TABLE = 'cases_empty'
 const CREATE_INDEX_SQL = `
@@ -349,6 +350,7 @@ function legacyMigrateIfNeeded() {
   // "Rebuild needed" badge still prompts a full re-enrich from the source blob.
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_breached BOOLEAN`) } catch { /* ignore */ }
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_due_sop TIMESTAMP`) } catch { /* ignore */ }
+  try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS lifecycle VARCHAR`) } catch { /* ignore */ }
   conn.query('DROP TABLE cases')
   try { conn.query('DROP TABLE IF EXISTS meta') } catch { /* ignore */ }
   upsertIndexRow({

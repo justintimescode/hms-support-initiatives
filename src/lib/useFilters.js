@@ -25,6 +25,7 @@ const TOKEN_RE = /^a(\d+)$/
  *   setDateRange: (range: { from?: number|null, to?: number|null, field?: string }) => void,
  *   compareOn: boolean,
  *   setCompareOn: (on: boolean) => void,
+ *   buildFilterSearch: (overrides?: { analyst?: string|null }) => string,
  * }}
  */
 export function useFilters({ analystNames = [] } = {}) {
@@ -122,5 +123,30 @@ export function useFilters({ analystNames = [] } = {}) {
     [setParams],
   )
 
-  return { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn }
+  /* ---------- search builder ---------- */
+  // Build a `?…` search string from the *current* params with optional
+  // overrides applied. For callers that change a filter and navigate in the
+  // same action (e.g. drilling into an analyst from the team view), where
+  // reading the post-update location would be stale. The analyst override
+  // mirrors setAnalyst's opaque-token logic exactly (SECURITY #3/#8).
+  const buildFilterSearch = useCallback(
+    (overrides = {}) => {
+      const next = new URLSearchParams(params)
+      if ("analyst" in overrides) {
+        const name = overrides.analyst
+        if (!name || name === "__all__") {
+          next.delete("a")
+        } else {
+          const idx = sortedNames.indexOf(name)
+          if (idx < 0) next.delete("a")
+          else next.set("a", `a${idx}`)
+        }
+      }
+      const s = next.toString()
+      return s ? `?${s}` : ""
+    },
+    [params, sortedNames],
+  )
+
+  return { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch }
 }

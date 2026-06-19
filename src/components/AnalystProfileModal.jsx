@@ -37,7 +37,7 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
   const maxPriority = Math.max(1, ...(member.priorityMix || []).map((p) => p.count));
 
   const tiles = [
-    { label: "Cases", value: (k.total ?? 0).toLocaleString(), sub: `${k.closed ?? 0} closed · ${k.open ?? 0} open` },
+    { label: "Cases", value: (k.total ?? 0).toLocaleString(), sub: k.solutionProposed ? `${k.closed ?? 0} closed · ${k.solutionProposed} sol. proposed · ${k.open ?? 0} open` : `${k.closed ?? 0} closed · ${k.open ?? 0} open` },
     { label: "SLA", value: k.slaRate == null ? "—" : `${k.slaRate.toFixed(1)}%`, sub: `${k.slaMet ?? 0}/${k.slaEligible ?? 0} met`, color: SLA_COLOR(k.slaRate) },
     { label: "Median resolution", value: fmtDuration(k.resP50), sub: `p90 ${fmtDuration(k.resP90)}` },
     { label: "Avg first response", value: fmtDuration(k.avgFrt), sub: `median ${fmtDuration(k.frtP50)}` },

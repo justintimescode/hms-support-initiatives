@@ -194,7 +194,7 @@ export function useAppData() {
     return [...set]
   }, [rows])
 
-  const { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn } =
+  const { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch } =
     useFilters({ analystNames })
   const navigate = useNavigate()
 
@@ -793,8 +793,11 @@ export function useAppData() {
   }
 
   const drillIntoMember = (name) => {
-    setAnalyst(name)
-    navigate("/")
+    // Set the analyst and land on the dashboard in one atomic navigation:
+    // bake the analyst into the search string up front rather than calling
+    // setAnalyst() then navigate() (which would race — the navigate would
+    // read the pre-update search and drop the just-selected analyst).
+    navigate({ pathname: "/", search: buildFilterSearch({ analyst: name }) })
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" })
   }
 

@@ -1,4 +1,5 @@
-import { Outlet, NavLink } from "react-router-dom";
+import { Outlet } from "react-router-dom";
+import { FilterNavLink } from "../FilterLink.jsx";
 import {
   LayoutDashboard, Sun, ClipboardList, ClipboardCheck, FileBarChart,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
@@ -180,7 +181,7 @@ function Sidebar({ importCount, storageBytes }) {
 
 function SidebarLink({ to, label, icon: Icon }) {
   return (
-    <NavLink
+    <FilterNavLink
       to={to}
       end={to === "/"}
       style={({ isActive }) => ({
@@ -221,6 +222,6 @@ function SidebarLink({ to, label, icon: Icon }) {
           {label}
         </>
       )}
-    </NavLink>
+    </FilterNavLink>
   );
 }

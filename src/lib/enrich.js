@@ -34,7 +34,15 @@ import {
 // blocker assertions). System linked/closed notes now drive ticket status even
 // when the journal header is missing. Changes baked `jira_keys` /
 // `jira_active_keys` values.
-export const SCHEMA_VERSION = '7'
+// v8: "closed" no longer includes State="Resolved". A case is CLOSED only when
+// State="Closed" (the sole state carrying a populated `closed_at`); State=
+// "Resolved" / Status="Solution Proposed" is its own lifecycle bucket
+// (`solution_proposed`) — a solution was proposed and the case awaits customer
+// confirmation, NOT closed. Redefines `is_closed` for the 247 Resolved rows and
+// adds the `lifecycle` column ('closed' | 'solution_proposed' | 'open'). Fixes
+// the SLA cadence under-judging of Resolved cases (their end-time is now the
+// snapshot, not null). See [[closed-vs-resolved]].
+export const SCHEMA_VERSION = '8'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -380,7 +388,13 @@ export function computeSlaSop({
   if (cadenceMs == null || createdMs == null) {
     return { eligible: false, breached: false, breachReason: null, dueSop: null }
   }
-  const end = isClosed ? (closedMs ?? null) : (snapshotMs ?? Date.now())
+  // `end` anchors the cadence/initial breach checks. For a truly-closed case it
+  // is the close time; for everything still in flight — open AND Solution-
+  // Proposed (state=Resolved, no close timestamp) — it is the data snapshot, so
+  // those cases are judged for trailing-gap and no-response breaches rather than
+  // silently exempted. (Before v8, Resolved cases had isClosed=true && no
+  // closedMs, leaving end=null and skipping every breach check.)
+  const end = isClosed ? (closedMs ?? snapshotMs ?? Date.now()) : (snapshotMs ?? Date.now())
   const ts = updateTimes || []
   let initialBreached = false
   let cadenceBreached = false
@@ -455,7 +469,19 @@ export const enrichRow = (r, snapshotMs) => {
   const resolvedMs = created && closed ? closed - created : null
   const frtMs = parseFirstResponse(r.first_response_time)
   const stateLc = String(r.state || "").toLowerCase()
-  const isClosed = stateLc === "closed" || stateLc === "resolved"
+  // CLOSED means State="Closed" ONLY — the single state that carries a close
+  // timestamp. State="Resolved" (Status="Solution Proposed") is its own bucket:
+  // a proposed solution awaiting customer confirmation, NOT closed. Derived from
+  // the STATE string (not `closed != null`) so a reopened case — close timestamp
+  // present but state moved back — counts as open, keeping reopen detection and
+  // _resolvedMs (which still needs the timestamp) correct. See lifecycle below.
+  const lifecycle = stateLc === "closed"
+    ? "closed"
+    : stateLc === "resolved"
+      ? "solution_proposed"
+      : "open"
+  const isClosed = lifecycle === "closed"
+  const isOpen = lifecycle === "open"
   const madeSla =
     r.made_sla === true ||
     String(r.made_sla).toLowerCase() === "true" ||
@@ -491,6 +517,12 @@ export const enrichRow = (r, snapshotMs) => {
     _resolvedMs: resolvedMs,
     _frtMs: frtMs,
     _isClosed: isClosed,
+    // Three-state case lifecycle. `_isClosed` is true ONLY for 'closed';
+    // `_isOpen` is true ONLY for 'open' (truly active work). Solution-Proposed
+    // cases are neither — open-work surfaces (backlog, aging, SLA-risk, stuck,
+    // forecast, churn) gate on `_isOpen`, count/label surfaces split three ways.
+    _lifecycle: lifecycle,
+    _isOpen: isOpen,
     _madeSla: madeSla,
     // SOP-cadence SLA. `_slaEligible` = case has a defined cadence; `_slaBreached`
     // = it missed first response or a cadence update; `_slaBreachReason` = which
@@ -528,7 +560,14 @@ export const enrichForSql = (r, snapshotMs) => {
   const resolvedMs = created && closed ? closed.getTime() - created.getTime() : null
   const frtMs = parseFirstResponse(r.first_response_time)
   const stateLc = String(r.state || "").toLowerCase()
-  const isClosed = stateLc === "closed" || stateLc === "resolved"
+  // Mirror enrichRow exactly (both pipelines MUST agree). CLOSED = State="Closed"
+  // only; State="Resolved" => 'solution_proposed'; everything else => 'open'.
+  const lifecycle = stateLc === "closed"
+    ? "closed"
+    : stateLc === "resolved"
+      ? "solution_proposed"
+      : "open"
+  const isClosed = lifecycle === "closed"
   const madeSlaRaw = r.made_sla
   const madeSla =
     madeSlaRaw === true ||
@@ -576,7 +615,8 @@ export const enrichForSql = (r, snapshotMs) => {
     sla_due: slaDue,                               // Date | null
     resolved_ms: resolvedMs == null ? null : BigInt(resolvedMs),
     frt_ms: frtMs == null ? null : BigInt(Math.round(frtMs)),
-    is_closed: isClosed,
+    is_closed: isClosed,            // State="Closed" ONLY (not Resolved) — see SCHEMA_VERSION v8
+    lifecycle: lifecycle,           // 'closed' | 'solution_proposed' | 'open'
     made_sla: madeSla,              // ServiceNow flag — retained raw, no longer drives metrics
     sla_eligible: sop.eligible,     // SOP: has a defined cadence threshold
     sla_breached: sop.breached,     // SOP: missed first response or a cadence update
@@ -643,4 +683,6 @@ export const SQL_COLUMNS = [
   // worker's CASES_COLUMNS DDL (the Arrow insert binds by position).
   "sla_breached",
   "sla_due_sop",
+  // Case lifecycle (v8). Appended for the same positional-alignment reason.
+  "lifecycle",
 ]

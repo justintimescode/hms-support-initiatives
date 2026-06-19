@@ -19,7 +19,7 @@ export function AssigneeAgingBlock({ members }) {
     const now = Date.now();
     const bucket = AGING_BUCKETS[selected.bucketIdx];
     return m.rows
-      .filter((r) => !r._isClosed && r._created)
+      .filter((r) => r._isOpen && r._created)
       .filter((r) => {
         const days = Math.floor((now - r._created.getTime()) / 864e5);
         return days >= bucket.min && days <= bucket.max;

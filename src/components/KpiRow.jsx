@@ -30,7 +30,12 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
     {
       label: "Cases in view",
       value: kpis.total.toLocaleString(),
-      sub: `${kpis.closed} closed · ${kpis.open} open`,
+      // Three-state lifecycle: closed (truly done) · solution proposed (awaiting
+      // customer, NOT closed) · open (active work). The middle segment is shown
+      // only when present so datasets without resolved cases stay uncluttered.
+      sub: kpis.solutionProposed
+        ? `${kpis.closed} closed · ${kpis.solutionProposed} solution proposed · ${kpis.open} open`
+        : `${kpis.closed} closed · ${kpis.open} open`,
       icon: <ClipboardList size={14} />,
       accent: T.ink,
       delta: cmp ? { text: fmtDeltaCount(kpis.total, cmp.total), color: deltaColor(kpis.total - cmp.total, "up") } : null,

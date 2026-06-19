@@ -91,7 +91,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
               <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: T.ink, lineHeight: 1 }}>
                 {totals.total.toLocaleString()}
               </div>
-              <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{totals.closed} closed · {totals.open} open</div>
+              <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{totals.closed} closed · {totals.solutionProposed ? `${totals.solutionProposed} solution proposed · ` : ""}{totals.open} open</div>
               {compareTotals && (
                 <DeltaLine text={fmtDeltaCount(totals.total, compareTotals.total)} color={deltaColor(totals.total - compareTotals.total, "up")} />
               )}
@@ -171,7 +171,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
         <div className="print-section">
         <Section title="Jira Blockers" subtitle="Open cases across the team waiting on engineering work. Cases here are gated by a Jira ticket rather than analyst capacity, so they need a different intervention than the rest of the backlog.">
           <JiraDashboard
-            rows={allRows.filter((r) => !r._isClosed && r._jiraTickets.length > 0)}
+            rows={allRows.filter((r) => r._isOpen && r._jiraTickets.length > 0)}
             jiraConnected={jiraState?.status === "ready"}
           />
         </Section>
@@ -329,7 +329,7 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
             </div>
           </button>
           <div className="eyebrow" style={{ color: T.muted, marginTop: 6 }}>
-            {k.total} cases · {k.closed} closed · {k.open} open
+            {k.total} cases · {k.closed} closed · {k.solutionProposed ? `${k.solutionProposed} solution proposed · ` : ""}{k.open} open
           </div>
         </div>
         <Pill color={SLA_COLOR(k.slaRate)}>

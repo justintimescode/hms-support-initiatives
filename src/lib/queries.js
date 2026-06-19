@@ -45,6 +45,17 @@ export function buildWhere({ analyst, dateRange } = {}) {
   }
 }
 
+/* ---------- lifecycle SQL fragments ----------
+ * Case lifecycle is derived from the raw `state` column (always present in every
+ * schema version) so these are correct even on imports baked before the v8
+ * `is_closed`/`lifecycle` redefinition — no rebuild required, no dependency on
+ * the newer `lifecycle` column. CLOSED = State="Closed" only; SOLUTION-PROPOSED =
+ * State="Resolved" (Status="Solution Proposed", awaiting customer, NOT closed);
+ * OPEN = everything else (truly active work). Mirrors enrich.js `_lifecycle`. */
+const SQL_CLOSED = `lower(trim(state)) = 'closed'`
+const SQL_SOLUTION_PROPOSED = `lower(trim(state)) = 'resolved'`
+const SQL_OPEN = `lower(trim(state)) NOT IN ('closed', 'resolved')`
+
 /* ---------- queries ---------- */
 
 /**
@@ -59,18 +70,19 @@ export async function getKpis({ analyst, dateRange } = {}) {
     `
     SELECT
       COUNT(*)::BIGINT AS total,
-      COUNT_IF(is_closed)::BIGINT AS closed,
-      COUNT_IF(NOT is_closed)::BIGINT AS open,
+      COUNT_IF(${SQL_CLOSED})::BIGINT AS closed,
+      COUNT_IF(${SQL_OPEN})::BIGINT AS open,
+      COUNT_IF(${SQL_SOLUTION_PROPOSED})::BIGINT AS solution_proposed,
       COUNT_IF(sla_eligible)::BIGINT AS sla_eligible,
       COUNT_IF(sla_eligible AND NOT sla_breached)::BIGINT AS sla_met,
       CASE WHEN COUNT_IF(sla_eligible) > 0
         THEN COUNT_IF(sla_eligible AND NOT sla_breached) * 100.0 / COUNT_IF(sla_eligible)
         ELSE NULL
       END AS sla_rate,
-      AVG(CASE WHEN is_closed AND resolved_ms IS NOT NULL THEN resolved_ms::DOUBLE END) AS avg_res,
+      AVG(CASE WHEN ${SQL_CLOSED} AND resolved_ms IS NOT NULL THEN resolved_ms::DOUBLE END) AS avg_res,
       AVG(frt_ms::DOUBLE) AS avg_frt,
-      COUNT_IF(NOT is_closed AND sla_due_sop IS NOT NULL AND sla_due_sop > now() AND sla_due_sop < now() + INTERVAL 24 HOUR)::BIGINT AS at_risk_count,
-      COUNT_IF(NOT is_closed AND sla_due_sop IS NOT NULL AND sla_due_sop < now())::BIGINT AS breached_count
+      COUNT_IF(${SQL_OPEN} AND sla_due_sop IS NOT NULL AND sla_due_sop > now() AND sla_due_sop < now() + INTERVAL 24 HOUR)::BIGINT AS at_risk_count,
+      COUNT_IF(${SQL_OPEN} AND sla_due_sop IS NOT NULL AND sla_due_sop < now())::BIGINT AS breached_count
     FROM cases
     ${where}
     `,
@@ -81,6 +93,7 @@ export async function getKpis({ analyst, dateRange } = {}) {
     total: Number(r.total ?? 0),
     closed: Number(r.closed ?? 0),
     open: Number(r.open ?? 0),
+    solutionProposed: Number(r.solution_proposed ?? 0),
     slaEligible: Number(r.sla_eligible ?? 0),
     slaMet: Number(r.sla_met ?? 0),
     slaRate: r.sla_rate == null ? null : Number(r.sla_rate),
@@ -112,7 +125,7 @@ export async function getPriorityData({ analyst, dateRange } = {}) {
     SELECT
       CASE WHEN priority IS NULL OR priority = '' THEN 'Unknown' ELSE priority END AS priority,
       COUNT(*)::BIGINT AS total,
-      COUNT_IF(is_closed)::BIGINT AS closed,
+      COUNT_IF(${SQL_CLOSED})::BIGINT AS closed,
       COUNT_IF(sla_eligible AND NOT sla_breached)::BIGINT AS sla_met,
       COUNT_IF(sla_eligible)::BIGINT AS sla_total,
       SUM(resolved_ms) FILTER (WHERE resolved_ms IS NOT NULL)::DOUBLE AS res_sum,
@@ -234,15 +247,19 @@ export async function getUpdateQueue({ analyst, snapshotMs, statusEquals = null,
   // builds cleanly no matter which are active. The snapshot `?` lives in each
   // SELECT (before the WHERE), so these params bind right after it. Date filter
   // is NOT applied — the queue is always "right now" against the snapshot.
-  // Defaults (no analyst, includeClosed=false, statusEquals=null) reproduce the
-  // original `WHERE NOT is_closed` exactly, both SQL and params.
+  // Default (includeClosed=false) scopes the queue to TRULY-open cases via the
+  // state-derived `SQL_OPEN` — Solution-Proposed (state=Resolved) cases get their
+  // own queue (SolutionProposedQueuePage passes includeClosed + statusEquals), so
+  // they must not also surface here. `includeClosed=true` drops the filter
+  // entirely. (Pre-v8 this was `NOT is_closed`, which only happened to exclude
+  // Resolved because the old is_closed conflated Resolved with Closed.)
   const filterConds = []
   const filterParams = []
   if (analyst && analyst !== '__all__') {
     filterConds.push('assigned_to = ?')
     filterParams.push(analyst)
   }
-  if (!includeClosed) filterConds.push('NOT is_closed')
+  if (!includeClosed) filterConds.push(SQL_OPEN)
   if (statusEquals != null) {
     filterConds.push('lower(trim(status)) = lower(trim(?))')
     filterParams.push(statusEquals)

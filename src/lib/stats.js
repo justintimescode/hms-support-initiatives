@@ -6,8 +6,13 @@ import {
 
 export const computeKpis = (rows) => {
   const total = rows.length;
+  // Three-state lifecycle: closed (State="Closed", truly done) | solutionProposed
+  // (State="Resolved" / "Solution Proposed", awaiting customer) | open (active
+  // work). `open` is TRULY open — Solution-Proposed cases are their own bucket,
+  // not folded into either closed or open. See enrich.js v8.
   const closed = rows.filter((r) => r._isClosed);
-  const open = rows.filter((r) => !r._isClosed);
+  const open = rows.filter((r) => r._isOpen);
+  const solutionProposed = rows.filter((r) => r._lifecycle === "solution_proposed");
   // SLA = the Infor SOP response cadence (see computeSlaSop in enrich.js), not
   // ServiceNow's first-response-only `made_sla` flag. Eligible = the case has a
   // defined cadence; met = eligible and it never breached the cadence.
@@ -37,7 +42,9 @@ export const computeKpis = (rows) => {
   const atRisk = open.filter((r) => r._slaDueSop && r._slaDueSop > now && r._slaDueSop - now < 24 * 36e5);
   const breached = open.filter((r) => r._slaDueSop && r._slaDueSop < now);
   return {
-    total, closed: closed.length, open: open.length, slaRate, slaMet,
+    total, closed: closed.length, open: open.length,
+    solutionProposed: solutionProposed.length,
+    slaRate, slaMet,
     slaEligible: slaEligible.length, slaMissedInitial, slaMissedCadence,
     avgRes, resP50, resP90, avgFrt, frtP50, frtP90,
     atRisk, breached,
@@ -215,7 +222,9 @@ export const weekdayAnalytics = (rows) => {
       if (!r._created) continue;
       if (r._created.getTime() >= dayEnd) continue;
       if (r._closed && r._closed.getTime() < dayStart) continue;
-      if (!r._closed && r._isClosed) continue;
+      // Without a close timestamp, only TRULY open cases count toward open
+      // caseload — Solution-Proposed (resolved, awaiting customer) are excluded.
+      if (!r._closed && !r._isOpen) continue;
       openCount++;
     }
     const dow = cursor.getDay();
@@ -235,7 +244,7 @@ export const agingBuckets = (rows) => {
   const now = Date.now();
   const counts = AGING_BUCKETS.map((b) => ({ name: b.name, count: 0 }));
   for (const r of rows) {
-    if (r._isClosed) continue;
+    if (!r._isOpen) continue; // truly-open only; Solution-Proposed & closed excluded
     if (!r._created) continue;
     const days = Math.floor((now - r._created.getTime()) / 864e5);
     const idx = AGING_BUCKETS.findIndex((b) => days >= b.min && days <= b.max);
@@ -248,7 +257,7 @@ export const slaRiskSegments = (rows) => {
   const now = Date.now();
   const counts = Object.fromEntries(SLA_RISK_BUCKETS.map((b) => [b.key, 0]));
   for (const r of rows) {
-    if (r._isClosed) continue;
+    if (!r._isOpen) continue; // truly-open only; Solution-Proposed tracked in its own queue
     if (!r._slaDueSop) {
       counts.noSla++;
       continue;
@@ -285,7 +294,7 @@ export const openByAssigneeAge = (members) => {
     const cells = AGING_BUCKETS.map(() => 0);
     let total = 0;
     for (const r of m.rows) {
-      if (r._isClosed) continue;
+      if (!r._isOpen) continue; // truly-open only
       const idx = ageBucketOf(r, now);
       if (idx >= 0) {
         cells[idx]++;
@@ -310,7 +319,7 @@ export const stuckCases = (rows, thresholdDays = 30) => {
   const now = Date.now();
   const cutoff = thresholdDays * 864e5;
   return rows
-    .filter((r) => !r._isClosed && r._created && (now - r._created.getTime()) >= cutoff)
+    .filter((r) => r._isOpen && r._created && (now - r._created.getTime()) >= cutoff)
     .sort((a, b) => a._created - b._created);
 };
 
@@ -360,12 +369,18 @@ export const dailyTrajectory = (rows, refNow = Date.now()) => {
     let open = 0;
     let created = 0;
     let closed = 0;
+    let owned = 0;
     for (const r of rows) {
       if (r._created) {
         const ct = r._created.getTime();
         if (ct >= dayStart && ct < dayEnd) created++;
         if (ct < dayEnd && (!r._closed || r._closed.getTime() >= dayStart)) {
-          if (!(!r._closed && r._isClosed)) open++;
+          // `owned` = every case still on our books that day — created by then
+          // and not yet closed. Includes Solution-Proposed (resolved, awaiting
+          // customer): we still own it until it closes.
+          owned++;
+          // `open` is the TRULY-open subset — Solution-Proposed excluded.
+          if (!(!r._closed && !r._isOpen)) open++;
         }
       }
       if (r._closed) {
@@ -373,8 +388,37 @@ export const dailyTrajectory = (rows, refNow = Date.now()) => {
         if (xt >= dayStart && xt < dayEnd) closed++;
       }
     }
-    out.push({ date: dayStart, open, created, closed });
+    // `solutionProposed` is the rest of `owned` once truly-open is removed —
+    // cases on our books that day sitting in a resolved/Solution-Proposed state.
+    // By construction open + solutionProposed === owned, so the three stack.
+    out.push({ date: dayStart, open, created, closed, owned, solutionProposed: owned - open });
     cursor.setDate(cursor.getDate() + 1);
+  }
+  return out;
+};
+
+/** Cases actually CLOSED per calendar day — keyed off the ServiceNow close
+ *  timestamp (`_closed` = the "Closed" column), NOT resolution duration. A row
+ *  counts on the day its close timestamp falls, even if it was later reopened
+ *  (the close event still happened that day) — matching how `dailyTrajectory`
+ *  and the weekly chart already bucket closes.
+ *
+ *  Built on top of `dailyTrajectory` so the daily grid (oldest case → snapshot)
+ *  and close-bucketing logic stay a single source of truth and the x-axis lines
+ *  up with the backlog-trajectory chart above it. Adds a trailing N-day rolling
+ *  average so the weekday/weekend spikiness of raw daily closes is readable.
+ *  `refNow` should be the data snapshot timestamp for determinism. */
+export const dailyClosed = (rows, refNow = Date.now(), window = 7) => {
+  const traj = dailyTrajectory(rows, refNow);
+  const out = traj.map((d) => ({ date: d.date, closed: d.closed, rollingAvg: 0 }));
+  for (let i = 0; i < out.length; i++) {
+    let s = 0;
+    let n = 0;
+    for (let j = Math.max(0, i - (window - 1)); j <= i; j++) {
+      s += out[j].closed;
+      n++;
+    }
+    out[i].rollingAvg = n ? Math.round((s / n) * 10) / 10 : 0;
   }
   return out;
 };
@@ -521,7 +565,7 @@ export const backlogForecast = (
     trials = 2000,
   } = {},
 ) => {
-  const currentOpen = rows.reduce((n, r) => n + (r._isClosed ? 0 : 1), 0);
+  const currentOpen = rows.reduce((n, r) => n + (r._isOpen ? 1 : 0), 0);
   const weekly = weeklyIntakeResolved(rows, refNow);
 
   // Drop the resolution-immature tail (recent weeks under-count closes) and the
@@ -652,7 +696,7 @@ export const slaBreachForecast = (rows, refNow = Date.now(), horizonDays = 7) =>
   const horizon = now + horizonDays * 864e5;
   const out = [];
   for (const r of rows) {
-    if (r._isClosed || !r._slaDueSop) continue;
+    if (!r._isOpen || !r._slaDueSop) continue; // truly-open only
     const due = r._slaDueSop.getTime();
     if (due <= now || due > horizon) continue; // already breached, or beyond window
     const timeToBreach = due - now;
@@ -705,7 +749,7 @@ export const accountChurnRisk = (rows, refNow = Date.now(), windowDays = 90) => 
         if (eligible) { a.slaEligPrev++; if (!r._slaBreached) a.slaMetPrev++; }
       }
     }
-    if (!r._isClosed) {
+    if (r._isOpen) {
       a.openCount++;
       if ((r._jiraActiveTickets?.length || 0) > 0) a.openBlockers++;
       if (r._slaDueSop && r._slaDueSop.getTime() < now) a.breachedOpen++;

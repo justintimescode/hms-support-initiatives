@@ -1,5 +1,5 @@
 import { Database } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { FilterNavLink } from "../FilterLink.jsx";
 import { T } from "../../lib/theme.js";
 
 /* SECURITY #4 — persistent reminder that case data is stored locally in the
@@ -47,7 +47,7 @@ export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
           {fmtBytes(storageBytes)}
         </span>
       </div>
-      <NavLink
+      <FilterNavLink
         to="/connections"
         style={{
           display: "block",
@@ -74,7 +74,7 @@ export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
         }}
       >
         Manage imports
-      </NavLink>
+      </FilterNavLink>
     </div>
   );
 }

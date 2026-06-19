@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
-import { useOutletContext, Link } from "react-router-dom"
+import { useOutletContext } from "react-router-dom"
+import { FilterLink } from "../components/FilterLink.jsx"
 import { FileSpreadsheet, ExternalLink, ClipboardList, Clock, Users } from "lucide-react"
 import { T } from "../lib/theme.js"
 import { fmtFullDate } from "../lib/format.js"
@@ -110,7 +111,7 @@ function ConnectionStrip({ icon: Icon, title, sub, pillTone, pillLabel }) {
 
 function ShortcutCard({ to, icon: Icon, label, hint }) {
   return (
-    <Link
+    <FilterLink
       to={to}
       style={{
         textDecoration: "none",
@@ -124,7 +125,7 @@ function ShortcutCard({ to, icon: Icon, label, hint }) {
         </div>
         <div style={{ color: T.sub, fontSize: 12 }}>{hint}</div>
       </Card>
-    </Link>
+    </FilterLink>
   )
 }
 

@@ -188,6 +188,11 @@ export function enrichIssue(issue, fieldMap, statusMap) {
     _created: n.created,
     _closed: n.resolved,
     _isClosed: !isOpen,
+    // `_isOpen` is set above. Jira issues are binary open/done — no "solution
+    // proposed" middle state — so `_lifecycle` is just open|closed. Set so the
+    // shared SN chart blocks (which gate open-work on `_isOpen`/`_lifecycle`
+    // since v8) treat Jira rows correctly. See enrich.js _lifecycle.
+    _lifecycle: isOpen ? 'open' : 'closed',
   }
 }
 
@@ -404,10 +409,12 @@ export function mergeJiraIntoRows(row, jiraIssueMap) {
   const linkedLive = tickets.filter((t) => t.jira && t.source !== 'mention')
   const linkedLiveActive = linkedLive.filter((t) => t.jira.statusCategory !== 'Done')
 
-  // SN case still open, but every linked live Jira ticket is Done → the case
-  // is very likely closeable. The key new signal the join unlocks.
+  // SN case still TRULY open, but every linked live Jira ticket is Done → the
+  // case is very likely closeable. The key new signal the join unlocks. Uses
+  // `_isOpen` (not `!_isClosed`) so Solution-Proposed cases — already resolved
+  // pending customer — don't get re-flagged as "likely closeable".
   const mismatch =
-    !row._isClosed && linkedLive.length > 0 && linkedLiveActive.length === 0
+    row._isOpen && linkedLive.length > 0 && linkedLiveActive.length === 0
   // SN case closed but a linked Jira ticket is still open — minor inverse flag.
   const staleBlock = row._isClosed && linkedLiveActive.length > 0
 

@@ -1,12 +1,12 @@
-import { useNavigate } from "react-router-dom"
 import { User, ListFilter, Printer } from "lucide-react"
 import { T } from "../../lib/theme.js"
 import { FilterBar } from "../FilterBar.jsx"
 import { FreshnessIndicator } from "./FreshnessIndicator.jsx"
+import { useFilterNavigate } from "../../lib/nav.js"
 
 /* Persistent top bar for every routed page. */
 export function TopBar({ ctx }) {
-  const navigate = useNavigate()
+  const navigate = useFilterNavigate()
   if (!ctx) return null
   const {
     rows,

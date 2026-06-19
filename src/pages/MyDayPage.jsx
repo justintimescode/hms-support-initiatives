@@ -1,5 +1,6 @@
 import { useMemo } from "react"
-import { useOutletContext, Link } from "react-router-dom"
+import { useOutletContext } from "react-router-dom"
+import { FilterLink } from "../components/FilterLink.jsx"
 import {
   Sun, ClipboardList, Clock, Inbox, Ban, ArrowRight, UserRound,
 } from "lucide-react"
@@ -49,7 +50,9 @@ export default function MyDayPage() {
   )
 
   const open = useMemo(
-    () => (enrichedAnalyst || []).filter((r) => !r._isClosed),
+    // Truly-open only — Solution-Proposed (resolved, awaiting customer) cases
+    // have their own queue and are excluded from "My Day" open work.
+    () => (enrichedAnalyst || []).filter((r) => r._isOpen),
     [enrichedAnalyst],
   )
 
@@ -352,7 +355,7 @@ export default function MyDayPage() {
 
 function StatTile({ to, icon: Icon, label, value, tone, hint }) {
   return (
-    <Link to={to} style={{ textDecoration: "none", color: T.ink }}>
+    <FilterLink to={to} style={{ textDecoration: "none", color: T.ink }}>
       <Card className="hoverlift" style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, color: T.sub }}>
           <Icon size={14} style={{ color: tone }} />
@@ -361,7 +364,7 @@ function StatTile({ to, icon: Icon, label, value, tone, hint }) {
         <div className="mono" style={{ fontSize: 30, fontWeight: 600, lineHeight: 1, color: tone }}>{value}</div>
         <div style={{ color: T.sub, fontSize: 12 }}>{hint}</div>
       </Card>
-    </Link>
+    </FilterLink>
   )
 }
 
@@ -376,9 +379,9 @@ function ListCard({ icon: Icon, title, count, to, linkLabel, loading, error, emp
           <span className="mono" style={{ color: count ? T.ink : T.muted, fontWeight: 600, letterSpacing: 0 }}>· {count}</span>
         </div>
         {to && (
-          <Link to={to} style={{ color: T.accent, fontSize: 12, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          <FilterLink to={to} style={{ color: T.accent, fontSize: 12, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
             {linkLabel} <ArrowRight size={12} />
-          </Link>
+          </FilterLink>
         )}
       </div>
       {loading ? (
@@ -397,9 +400,9 @@ function ListCard({ icon: Icon, title, count, to, linkLabel, loading, error, emp
 function MoreRow({ n, to }) {
   return (
     <div style={{ marginTop: 10, textAlign: "center" }}>
-      <Link to={to} style={{ color: T.sub, fontSize: 12, textDecoration: "none" }}>
+      <FilterLink to={to} style={{ color: T.sub, fontSize: 12, textDecoration: "none" }}>
         + {n} more — view all <ArrowRight size={11} style={{ verticalAlign: "middle" }} />
-      </Link>
+      </FilterLink>
     </div>
   )
 }

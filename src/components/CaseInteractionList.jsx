@@ -52,7 +52,7 @@ export function CaseInteractionList({ rows }) {
                   <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: T.accent }}>{r._customerTurns || 0}</td>
                   <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: T.ok }}>{r._analystTurns || 0}</td>
                 </>}
-                <td style={{ padding: "8px 12px", color: r._isClosed ? T.muted : T.ink }}>{r._isClosed ? "Closed" : "Open"}</td>
+                <td style={{ padding: "8px 12px", color: r._isClosed ? T.muted : T.ink }}>{r._lifecycle === "closed" ? "Closed" : r._lifecycle === "solution_proposed" ? "Solution Proposed" : "Open"}</td>
               </tr>
             ))}
           </tbody>

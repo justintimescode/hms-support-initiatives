@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom"
+import { FilterLink } from "./FilterLink.jsx"
 import { Database } from "lucide-react"
 import { T, alpha } from "../lib/theme.js"
 import { Card } from "./layout/Card.jsx"
@@ -44,7 +44,7 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
         {message ||
           "Upload a ServiceNow case export to populate this page. Everything else flows from that one file."}
       </div>
-      <Link
+      <FilterLink
         to="/connections"
         style={{
           marginTop: 12,
@@ -70,7 +70,7 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
         }}
       >
         {cta}
-      </Link>
+      </FilterLink>
     </Card>
   )
 }

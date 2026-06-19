@@ -12,7 +12,7 @@ export default function JiraBlockersPage() {
     ? (teamMembers ? teamMembers.flatMap((m) => m.rows) : enrichedAnalyst)
     : enrichedAnalyst
   const blockerRows = (allRows || []).filter(
-    (r) => !r._isClosed && r._jiraTickets && r._jiraTickets.length > 0,
+    (r) => r._isOpen && r._jiraTickets && r._jiraTickets.length > 0,
   )
 
   return (

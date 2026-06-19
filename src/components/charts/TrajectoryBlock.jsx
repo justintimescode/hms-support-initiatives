@@ -9,9 +9,12 @@ import { dailyTrajectory, weeklyIntakeResolved } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
 /* ================= Trends Over Time ================= */
-export function TrajectoryBlock({ rows, highlightRange }) {
-  const trajectory = useMemo(() => dailyTrajectory(rows), [rows]);
-  const weekly = useMemo(() => weeklyIntakeResolved(rows), [rows]);
+export function TrajectoryBlock({ rows, highlightRange, snapshotMs }) {
+  // Anchor the day/week grid to the data snapshot rather than the live clock so
+  // the trajectory is deterministic for a given import (and its grid lines up
+  // with the daily-closed chart below it). Falls back to "now" when no snapshot.
+  const trajectory = useMemo(() => dailyTrajectory(rows, snapshotMs || undefined), [rows, snapshotMs]);
+  const weekly = useMemo(() => weeklyIntakeResolved(rows, snapshotMs || undefined), [rows, snapshotMs]);
   const hl = highlightRange && highlightRange.from != null && highlightRange.to != null ? highlightRange : null;
 
   if (!trajectory.length) {

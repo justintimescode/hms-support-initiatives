@@ -1,7 +1,7 @@
 {
   "name": "kpi-analyzer",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "ServiceNow + Jira KPI analyzer — desktop app",
   "author": "Infor",
   "type": "module",

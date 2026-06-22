@@ -51,4 +51,31 @@ export const aiClient = {
     }
     return res.json()
   },
+
+  /**
+   * Deep-read a SMALL, hand-picked set of cases for prose coaching notes — the
+   * opt-in half of the hybrid. The lexicon engine (sentiment.js) grades the
+   * whole queue on device; this sends only the handful the user explicitly
+   * picks (e.g. the negatives) to the proxy. Payload MUST be scrubbed via
+   * scrubForAi() first. Each case carries a non-PII `ref` index so the response
+   * can be mapped back to the local case without unmasking the case number.
+   *
+   * Expected response shape (the proxy builds the prompt and returns this JSON):
+   *   { notes: Array<{ ref: number, coaching: string }> }
+   *
+   * @param {object} payload  scrubbed { label?, cases: Array<{ ref, … }> }
+   * @throws {AiNotConfiguredError} when VITE_AI_PROXY_URL is unset
+   */
+  async reviewSentiment(payload) {
+    if (!PROXY_URL) throw new AiNotConfiguredError()
+    const res = await fetch(`${PROXY_URL}/api/sentiment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      throw new Error(`AI proxy returned ${res.status} ${res.statusText}`)
+    }
+    return res.json()
+  },
 }

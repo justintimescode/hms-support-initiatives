@@ -15,6 +15,7 @@ An analytics dashboard for ServiceNow case exports — runnable in the browser (
 - [Pages & Features](#pages--features)
 - [Jira Integration](#jira-integration)
 - [AI Insights](#ai-insights)
+- [Customer Sentiment](#customer-sentiment)
 - [SOP / Update Queue Engine](#sop--update-queue-engine)
 - [Data Enrichment Pipeline](#data-enrichment-pipeline)
 - [DuckDB SQL Backend](#duckdb-sql-backend)
@@ -268,6 +269,9 @@ Data source management. The **ServiceNow imports** card is a full file manager: 
 #### Insights (`/insights`)
 AI-powered qualitative analysis. See [AI Insights](#ai-insights).
 
+#### Customer Sentiment (`/sentiment`)
+Deterministic, on-device customer-sentiment grading — valence, arc, emotions, responsiveness, hygiene, a representative quote, and a templated coaching note — reproducing the structured columns of the LLM sentiment review without sending any case to a model. See [Customer Sentiment](#customer-sentiment).
+
 #### Cases (`/cases`)
 Full sortable and searchable case register. Every column from the enriched dataset is available. Keyword search filters across all text fields.
 
@@ -377,6 +381,33 @@ The proxy returns JSON with five sections: `themes`, `recurring_issues`, `skill_
 
 ---
 
+## Customer Sentiment
+
+A deterministic, **on-device** reproduction of the structured columns of the LLM "Customer Sentiment Review" — so the team never has to run a whole export through a model. The grader reads the customer-visible comment stream and emits a valence, a label, a conversation arc, emotions, a frustration target, a representative quote, and a templated coaching note. **No case is sent to a model.** The engine (`src/lib/sentiment.js`) is pure and framework-free, with no network or wall-clock dependencies, so the same row always grades the same way.
+
+> **Honest accuracy.** The grader is *exact* on coverage, responsiveness, and hygiene (those are structural counts) and *directional* on tone: valence sign agrees with the LLM review on a single line roughly 60–65% of the time, and better across a full message stream where start/end/arc are visible. The coaching note is **templated** — it states the structural facts (responsiveness, arc, closure), not the model's prose.
+
+### How it works
+
+- **Attribution mirrors the interaction-count parser exactly.** A journal entry whose author line contains `(Infor)` is an analyst turn; everything else is the customer (`WORK_NOTE_HEADER` / `ANALYST_AUTHOR` in `enrich.js`). Sentiment and interaction counts therefore never disagree.
+- **Scoring** uses a tuned support / hospitality-PMS lexicon (`POS` / `NEG` / `IMPACT`) compressed onto a −5..+5 scale (`5·tanh(raw / COMPRESS_K)`, `COMPRESS_K = 8`), with a **diminishing-returns cap**: after the first 3 distinct same-polarity cues in one message, further cues count at ½× so a multi-cue rant can't saturate the score.
+- **Scoreable gating.** A case is graded only where the customer actually wrote something. Phone-resolved / silent cases are **counted in coverage** but carry a null grade.
+- **Hygiene** (exact, structural): duplicate analyst double-posts (identical body ≤60 s apart) and credential / remote-access exposure (`AnyDesk`, `password:`) in the stream.
+
+### Baked as a queryable field
+
+Sentiment is computed once in the shared enrichment (`enrichRow` + `enrichForSql`) and persisted in DuckDB — exactly like SLA, category, and interaction counts — so it is a queryable dimension and is not re-graded on every filter change. The `sentiment_*` columns were added at **`SCHEMA_VERSION` 9**; older imports show a "Rebuild needed" badge and re-grade from source on rebuild. Both pipelines emit byte-identical sentiment values, enforced by a parity test (`enrichRow(r).sentiment_*` deep-equals `enrichForSql(r).sentiment_*`).
+
+### Sentiment page (`/sentiment`)
+
+Headline tiles (average valence + a /100 normalization, scoreable coverage, recovery rate, still-negative-at-close, median first reply + % within 1 h, hygiene flags), a sentiment-distribution chart, and a sortable, keyboard-navigable per-case table whose rows expand to the representative quote (rendered as text) and the coaching note. A **Download grades** button regenerates the two-sheet review workbook (`Headline Metrics` + `Per-Case Detail`) on device via ExcelJS, every cell routed through the formula-injection guard.
+
+### Optional Claude deep-read (opt-in, per-case)
+
+The hybrid: the lexicon engine grades the whole queue locally; for prose coaching on the handful of cases that warrant it, a **Deep-read the N negatives** action sends *only* those (≤ 10) cases — `scrubForAi`-masked — through the existing first-party AI proxy (`aiClient.reviewSentiment`). It is strictly gated on `aiClient.isConfigured()` (showing the same calm "not configured" card as the Insights feature when no proxy is set) and never fans out across the queue or calls a vendor directly (SECURITY #1).
+
+---
+
 ## SOP / Update Queue Engine
 
 The Update Queue is the most operationally critical feature. All thresholds live in `src/lib/sop-thresholds.js` — edit there when the SOP changes, nowhere else.
@@ -429,6 +460,13 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 | `_slaBreached` | journal timeline + SOP cadence | **the real SLA**: true if the case missed its first-response target or any cadence-update gap over its life (`computeSlaSop`) |
 | `_slaBreachReason` | `computeSlaSop` | why it missed — `'initial'` (first response) or `'cadence'`; `null` if met/ineligible. Powers the SLA breach-reason split |
 | `_slaDueSop` | last Infor update + cadence | SOP next-update-due deadline (open cases) — drives At-Risk / Breach Forecast / SLA Risk |
+| `sentiment_scoreable` | `work_notes` | true when the customer wrote something (else a null grade) |
+| `sentiment_valence` | `work_notes` | customer tone, −5..+5 (null if not scoreable) |
+| `sentiment_label` | `sentiment_valence` | Positive / Neutral / Negative |
+| `sentiment_arc` | first vs last customer message | improved (recovery) / stable / declined / single touchpoint |
+| `sentiment_*` (start, end, emotions, target, quote, coaching, pii, dup) | `work_notes` | the remaining baked grade outputs — see [Customer Sentiment](#customer-sentiment) |
+
+> The `sentiment_*` fields are the one set baked under **snake_case in both pipelines** (the SLA/Jira fields use `_camelCase` in `enrichRow` and `snake_case` in `enrichForSql`). One shared key name lets the UI read the grade identically whether it came from the in-memory pipeline or DuckDB, and lets the parity test deep-equal the two — see `gradeFromRow()` in `sentiment.js`.
 
 ### Jira reference parsing
 
@@ -451,7 +489,7 @@ A Web Worker (`src/workers/db.worker.js`) runs a DuckDB-WASM instance using the 
 
 ### Schema
 
-Each import owns a base table `cases_import_{uuid}` with 34 columns covering all raw and enriched fields (`SQL_COLUMNS` in `enrich.js`). `cases` is a **view** redefined to point at the active import's table, so all query helpers read `FROM cases` without change. An `imports_index` table tracks every import's `uuid`, `display_name`, `uploaded_at`, `row_count`, `file_size`, `file_type`, `schema_version`, and `is_active` flag. `SCHEMA_VERSION` is bumped when columns change — imports built against an older version are flagged in the file manager with a "Rebuild needed" badge (re-parses the stored source blob). A legacy single-`cases`-table build is auto-migrated to import #1 on first boot.
+Each import owns a base table `cases_import_{uuid}` with 49 columns covering all raw and enriched fields (`SQL_COLUMNS` in `enrich.js`), including the baked customer-sentiment grade added in `SCHEMA_VERSION` 9. `cases` is a **view** redefined to point at the active import's table, so all query helpers read `FROM cases` without change. An `imports_index` table tracks every import's `uuid`, `display_name`, `uploaded_at`, `row_count`, `file_size`, `file_type`, `schema_version`, and `is_active` flag. `SCHEMA_VERSION` is bumped when columns change — imports built against an older version are flagged in the file manager with a "Rebuild needed" badge (re-parses the stored source blob). A legacy single-`cases`-table build is auto-migrated to import #1 on first boot.
 
 ### Ingestion
 
@@ -553,6 +591,7 @@ The app works with standard ServiceNow case table exports. XLSX is strongly reco
 | `Priority` | `priority` | SLA thresholds, SOP cadence |
 | `Assigned to` | `assigned_to` | Analyst filtering |
 | `Account` | `account` | Account analytics |
+| `Contact` | `contact` | Per-case sentiment export (Contact column) |
 | `Product line` | `product_line` | Product analytics |
 | `Made SLA` | `made_sla` | Retained raw (ServiceNow first-response flag); no longer drives metrics |
 | `SLA due` | `sla_due` | Retained raw; SLA risk now uses the SOP next-update deadline |
@@ -610,6 +649,7 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
 - **CSV exports** (Update Queue, Solution Proposed, Jira Blockers) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via the single shared `rowsToCsv` → `toCsvRow` → `sanitizeCellForExport` path.
+- **Customer sentiment** is graded 100% on device — the engine has no network path. The optional per-case **deep-read** sends only a hand-picked handful of cases (the negatives) through the scrubbed AI proxy (`scrubForAi` + `aiClient.reviewSentiment`), strictly gated on configuration; never the whole queue, never a vendor directly. The sentiment **Excel export** routes every cell through the same `sanitizeCellForExport` formula-injection guard.
 - **Production builds** ship a Content-Security-Policy meta tag.
 
 ---
@@ -620,6 +660,7 @@ Living review documents track the codebase's health and where it's headed:
 
 | Document | Focus |
 |---|---|
-| [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | **Latest.** Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
+| [CODEREVIEW(sentiment).md](./CODEREVIEW(sentiment).md) | **Latest.** Feature review of the on-device Case Sentiment Grader — the bake-vs-render decision, honest accuracy limits, the `SCHEMA_VERSION` 9 columns, tuning knobs, and an adversarial self-critique pass (8 findings: 6 fixed, 2 documented non-changes). |
+| [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
 | [CODEREVIEW(5-31).md](./CODEREVIEW(5-31).md) | Prior review — code-quality / statistical-correctness findings (Jira percentile bias, join-key normalization, dev-SQL-in-prod) and the `feat/analytics-and-hardening` cycle. |
 | [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) | Security audit (17 items with statuses) — see [Security](#security) above. |

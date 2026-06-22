@@ -17,6 +17,9 @@ import {
   SUPPORT_THRESHOLDS_MS,
   INITIAL_RESPONSE_MS,
 } from './sop-thresholds.js'
+// Deterministic, on-device sentiment grader. Pure ESM (no React/DOM) so it is
+// safe to call from both enrichment pipelines and the DuckDB worker.
+import { gradeFromRow } from './sentiment.js'
 
 // Bump when enrichForSql / SQL_COLUMNS change. Each persisted import records the
 // version it was built with; on boot, imports older than this are flagged in the
@@ -42,7 +45,19 @@ import {
 // adds the `lifecycle` column ('closed' | 'solution_proposed' | 'open'). Fixes
 // the SLA cadence under-judging of Resolved cases (their end-time is now the
 // snapshot, not null). See [[closed-vs-resolved]].
-export const SCHEMA_VERSION = '8'
+// v9: Customer sentiment graded on device from the customer-visible comment
+// stream (work_notes, falling back to additional_comments) by the deterministic
+// lexicon engine in sentiment.js. Adds the `sentiment_*` columns:
+// `sentiment_scoreable` (had an attributable customer message), `sentiment_valence`
+// (-5..+5), `sentiment_label`, `sentiment_start`/`sentiment_end` (opening/closing
+// valence), `sentiment_arc`, `sentiment_emotions`, `sentiment_target`,
+// `sentiment_quote`, `sentiment_coaching`, plus hygiene flags `sentiment_pii`
+// (pasted credential / remote-access tool) and `sentiment_dup` (analyst
+// double-post ≤60s). Silent cases bake `sentiment_scoreable=false` with null
+// scalars but still count in coverage. Same attribution as `customer_turns`
+// (parseInteractions over work_notes), so the two never disagree. Older imports
+// show "Rebuild needed" and re-grade from source on rebuild.
+export const SCHEMA_VERSION = '9'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -177,6 +192,7 @@ export function normalizeXlsxRow(r) {
     status:              r['Status']              ?? null,
     priority:            r['Priority']            ?? null,
     account:             r['Account']             ?? null,
+    contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,
     close_notes:         r['Resolution notes']    ?? null,
@@ -545,6 +561,11 @@ export const enrichRow = (r, snapshotMs) => {
     _jiraActiveTickets: jira.activeTickets,
     _jiraFirstLinked: jira.firstLinkedAt,
     _jiraDaysSinceLinked: jiraDaysSinceLinked,
+    // Customer sentiment (v9). Emitted under the SAME snake_case keys as
+    // enrichForSql (not the `_camelCase` SLA convention) so the parity test can
+    // deep-equal the two and the UI reads one key regardless of source. One
+    // parse per row; `frtMs` is shared so the coaching note is identical.
+    ...gradeFromRow(r, frtMs),
   }
 }
 
@@ -639,6 +660,10 @@ export const enrichForSql = (r, snapshotMs) => {
     jira_keys: jira.tickets.map((t) => t.id).join("|"),
     jira_active_keys: jira.activeTickets.join("|"),
     jira_first_linked: jira.firstLinkedAt,         // Date | null
+    // Customer sentiment (v9). Identical values to enrichRow (same row, same
+    // frtMs). Plain Number | string | boolean | null — never undefined — so the
+    // worker's Arrow column build (buildArrowTable) types them cleanly.
+    ...gradeFromRow(r, frtMs),
   }
 }
 
@@ -685,4 +710,18 @@ export const SQL_COLUMNS = [
   "sla_due_sop",
   // Case lifecycle (v8). Appended for the same positional-alignment reason.
   "lifecycle",
+  // Customer sentiment (v9). Appended (positional alignment with CASES_COLUMNS
+  // in db.worker.js). Produced by gradeFromRow; null/false for silent cases.
+  "sentiment_scoreable", // BOOLEAN
+  "sentiment_valence",   // BIGINT  (plain Number | null, like priority_rank)
+  "sentiment_label",     // VARCHAR
+  "sentiment_start",     // BIGINT  (opening valence | null)
+  "sentiment_end",       // BIGINT  (closing valence | null)
+  "sentiment_arc",       // VARCHAR
+  "sentiment_emotions",  // VARCHAR
+  "sentiment_target",    // VARCHAR
+  "sentiment_quote",     // VARCHAR
+  "sentiment_coaching",  // VARCHAR
+  "sentiment_pii",       // BOOLEAN
+  "sentiment_dup",       // BOOLEAN
 ]

@@ -37,13 +37,19 @@ const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/g
 const CASENUM_RE = /\b(?:[A-Z]{2,5}\d{6,}|(?:CASE|RN)-[A-Za-z0-9]+)\b/g
 // Light name heuristic: two consecutive Capitalized words (First Last).
 const NAME_PAIR_RE = /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g
+// Phone numbers: a separated/parenthesized 3-3-4 grouping with an optional
+// country code. Conservative on purpose — requires separators so it can't eat
+// ISO dates (2026-05-31) or bare numeric IDs; the customer comment stream the
+// sentiment deep-read sends is the main field this protects.
+const PHONE_RE = /\b(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)[\s.-]?|\d{3}[\s.-])\d{3}[\s.-]?\d{4}\b/g
 
-/** Light scrub for free-text: mask emails / case numbers / name pairs, cap 400. */
+/** Light scrub for free-text: mask emails / case numbers / phones / name pairs, cap 400. */
 export function scrubText(text) {
   if (!text) return ""
   return String(text)
     .replace(EMAIL_RE, "[email]")
     .replace(CASENUM_RE, "[case]")
+    .replace(PHONE_RE, "[phone]")
     .replace(NAME_PAIR_RE, "[name]")
     .slice(0, 400)
 }
@@ -74,6 +80,12 @@ export function scrubForAi(payload) {
       if ("assigned_to" in r) r.assigned_to = mask("ANALYST", r.assigned_to)
       if ("short_description" in r) r.short_description = scrubText(r.short_description)
       if ("close_notes" in r) r.close_notes = scrubText(r.close_notes)
+      // Sentiment deep-read free-text (the customer's own words + the picked
+      // quote). The existing insights payload never carries these keys, so this
+      // is additive; for the deep-read it is the load-bearing scrub.
+      if ("comments" in r) r.comments = scrubText(r.comments)
+      if ("quote" in r) r.quote = scrubText(r.quote)
+      if ("work_notes" in r) r.work_notes = scrubText(r.work_notes)
       return r
     })
   }

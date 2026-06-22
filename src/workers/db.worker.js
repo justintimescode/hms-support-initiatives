@@ -58,7 +58,19 @@ const CASES_COLUMNS = `
     jira_first_linked       TIMESTAMP,
     sla_breached            BOOLEAN,
     sla_due_sop             TIMESTAMP,
-    lifecycle               VARCHAR
+    lifecycle               VARCHAR,
+    sentiment_scoreable     BOOLEAN,
+    sentiment_valence       BIGINT,
+    sentiment_label         VARCHAR,
+    sentiment_start         BIGINT,
+    sentiment_end           BIGINT,
+    sentiment_arc           VARCHAR,
+    sentiment_emotions      VARCHAR,
+    sentiment_target        VARCHAR,
+    sentiment_quote         VARCHAR,
+    sentiment_coaching      VARCHAR,
+    sentiment_pii           BOOLEAN,
+    sentiment_dup           BOOLEAN
 `
 const EMPTY_TABLE = 'cases_empty'
 const CREATE_INDEX_SQL = `

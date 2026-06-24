@@ -70,7 +70,8 @@ const CASES_COLUMNS = `
     sentiment_quote         VARCHAR,
     sentiment_coaching      VARCHAR,
     sentiment_pii           BOOLEAN,
-    sentiment_dup           BOOLEAN
+    sentiment_dup           BOOLEAN,
+    resolved_at_ms          BIGINT
 `
 const EMPTY_TABLE = 'cases_empty'
 const CREATE_INDEX_SQL = `
@@ -363,6 +364,7 @@ function legacyMigrateIfNeeded() {
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_breached BOOLEAN`) } catch { /* ignore */ }
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_due_sop TIMESTAMP`) } catch { /* ignore */ }
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS lifecycle VARCHAR`) } catch { /* ignore */ }
+  try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS resolved_at_ms BIGINT`) } catch { /* ignore */ }
   conn.query('DROP TABLE cases')
   try { conn.query('DROP TABLE IF EXISTS meta') } catch { /* ignore */ }
   upsertIndexRow({

@@ -1,0 +1,240 @@
+# Code Review — Solution Proposed: stop the cadence clock, add auto-close countdown (2026-06-24)
+
+A feature review for the **Solution Proposed** change (schema **v10**): Resolved
+cases (ServiceNow `state = Resolved`, awaiting customer confirmation) **no longer
+owe a recurring SOP cadence update**, and the `/solution-proposed` screen is
+rebuilt from a cadence-overdue queue into a **90-day auto-close countdown**.
+
+Complements the existing docs:
+
+- [`CODEREVIEW(sentiment).md`](./CODEREVIEW(sentiment).md) — the prior feature review (v9).
+- [`SECURITY_CONCERNS.md`](./SECURITY_CONCERNS.md) — SECURITY #7 (export injection) is the relevant invariant here.
+
+**Status:** `npm run test` → **56 pass / 0 fail** (37 new across the SLA suite + the bumped sentiment version assertion). `npm run build` → passes. `npm run lint` → the changed files are clean; the repo's pre-existing 19 `react-hooks` errors (in `StuckCasesList`, `AssigneeAgingBlock`, `SlaRiskBlock`, `JiraDashboard`, `useQuery`) are unchanged — this change introduced **zero** new lint errors. The new `getSolutionProposedAutoClose` SQL was additionally executed against real DuckDB-WASM (Node-blocking harness) across analyst-scoped / `__all__` / empty / OPEN+CLOSED-excluded / null-journal / backdated states.
+
+---
+
+## 1. What shipped
+
+| Area | File | Change |
+|---|---|---|
+| SLA engine | `src/lib/enrich.js` | `computeSlaSop` keeps **three distinct clock-stops** for Solution Proposed (cadence / initial / auto-close); new `parseResolutionTime` (resolution-notes marker) + `SYSTEM_AUTHOR`/`isInforAnalyst` (exclude system reminders from `parseInforUpdates` + `parseInteractions`); `_resolvedAt` / `_autoCloseAt` (in-memory) + `resolved_at_ms` (SQL) baked; `SQL_COLUMNS` +1; `SCHEMA_VERSION` `'9'→'10'`. |
+| Thresholds | `src/lib/sop-thresholds.js` | `+SOLUTION_PROPOSED_AUTOCLOSE_MS` (90d); `−SOLUTION_PROPOSED_STATUS` (now unused). |
+| Persistence | `src/workers/db.worker.js` | `resolved_at_ms BIGINT` appended to `CASES_COLUMNS` (positional Arrow alignment) + legacy `ALTER`. |
+| Query | `src/lib/queries.js` | `+getSolutionProposedAutoClose()` (snapshot-anchored countdown, created-clamped); `−statusEquals`/`−includeClosed` from `getUpdateQueue` (now always `SQL_OPEN`). |
+| Page | `src/pages/SolutionProposedQueuePage.jsx` | Rewritten as the analyst-scoped auto-close countdown (sortable, urgency-colored, counts, empty state, sanitized CSV). |
+| Page | `src/pages/UpdateQueue.jsx` | Slimmed — dropped the dead `statusEquals`/`includeClosed`/`title`/`subtitle`/`showInitialResponse`/`csvName` props (sole caller used all defaults); plain `/update-queue` behavior unchanged. |
+| Nav | `src/components/layout/AppLayout.jsx` | Icon `ClipboardCheck → Timer` (signals a countdown); route/label unchanged. |
+| Tests | `src/lib/enrich.sla-solution-proposed.test.js` _(new)_ | 18 tests: clock-stop, initial/pre-resolution-gap still breach, open regression, parity, auto-close math, the 4 adversarial-review regressions (F1–F4). |
+| Docs | `README.md`, `PLAN.md` | SLA SOP note + Solution Proposed section rewritten; query table updated. |
+
+---
+
+## 2. The SLA behavior change (Decision 1) — and why
+
+**Policy:** once a solution is proposed (`state = Resolved`, awaiting customer),
+the case no longer owes a recurring Infor-authored cadence update. Previously
+(v8) these cases were judged for SLA cadence with `end = snapshot`, so a resolved
+case sitting idle accrued a **trailing-gap cadence breach** for going stale —
+wrong under current policy.
+
+**Chosen: "stop the clock," not "exempt."** A full exemption (`eligible = false`)
+was rejected: it would also drop initial-response and pre-resolution cadence
+misses out of the denominator, overstating SLA. We only want to stop the
+*trailing-idle* penalty, while still judging what happened **before** resolution.
+
+The load-bearing subtlety — surfaced by the adversarial self-critique (§7) — is
+that "stop the clock" is **three different clocks**, and conflating them into one
+`end` is incorrect. The final design keeps them separate in `computeSlaSop`:
+
+| Clock | Anchor for Solution Proposed | Why |
+|---|---|---|
+| **Cadence trailing gap** | last **Infor** update (`ts[last]`) | Infor owes nothing after its last touch → gap is zero. Using the Infor-only timeline (not last activity of any author) stops a late *customer* reply from fabricating a breach. A real gap *between* pre-resolution Infor updates is still caught by the inter-update loop. |
+| **Initial response** | the **snapshot** | A resolved case Infor *never answered* is a genuine missed first response; judging to the snapshot keeps it counted (anchoring to last activity would let an early customer post mask it). |
+| **Auto-close countdown** | when the **resolution notes were saved** (`resolved_at_ms`), then last Infor note, then created; clamped ≥ created | ServiceNow's 90-day auto-close starts at resolution. Its "Case Resolved – Reminder N" warning notes (and a late customer reply) must **not** move the clock — see §3 / the user's caveat. |
+
+Net effect: Resolved cases get `sla_due_sop = null` (drop out of
+at-risk/overdue/forecast), and `sla_breached` flips false for cases whose *only*
+miss was trailing idle — but initial-response and pre-resolution cadence misses
+still breach. **SLA % generally rises** (intended).
+
+---
+
+## 3. Auto-close anchor = resolution-notes-saved time (Decision 2, revised after a domain caveat)
+
+The initial design anchored the countdown to "last activity (any author)" on the
+theory that ServiceNow resets the 90-day clock on any update. A domain correction
+from the user — verified against the real export — overrode that: **the clock
+starts when the resolution notes are saved, and the system "Case Resolved –
+Reminder N" auto-close *warning* notes must not count.**
+
+`resolved_at_ms` is therefore the header timestamp of the **latest journal entry
+carrying the `<b>Resolution notes</b>` marker** (`parseResolutionTime` over
+`additional_comments`, where ServiceNow writes it — confirmed present on 233/247
+Resolved rows, incl. System auto-resolutions). The auto-close reminder notes live
+in `work_notes`, carry no marker, and so are ignored automatically. Marker-less
+Resolved rows fall back to the **last Infor note** (`parseInforUpdates.lastTs`,
+now system-free per §3a), then `created`; the anchor is clamped ≥ created so a
+backdated header can't start the clock before the case existed (finding F4).
+
+### 3a. System auto-reminder notes excluded from analyst attribution
+The reminder/auto-resolution actor is authored `System  Automatic Reminders
+(Infor)` — the `(Infor)` tag made `ANALYST_AUTHOR = /\(Infor\)/i` wrongly count it
+as analyst work in `parseInforUpdates` (cadence, `last_infor_update`) and
+`parseInteractions` (turn counts), skewing ~141 auto-resolved cases. A new
+`SYSTEM_AUTHOR = /^\s*System\b/i` guard (`isInforAnalyst = ANALYST_AUTHOR && !SYSTEM_AUTHOR`)
+excludes them from both. This removes false `cadence` breaches on auto-resolved
+cases and corrects `analyst_turns` / FCR / multi-touch (numbers shift — intended).
+
+**Modeling assumption (surfaced in the UI + README):** ServiceNow's true auto-close
+anchor is instance-configured. We model it as the resolution-notes save time
+against the data-as-of snapshot. The page subtitle states this plainly.
+
+---
+
+## 4. SLA surfaces affected (verified — no code change beyond the deletions)
+
+A 13-agent verification pass (one per surface, each independently re-checked)
+confirmed **0 defects**: every downstream consumer reads the **baked** fields and
+self-corrects, and none use `!_isClosed` to mean "open" or treat a null
+`_slaDueSop` as "due now".
+
+- **SLA % rises** (bounded by initial + pre-resolution misses): `stats.computeKpis`, `queries.getKpis`/`getPriorityData`, `KpiRow`, `SlaBlock`, `SlaPage`, `TeamView`, `AnalystProfileModal`, `MonthlySummaryReport`, `CaseTable` per-case SLA cell.
+- **At-risk / overdue / breached / forecast counts drop**: `getKpis.at_risk_count`/`breached_count`, `SlaForecastBlock`, `MyDayPage` — Resolved cases now have `_slaDueSop = null` **and** are not `_isOpen` / `SQL_OPEN`.
+- **Unchanged**: `SlaRiskBlock`, `StuckCasesList`, aging / `openByAssigneeAge` — already `_isOpen`-gated, so Resolved was never in them.
+
+---
+
+## 5. New column + schema bump
+
+`SCHEMA_VERSION` `'9' → '10'` with a `// v10:` changelog entry. One new column,
+`resolved_at_ms` (BIGINT), appended **last** in both `SQL_COLUMNS` (`enrich.js`)
+and the `CASES_COLUMNS` DDL (`db.worker.js`) — the Arrow insert binds **by
+position**, so appending preserves every existing column's slot (verified). It is
+`BigInt | null` in `enrichForSql` (matching `resolved_ms`/`frt_ms`) and a
+`Date | null` `_resolvedAt` in `enrichRow`; the parity test maps the two.
+`auto_close_at_ms` is **not** stored — derived in the page query from the anchor
+(`resolved_at_ms` → `last_infor_update` → `created`, clamped) + the 90-day constant.
+
+> **Coordination note:** the task brief assumed the current version was `'8'`, but
+> the on-device Sentiment Grader (v9) is already committed on this branch, so this
+> is a **separate** bump `'9' → '10'`. The one existing test that asserts the
+> version (`enrich.sentiment.test.js`) was updated `"9" → "10"`.
+
+Migration: bumping the version flags every existing import with the "Rebuild
+needed" badge; rebuilding re-bakes `resolved_at_ms` from the stored source. The
+legacy single-`cases`-table path gains an `ALTER … ADD COLUMN IF NOT EXISTS
+resolved_at_ms BIGINT` for the same reason the v5/v8 columns did. (v10 is
+unreleased on this branch; a developer who already loaded the intermediate
+`last_activity_ms` build should "Clear all imports" / re-upload.)
+
+---
+
+## 6. Deleted cadence plumbing
+
+The former Solution Proposed screen reused `UpdateQueue` via `getUpdateQueue`'s
+`statusEquals` / `includeClosed` parameters. With the rewrite, those are now dead:
+
+- `getUpdateQueue` drops `statusEquals` / `includeClosed` and their WHERE branch —
+  it now **always** applies `SQL_OPEN` (so Solution Proposed, `state = Resolved`,
+  can never resurface in the plain Update Queue as overdue).
+- `UpdateQueue.jsx` drops `statusEquals` / `includeClosed` and the now-defaulted-only
+  `title` / `subtitle` / `showInitialResponse` / `csvName` props (the sole caller,
+  `UpdateQueuePage`, used all defaults) — behavior identical, less surface.
+- `SOLUTION_PROPOSED_STATUS` is removed (no remaining reference).
+- **Kept**: `SQL_SOLUTION_PROPOSED` (used by `getKpis`'s lifecycle count and the
+  new query) and `UpdateQueue.jsx` itself (the plain `/update-queue`).
+
+---
+
+## 7. Self-critique pass (adversarial review)
+
+The diff was put through a 4-dimension adversarial review
+(sla-logic / sql-queries / worker-schema / react-page), every finding
+independently re-verified against the code with a concrete failing input. The
+sql/worker/react dimensions returned **no confirmed bugs**. The sla-logic
+dimension found **4 confirmed, all fixed** — all the same root cause: the first
+implementation followed the brief's literal `end = lastActivityMs ?? createdMs`
+for Solution Proposed and reused that single `end` for *three* jobs.
+
+**Fixed (all sla-logic, high-confidence):**
+
+1. **(blocker) Missed initial response masked.** A Resolved case Infor never
+   answered, with an early *customer* post, got `end = created + 1h`, so the
+   no-response initial check (`end − created > initialMs`) evaluated `1h > 2h` =
+   false and silently passed SLA. **Fix:** the initial-response check now anchors
+   to the **snapshot** (`baseEnd`), not the clock-stop. Restores the `'initial'`
+   breach.
+2. **(major) Late customer reply fabricated a cadence breach.** With `end =`
+   last activity (any author), a customer reply long after the last Infor update
+   made `end − ts[last] > cadence` → a false `'cadence'` breach on a case Infor
+   correctly stopped updating. **Fix:** the cadence trailing gap now anchors to the
+   last **Infor** update (`ts[last]`) → gap zero.
+3. **(major) CSV-path source divergence.** `last_activity_ms` read `work_notes`
+   while the cadence timeline read `additional_comments` — distinct fields on the
+   CSV import path (only identical on XLSX), producing negative/incoherent trailing
+   gaps that hid or fabricated breaches. **Fix:** `parseLastActivity` scans the
+   journal **union** (`jiraJournals(r)`), and cadence no longer depends on it at all.
+4. **(major) Backdated journal masked breaches / pre-dated auto-close.** A journal
+   header before `created` drove `end < created`, making the end-anchored checks go
+   negative (no breach), and started the 90-day countdown before the case existed.
+   **Fix:** `computeSlaSop` no longer uses last activity for either SLA anchor; the
+   auto-close anchor is clamped `Math.max(lastActivity, created)` in `enrich.js` and
+   `greatest(…)` in the SQL.
+
+**Consolidated fix:** `computeSlaSop` no longer takes the auto-close anchor at all —
+the cadence anchor is `ts[last]` (Infor-only) and the initial anchor is the
+snapshot/close. The auto-close countdown is a *separate* concern; it was initially
+the all-author last activity, then **revised to the resolution-notes-saved time**
+(`resolved_at_ms`) after the user's domain caveat (§3 / §3a). Each finding gained a
+regression fixture (F1–F4) in the test suite. The fix is a single change in
+`computeSlaSop` (one source of truth), so `enrichRow`/`enrichForSql` parity is
+preserved automatically.
+
+> **Deviation from the brief (documented):** the brief specified
+> `end = isSolutionProposed ? (lastActivityMs ?? createdMs) : …`. That literal
+> formula is the source of all four bugs; the corrected design preserves the
+> brief's *intent* (no trailing-idle breach; pre-resolution gaps + initial misses
+> still judged) while being correct on customer-late, CSV-divergent, never-answered,
+> and backdated rows.
+
+---
+
+## 8. Test coverage
+
+`src/lib/enrich.sla-solution-proposed.test.js` — 18 tests, `node --test`, no new deps:
+
+- **Direct `computeSlaSop`** — clock-stop (identical inputs breach when OPEN, pass when Solution Proposed), pre-resolution inter-update gap still breaches, never-answered → `'initial'`, late non-Infor anchor can't move the trailing gap.
+- **`parseResolutionTime`** — null/no-marker → null, latest marker wins, reminders ignored; plus `parseInforUpdates`/`parseInteractions` exclude System auto-reminder authors.
+- **Pipeline (1)–(7) + (F1)–(F4)** — healthy-idle (no cadence breach, `dueSop` null), initial-miss, pre-resolution gap, open-case regression, **parity** (`enrichRow` ≡ `enrichForSql` on `sla_eligible`/`sla_breached`/`sla_due_sop`/`resolved_at_ms` + the BigInt/Date type split), auto-close = resolution + 90d & countdown sign, null-journal fallback + initial miss, and the caveat regressions: a late customer reply / system reminder does not move the anchor (F2), a Work-notes reminder doesn't either (F3), a backdated marker clamps to created (F4), and System reminders are excluded from `parseInforUpdates`/`parseInteractions`.
+- **(F1)–(F4)** — the four adversarial-review regressions above, each with a parity assertion where the two journal fields diverge.
+
+The `getSolutionProposedAutoClose` SQL is browser-runtime (DuckDB-WASM), outside
+`node --test`; it was validated with a throwaway Node-blocking DuckDB harness
+(analyst scope, `__all__`, empty, OPEN/CLOSED exclusion, null fallback, backdated
+clamp, soonest-first/NULLS-LAST ordering) and is exercised live in the manual QA.
+
+---
+
+## 9. Manual QA checklist (needs a real export loaded via Connections)
+
+The data layer is DuckDB-WASM/OPFS in the browser, outside the `node --test`
+reach. Each item notes what already backs it.
+
+- [ ] **Load a real export → SLA % moves up** in the expected direction on `/sla`, `/`, `/team`. _(Surface verification + unit tests.)_
+- [ ] **Solution Proposed cases leave at-risk / overdue / stuck / forecast** surfaces (SLA Risk, Breach Forecast, My Day, Update Queue). _(Gated on `_isOpen`/`SQL_OPEN` + `_slaDueSop = null`.)_
+- [ ] **Solution Proposed cases that missed initial response still count as misses** on the SLA reason breakdown. _(Tests (2), (7), (F1).)_
+- [ ] **`/solution-proposed` renders the countdown** for the selected analyst: sortable columns, urgency colors (danger ≤ 7d/past, warn ≤ 30d), counts (within 7 / 30 days), and an empty state for an analyst with none and for `__all__`. _(Real-DuckDB harness covered the query across these states.)_
+- [ ] **Plain `/update-queue` no longer lists Solution Proposed cases as overdue.** _(`getUpdateQueue` now always `SQL_OPEN`.)_
+- [ ] **CSV export round-trips** (`solution-proposed-auto-close-…csv`) opening cleanly in Excel with no formula errors. _(SECURITY #7 via `rowsToCsv`.)_
+- [ ] **Older import migrates** — an import built before v10 shows "Rebuild needed"; rebuilding populates `resolved_at_ms` and the countdown renders. _(SCHEMA_VERSION 10 ⇒ stale check.)_
+- [ ] **Resolved dates match the resolution-notes save, not reminders** — spot-check a few auto-resolved cases (which carry "Case Resolved – Reminder N" notes): the "Resolved" column shows the resolution time, and SLA cadence on auto-resolved cases no longer shows false breaches.
+- [ ] **Analyst switch + light/dark theme** update the list and read correctly; header sort buttons are keyboard-focusable (Enter/Space, `aria-sort`).
+
+---
+
+## 10. Future follow-ups (small, optional)
+
+- The `Updated` column exists in the export but is polluted by `sysautomaticreminders` (it reflects the last reminder, not the resolution) — so it is deliberately not used. If ServiceNow ever exposes a clean resolved/closed timestamp, prefer it over the journal marker.
+- Consider extending the same `SYSTEM_AUTHOR` exclusion to `sentiment.js`'s own stream parser (it has a separate parser; the current sentiment fixtures have no System authors, so the suite is unaffected today).
+- A "closing within 7 days" saved view / SQL filter, now that `resolved_at_ms` is a queryable column.

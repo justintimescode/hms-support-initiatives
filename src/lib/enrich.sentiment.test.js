@@ -53,8 +53,8 @@ const fromGradeCase = (g) => ({
 
 /* ============================ schema sanity =========================== */
 
-test("schema: version bumped to '9' and all 12 sentiment columns present, unique", () => {
-  assert.equal(SCHEMA_VERSION, "9");
+test("schema: version bumped to '10' and all 12 sentiment columns present, unique", () => {
+  assert.equal(SCHEMA_VERSION, "10");
   assert.equal(SENTIMENT_KEYS.length, 12);
   assert.equal(new Set(SQL_COLUMNS).size, SQL_COLUMNS.length); // no dupes
 });

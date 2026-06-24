@@ -170,10 +170,10 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 
 **Initial Response Misses** — open cases with no first response logged that have been open longer than their priority's initial-response target (P1: 30m, P2/P3: 2h, P4: 4h). Clicking any row in the overdue/due-soon table opens a `CaseDrilldown` panel.
 
-**CSV export** — the queue can be exported to a name-first, timestamped `.csv` (`open-case-update-que-YYYYMMDD-HHMMSS.csv`; the Solution Proposed queue exports as `solution-proposed-update-que-YYYYMMDD-HHMMSS.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
+**CSV export** — the queue can be exported to a name-first, timestamped `.csv` (`open-case-update-que-YYYYMMDD-HHMMSS.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
 
 #### Solution Proposed (`/solution-proposed`)
-The same SOP cadence engine as the Update Queue, scoped to cases sitting in the ServiceNow `Solution Proposed` status (resolved pending customer confirmation, but still owing an Infor-authored cadence update). It reuses the exact overdue/due-soon logic and look: `getUpdateQueue()` is generalized with a `statusEquals` filter and an `includeClosed` flag, because a proposed solution moves the case to a resolved `state` while `status` stays `Solution Proposed` — so the queue's default open-only filter would otherwise hide every one of them. The Initial Response section is dropped (first-response targets don't apply to already-proposed solutions). Exports through the same sanitized CSV path.
+An **auto-close countdown** for cases in the ServiceNow `Solution Proposed` status (state = `Resolved`, awaiting customer confirmation). Per current policy these cases **no longer owe a recurring SOP cadence update** — instead, ServiceNow auto-closes a Resolved case 90 days (`SOLUTION_PROPOSED_AUTOCLOSE_MS`) after the **resolution notes are saved** if the customer never confirms, and this screen shows, for the selected analyst, every such case and how long until that auto-close. The countdown is measured from when the case was resolved — the timestamp of the `<b>Resolution notes</b>` journal entry (`resolved_at_ms`, baked at ingest), falling back to the last Infor note then the created date — against the data-as-of snapshot (never `Date.now()`, so it's deterministic for a given import), clamped so it can't start before creation. **The system "Case Resolved – Reminder N" auto-close warning notes do _not_ move the anchor** (only the resolution-notes save does). The table is sortable (Case / Priority / Account / Resolved / Auto-closes / Time remaining) with urgency coloring (danger ≤ 7 days or already past, warn ≤ 30 days), counts of cases closing within 7 / 30 days, a real empty state, and a sanitized CSV export (`solution-proposed-auto-close-YYYYMMDD-HHMMSS.csv`). Backed by `getSolutionProposedAutoClose()` in [`queries.js`](src/lib/queries.js). **Modeling note:** ServiceNow's true auto-close anchor is instance-configured; this models it as the resolution-notes save time against the import snapshot.
 
 ### Performance
 
@@ -182,12 +182,30 @@ The same SOP cadence engine as the Update Queue, scoped to cases sitting in the 
 > **SLA = the Infor SOP response cadence, not ServiceNow's `Made SLA` flag.**
 > ServiceNow only judges `Made SLA` on the *first* response and ignores
 > correspondence cadence afterward. Per Infor SOP, the real SLA is the response
-> cadence enforced on the Update Queue / Solution Proposed screens: a per-priority
-> required update interval (P1 1h … P4 7d; development cases 30d) plus the
-> first-response target (P1 30m … P4 4h). A case **breaches SLA** if it missed
-> its first-response target or let any update gap over its life exceed the
-> cadence — judged across the whole case, open or closed, by `computeSlaSop()`
-> in `enrich.js`. Eligibility (the denominator) = the case has a defined cadence.
+> cadence enforced on the Update Queue: a per-priority required update interval
+> (P1 1h … P4 7d; development cases 30d) plus the first-response target
+> (P1 30m … P4 4h). A case **breaches SLA** if it missed its first-response
+> target or let any update gap over its life exceed the cadence — judged across
+> the whole case by `computeSlaSop()` in `enrich.js`. Eligibility (the
+> denominator) = the case has a defined cadence.
+>
+> **Solution Proposed (state = `Resolved`) cases no longer owe a recurring
+> cadence update** (v10). Their cadence trailing-gap clock **stops at the last
+> Infor update** rather than running to the snapshot, so a resolved case sitting
+> idle stops accruing a trailing-gap breach and drops out of the
+> at-risk/overdue/forecast surfaces — but a missed first response (judged to the
+> snapshot, so a never-answered resolved case still counts) or a real inter-update
+> gap *before* resolution still breaches. SLA % generally rises as a result.
+> (Closed cases stop at their close time, as before.) The three clocks are kept
+> distinct: cadence stops at the last Infor update; the initial-response window
+> runs to the snapshot; the 90-day auto-close countdown starts when the resolution
+> notes are saved (system auto-close reminder notes do not move it — see the
+> Solution Proposed screen above).
+>
+> System auto-resolution / "Case Resolved – Reminder N" notes are authored
+> `System  Automatic Reminders (Infor)`; despite the `(Infor)` tag they are **not**
+> analyst work and are excluded from the Infor-update timeline (cadence) and the
+> interaction turn counts.
 
 - Radial gauge showing overall SLA hit rate (color-coded: green ≥ 95%, amber ≥ 85%, red below).
 - Bar chart breaking the SLA rate down by priority level.
@@ -506,7 +524,8 @@ CSV files are streamed through PapaParse in 10,000-row chunks. Each chunk is enr
 | `getCategoryData()` | Per-category counts |
 | `getAccountData()` | Top 30 accounts by volume |
 | `getProductData()` | Per-product-line counts |
-| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists (optional `statusEquals` / `includeClosed` scope the same engine to a status, e.g. Solution Proposed) |
+| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists for truly-open cases |
+| `getSolutionProposedAutoClose()` | Per-analyst 90-day auto-close countdown for Solution Proposed (state=Resolved) cases — counted from the resolution-notes save (`resolved_at_ms`), snapshot-anchored |
 
 All queries use parameterized statements (`conn.prepare()` + `stmt.query(...params)`). User-controlled inputs (analyst name, date range) are never interpolated into SQL strings.
 
@@ -660,7 +679,8 @@ Living review documents track the codebase's health and where it's headed:
 
 | Document | Focus |
 |---|---|
-| [CODEREVIEW(sentiment).md](./CODEREVIEW(sentiment).md) | **Latest.** Feature review of the on-device Case Sentiment Grader — the bake-vs-render decision, honest accuracy limits, the `SCHEMA_VERSION` 9 columns, tuning knobs, and an adversarial self-critique pass (8 findings: 6 fixed, 2 documented non-changes). |
+| [CODEREVIEW(solution-proposed.md)](./CODEREVIEW(solution-proposed.md)) | **Latest.** Solution Proposed (v10): the SLA cadence clock-stop for Resolved cases (three distinct clock-stops), the resolution-notes-saved auto-close anchor (`resolved_at_ms`) with system auto-reminder notes excluded, the new column + `SCHEMA_VERSION` 10 bump, the deleted cadence plumbing, and an adversarial self-critique pass (4 SLA findings, all fixed). |
+| [CODEREVIEW(sentiment).md](./CODEREVIEW(sentiment).md) | Feature review of the on-device Case Sentiment Grader — the bake-vs-render decision, honest accuracy limits, the `SCHEMA_VERSION` 9 columns, tuning knobs, and an adversarial self-critique pass (8 findings: 6 fixed, 2 documented non-changes). |
 | [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
 | [CODEREVIEW(5-31).md](./CODEREVIEW(5-31).md) | Prior review — code-quality / statistical-correctness findings (Jira percentile bias, join-key normalization, dev-SQL-in-prod) and the `feat/analytics-and-hardening` cycle. |
 | [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) | Security audit (17 items with statuses) — see [Security](#security) above. |

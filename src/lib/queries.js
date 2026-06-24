@@ -10,6 +10,7 @@ import {
   WARN_FRACTION,
   DEV_JIRA_CHECK_MS,
   INITIAL_RESPONSE_MS,
+  SOLUTION_PROPOSED_AUTOCLOSE_MS,
 } from './sop-thresholds.js'
 
 /* ---------- WHERE-clause builder ---------- */
@@ -211,16 +212,14 @@ export async function getProductData({ analyst, dateRange } = {}) {
  * bucket assignments are deterministic for a given dataset. Nothing here
  * calls `Date.now()`.
  *
+ * Scoped to TRULY-open cases (`SQL_OPEN`): closed cases are done and Solution
+ * Proposed (state=Resolved) cases no longer owe a cadence update (v10) — they get
+ * their own auto-close countdown via `getSolutionProposedAutoClose`, so they must
+ * not surface here.
+ *
  * @param {object} args
  * @param {string|null} [args.analyst]   '__all__' or assignee
  * @param {number} args.snapshotMs       epoch ms anchor for "now"
- * @param {string|null} [args.statusEquals] when set, scope the queue to cases
- *   whose `status` column equals this value (case-insensitive, trimmed). The
- *   default (`null`) leaves the query — SQL and params — identical to before.
- * @param {boolean} [args.includeClosed] when true, do NOT apply the
- *   `NOT is_closed` filter. Needed for status scopes that ride on a resolved
- *   `state` (e.g. `Solution Proposed` cases sit in state=Resolved but still owe
- *   a cadence update). Default `false` preserves the open-only queue.
  * @returns {Promise<{
  *   snapshotMs: number,
  *   overdue: object[],
@@ -229,7 +228,7 @@ export async function getProductData({ analyst, dateRange } = {}) {
  *   summary: { overdue: number, dueSoon: number, initialMisses: number },
  * }>}
  */
-export async function getUpdateQueue({ analyst, snapshotMs, statusEquals = null, includeClosed = false } = {}) {
+export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
   if (snapshotMs == null) {
     return {
       snapshotMs: null,
@@ -247,24 +246,16 @@ export async function getUpdateQueue({ analyst, snapshotMs, statusEquals = null,
   // builds cleanly no matter which are active. The snapshot `?` lives in each
   // SELECT (before the WHERE), so these params bind right after it. Date filter
   // is NOT applied — the queue is always "right now" against the snapshot.
-  // Default (includeClosed=false) scopes the queue to TRULY-open cases via the
-  // state-derived `SQL_OPEN` — Solution-Proposed (state=Resolved) cases get their
-  // own queue (SolutionProposedQueuePage passes includeClosed + statusEquals), so
-  // they must not also surface here. `includeClosed=true` drops the filter
-  // entirely. (Pre-v8 this was `NOT is_closed`, which only happened to exclude
-  // Resolved because the old is_closed conflated Resolved with Closed.)
-  const filterConds = []
+  // Scoped to TRULY-open cases via the state-derived `SQL_OPEN`: Solution-Proposed
+  // (state=Resolved) cases no longer owe a cadence update (v10) — they live on the
+  // /solution-proposed auto-close countdown, not here.
+  const filterConds = [SQL_OPEN]
   const filterParams = []
   if (analyst && analyst !== '__all__') {
     filterConds.push('assigned_to = ?')
     filterParams.push(analyst)
   }
-  if (!includeClosed) filterConds.push(SQL_OPEN)
-  if (statusEquals != null) {
-    filterConds.push('lower(trim(status)) = lower(trim(?))')
-    filterParams.push(statusEquals)
-  }
-  const whereClause = filterConds.length ? `WHERE ${filterConds.join(' AND ')}` : ''
+  const whereClause = `WHERE ${filterConds.join(' AND ')}`
 
   // Bucket SQL — fed snapshotMs (as TIMESTAMP) plus WARN_FRACTION and
   // DEV_JIRA_CHECK_MS from sop-thresholds.js. The CASE expression keys off
@@ -395,4 +386,116 @@ function normalizeIrRow(r) {
     ageMs: r.age_ms == null ? null : Number(r.age_ms),
     targetMs: r.target_ms == null ? null : Number(r.target_ms),
   }
+}
+
+/**
+ * Solution Proposed auto-close countdown. ServiceNow auto-closes a Resolved case
+ * `SOLUTION_PROPOSED_AUTOCLOSE_MS` (90 days) after the resolution notes are saved if
+ * the customer never confirms. This lists every Solution Proposed (state=Resolved)
+ * case for the selected analyst and how long until that auto-close, measured from
+ * when the resolution notes were saved (`resolved_at_ms`, baked at ingest by
+ * enrich.js as the `<b>Resolution notes</b>` journal entry's timestamp) — falling
+ * back to the last Infor note then creation — against the data-as-of snapshot.
+ * Anchored to `snapshotMs`, NEVER `now()`, so the countdown is deterministic for a
+ * given import. Soonest-to-close first; unknown (null anchor) last.
+ *
+ * NOTE: the system "Case Resolved - Reminder N" auto-close WARNING notes do NOT move
+ * the anchor (only the resolution-notes save does). ServiceNow's true auto-close
+ * anchor is instance-configured; this models it as the resolution-notes save time
+ * (see README).
+ *
+ * @param {object} args
+ * @param {string|null} [args.analyst]  '__all__' or assignee
+ * @param {number} args.snapshotMs      epoch ms anchor for "now"
+ * @returns {Promise<{
+ *   snapshotMs: number|null,
+ *   rows: object[],
+ *   summary: { total:number, within7:number, within30:number, past:number, unknown:number },
+ * }>}
+ */
+export async function getSolutionProposedAutoClose({ analyst, snapshotMs } = {}) {
+  const empty = { total: 0, within7: 0, within30: 0, past: 0, unknown: 0 }
+  if (snapshotMs == null) {
+    return { snapshotMs: null, rows: [], summary: empty }
+  }
+
+  const conds = [SQL_SOLUTION_PROPOSED]
+  const params = []
+  if (analyst && analyst !== '__all__') {
+    conds.push('assigned_to = ?')
+    params.push(analyst)
+  }
+  const where = `WHERE ${conds.join(' AND ')}`
+
+  // The clock starts at last activity (or creation when the journal is empty).
+  // SOLUTION_PROPOSED_AUTOCLOSE_MS is interpolated (a code constant, not input —
+  // same pattern as WARN_FRACTION / DEV_JIRA_CHECK_MS above). The lone `?` in the
+  // outer SELECT is the snapshot anchor; it binds AFTER the optional analyst `?`
+  // in the CTE's WHERE, so params = [analyst?, snapshotMs].
+  const sql = `
+    WITH base AS (
+      SELECT
+        number,
+        short_description,
+        state,
+        status,
+        priority,
+        priority_rank,
+        account,
+        assigned_to,
+        -- Auto-close anchor = when the resolution notes were saved (resolved_at_ms),
+        -- falling back to the last Infor note (last_infor_update, already system-
+        -- reminder-free) then creation; clamped >= creation so a backdated header
+        -- can't start the 90-day clock before the case existed. ServiceNow's
+        -- "Case Resolved - Reminder N" auto-close warning notes never enter this
+        -- (resolved_at_ms is the resolution-marker timestamp only). Mirrors the
+        -- enrich.js _autoCloseAt anchor (resolvedAtMs ?? lastInfor ?? created, clamped).
+        CASE
+          WHEN created_at IS NULL THEN coalesce(resolved_at_ms, epoch_ms(last_infor_update))
+          ELSE greatest(coalesce(resolved_at_ms, epoch_ms(last_infor_update), epoch_ms(created_at)), epoch_ms(created_at))
+        END AS resolved_at_ms
+      FROM cases
+      ${where}
+    )
+    SELECT
+      *,
+      resolved_at_ms + ${SOLUTION_PROPOSED_AUTOCLOSE_MS} AS auto_close_at_ms,
+      (resolved_at_ms + ${SOLUTION_PROPOSED_AUTOCLOSE_MS} - ?) / 86400000.0 AS days_remaining
+    FROM base
+    ORDER BY days_remaining ASC NULLS LAST, number
+  `
+  const rows = await dbClient.query(sql, [...params, snapshotMs])
+
+  const norm = rows.map((r) => {
+    const resolvedAtMs = r.resolved_at_ms == null ? null : Number(r.resolved_at_ms)
+    const autoCloseAtMs = r.auto_close_at_ms == null ? null : Number(r.auto_close_at_ms)
+    const daysRemaining = r.days_remaining == null ? null : Number(r.days_remaining)
+    return {
+      number: r.number,
+      shortDescription: r.short_description,
+      state: r.state,
+      status: r.status,
+      priority: r.priority,
+      priorityRank: r.priority_rank == null ? null : Number(r.priority_rank),
+      account: r.account,
+      assignedTo: r.assigned_to,
+      resolvedAtMs,
+      autoCloseAtMs,
+      daysRemaining,
+      // ms left until auto-close vs the snapshot; negative = already past.
+      remainingMs: autoCloseAtMs == null ? null : autoCloseAtMs - snapshotMs,
+    }
+  })
+
+  const summary = { total: norm.length, within7: 0, within30: 0, past: 0, unknown: 0 }
+  for (const r of norm) {
+    if (r.daysRemaining == null) { summary.unknown++; continue }
+    if (r.daysRemaining <= 0) summary.past++
+    // Cumulative thresholds incl. already-past (matches the danger/warn urgency
+    // colors in the page): "closing within 7 days" ⊆ "within 30 days".
+    if (r.daysRemaining <= 7) summary.within7++
+    if (r.daysRemaining <= 30) summary.within30++
+  }
+
+  return { snapshotMs, rows: norm, summary }
 }

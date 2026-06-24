@@ -1,7 +1,7 @@
 import { Outlet } from "react-router-dom";
 import { FilterNavLink } from "../FilterLink.jsx";
 import {
-  LayoutDashboard, Sun, ClipboardList, ClipboardCheck, FileBarChart,
+  LayoutDashboard, Sun, ClipboardList, Timer, FileBarChart,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban,
   ExternalLink, BarChart3,
@@ -21,7 +21,7 @@ const NAV_GROUPS = [
       { to: "/",             label: "Dashboard",    icon: LayoutDashboard },
       { to: "/my-day",       label: "My Day",       icon: Sun },
       { to: "/update-queue", label: "Update Queue", icon: ClipboardList },
-      { to: "/solution-proposed", label: "Solution Proposed", icon: ClipboardCheck },
+      { to: "/solution-proposed", label: "Solution Proposed", icon: Timer },
       { to: "/report",       label: "Monthly Summary", icon: FileBarChart },
     ],
   },

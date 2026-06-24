@@ -1,221 +1,168 @@
-# PLAN — Case Sentiment Grader
+# PLAN — Solution Proposed: stop the cadence clock, add auto-close countdown
 
-_Phase 0 deliverable. Grounded in a full recon of the codebase contract (see citations
-below). Stop point: **GATE 0** — awaiting approval before Phase 1._
+> **Superseded on the auto-close anchor (see `CODEREVIEW(solution-proposed.md)` §3).**
+> This first-iteration plan anchored the countdown to "last activity (any author)"
+> (`last_activity_ms`). Per a later domain caveat, the auto-close clock now starts at
+> the **resolution-notes-saved time** (`resolved_at_ms` = the `<b>Resolution notes</b>`
+> journal marker), system "auto-close reminder" notes are ignored, and System
+> auto-reminder "(Infor)" notes are excluded from cadence/interaction counts. The SLA
+> cadence design below (three clock-stops) is unchanged.
 
----
+_Phase 0 (GATE 0) deliverable. Grounded in a full read of `enrich.js`,
+`queries.js`, `stats.js`, `sop-thresholds.js`, `db.worker.js`,
+`SolutionProposedQueuePage.jsx`, `UpdateQueue.jsx`, `UpdateQueuePage.jsx`,
+`AppLayout.jsx`, `App.jsx`, `format.js`, `csv-export.js`,
+`enrich.sentiment.test.js`. Stop point: awaiting approval before Phase 1._
 
-## 0. The one decision I need from you (GATE 0)
-
-**The two baseline files do not exist in the repo.** `src/lib/sentiment.js` and
-`src/components/charts/SentimentBlock.jsx` are both absent (verified by glob). The brief
-says to treat them as the starting point "if they are not yet in the repo, place
-`sentiment.js` at `src/lib/sentiment.js` and `SentimentBlock.jsx` at
-`src/components/charts/SentimentBlock.jsx` first."
-
-So there is no tuned lexicon for me to preserve. **My recommendation (and default if you
-don't say otherwise): author both files from scratch to the exact API/spec in the brief**
-(`POS`/`NEG`/`IMPACT` lexicons, `COMPRESS_K = 8`, `EMOTION_RULES`/`TARGET_RULES`, public
-API `parseInteractionStream`/`scoreText`/`detectEmotions`/`detectFrustrationTarget`/
-`gradeCase`/`summarizeSentiment`), tuned to clear the **≥ 60 % sign-agreement** bar on the
-seed fixture. The "don't regress the tuned lexicon" constraint is then moot.
-
-**If you have the tuned versions, paste them before I start Phase 1** and I'll harden +
-integrate those instead of authoring new ones. Everything else in this plan is unaffected
-by that choice.
+Branch: `feat/case-sentiment-grader` (the sentiment work, v9, is already
+committed here — relevant to the version bump below).
 
 ---
 
-## 1. Architecture (as decided in the brief — implementing, not relitigating)
+## Decision 1 — SLA treatment of Solution Proposed: **STOP THE CLOCK** (recommended)
 
-Sentiment is a **baked, derived field**, exactly like SLA / interaction counts / category.
-Computed once in the shared enrichment functions; the small scalar/short-string outputs are
-persisted in DuckDB; the UI reads baked fields and only falls back to the engine at render
-time when a field is absent (older import, not yet rebuilt). This makes sentiment a
-queryable dimension and avoids re-grading on every filter change.
+In `computeSlaSop`:
 
-The engine (`src/lib/sentiment.js`) stays **framework-free** (pure ESM, no React/recharts/
-Vite) so it's unit-testable in plain Node and reusable by the enrichment pipeline. A single
-shared helper `gradeFromRow(r)` does one stream parse per row and returns the baked fields;
-both `enrichRow` and `enrichForSql` call it.
+- `end = isClosed ? (closedMs ?? snapshotMs ?? Date.now())`
+  `: isSolutionProposed ? (lastActivityMs ?? createdMs)`
+  `: (snapshotMs ?? Date.now())`
+- `dueSop = null` when `isClosed || isSolutionProposed` (was: set whenever
+  `!isClosed`).
 
----
+Effect: a Resolved case idling to the snapshot no longer accrues a trailing-gap
+cadence breach and drops out of at-risk / overdue / forecast / stuck. BUT we keep
+judging what happened **before** resolution:
+- a real **inter-update gap** between two pre-resolution Infor updates still
+  breaches (`ts[i] - ts[i-1] > cadence` is checked regardless of `end`);
+- a missed **initial response** still breaches (`breachReason = 'initial'`);
+- the case is **still `sla_eligible`** (it has a cadence threshold) — it just now
+  usually passes, so SLA % rises (intended).
 
-## 2. Confirmed codebase facts (with citations)
+**Not chosen:** full exemption (`eligible = false`). Rejected because it would
+also drop initial-response and pre-resolution cadence misses out of the
+denominator, overstating SLA. We only want to stop the *trailing-idle* breach.
 
-| Fact | Location |
-|---|---|
-| `WORK_NOTE_HEADER = /^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-\s*(.+)/gm` | `src/lib/enrich.js:196` |
-| `ANALYST_AUTHOR = /\(Infor\)/i` (matches literal `(Infor)`) | `src/lib/enrich.js:197` |
-| `parseInteractions(text)` → `{totalTurns, customerTurns, analystTurns}`; header path tests `m[2]` vs `ANALYST_AUTHOR`; header-less path → all `customerTurns:0` | `src/lib/enrich.js:315-328` |
-| Customer comment stream = `r.work_notes` (`enrichForSql` calls `parseInteractions(r.work_notes)`) | `src/lib/enrich.js:593` |
-| Field-map: `work_notes: r['Additional comments'] ?? r['Work notes'] ?? null` | `src/lib/enrich.js:183` |
-| `enrichRow(r, snapshotMs)` returns `{...r, _camelCase fields}` | `src/lib/enrich.js:465` |
-| `enrichForSql(r, snapshotMs)` returns `{snake_case fields}` — strings `?? null`, booleans plain, **counts plain Number, only `*_ms` use `BigInt()`** | `src/lib/enrich.js:556-643` |
-| `SQL_COLUMNS` (37 entries, last = `lifecycle`), append-only for positional Arrow alignment | `src/lib/enrich.js:647-688` |
-| `SCHEMA_VERSION = '8'`; changelog comment block | `src/lib/enrich.js:21-45` |
-| Worker imports `{ enrichForSql, SQL_COLUMNS, SCHEMA_VERSION }` | `src/workers/db.worker.js:14` |
-| **`CASES_COLUMNS` DDL — explicit typed columns; tables created from it, then `insertArrowTable({create:false})`** | `src/workers/db.worker.js:24-62, 182, 242` |
-| `buildArrowTable` loops `SQL_COLUMNS` → `arrow.tableFromArrays(cols)` | `src/workers/db.worker.js:170-178` |
-| "Rebuild needed" badge: `stale = imp.schemaVersion !== schemaVersion` | `src/components/connections/ImportsCard.jsx:130,152` |
-| Theme tokens + `alpha(color, fraction)` (color-mix; never hex-concat) | `src/lib/theme.js:12, 69-71` |
-| `Card` / `Section` / `Pill {color}` / `CopyableNumber` (forces `T.snGreen`) / `EmptyState {title,subtitle,message,cta}` | `src/components/...` |
-| `.eyebrow` `.display` `.mono` `.fade-in` `.scrollbar` injected in `Shell.jsx`; `prefers-reduced-motion` block in `index.css:282-296` (theme-toggle only) | `Shell.jsx`, `index.css` |
-| AI seam: `aiClient.isConfigured()`, `aiClient.analyzeCases(payload)` → POST `${VITE_AI_PROXY_URL}/api/insights`; `AiNotConfiguredError` | `src/lib/ai-client.js` |
-| `scrubForAi({label, cases[]})` masks `number/account/assigned_to`, `scrubText` on `short_description`/`close_notes` only; exports `shortHash`, `scrubText` | `src/lib/ai-scrub.js` |
-| `AiBlock` 4-state machine (not-configured card / loading / error+retry / result) | `src/components/ai/AiBlock.jsx` |
-| Routes under `<AppLayout>`; `NAV_GROUPS` "Tools" group; `useOutletContext()` provides `{rows, view, enriched, teamMembers, ...}` | `App.jsx:35-59`, `AppLayout.jsx:17-65,77`, `InsightsPage.jsx:7` |
-| Filter-preserving nav via `FilterNavLink` / `useFilterNavigate` | `src/components/FilterLink.jsx`, `src/lib/nav.js` |
-| DOMPurify pattern (SECURITY #10) | `src/components/jira/JiraAnalysisBlock.jsx:113-115` |
-| Recharts idiom: `ResponsiveContainer` in fixed-height div in `Card`, T-token colors | `charts/TrajectoryBlock.jsx`, `charts/SlaBlock.jsx` |
-| Sort/expand table idiom (no keyboard a11y today) | `CaseTable.jsx`, `JiraAnalysisBlock.jsx` |
-| ExcelJS used via `(await import('exceljs')).default`; CSV export sanitizes formula injection (SECURITY #7) | `useAppData.js:126`, `csv-export.js:24-26` |
-| No `*.test.js` anywhere; no `test` script; `"type":"module"` | repo-wide |
+## Decision 2 — "Last update" = **journal-max** (recommended)
+
+`lastActivityMs` = latest timestamp across **all** journal entries (every author)
+from the existing `WORK_NOTE_HEADER` scan over `work_notes`, else `null`.
+Implemented as a small pure helper `parseLastActivity(text)` beside
+`parseInforUpdates`.
+
+- Auto-close anchor falls back to `created_at` when the journal has no parseable
+  entry (per the test "null-journal resolved case falls back to created").
+- Uses `work_notes` per the task contract. In the real XLSX export `work_notes`
+  and `additional_comments` map from the same source column, so this agrees with
+  the cadence engine's `additional_comments` timeline; for header-less / disjoint
+  CSVs a negative `end - ts[last]` simply never breaches (safe).
+- The field map exposes **no** `sys_updated_on` / `Updated` column, so we do not
+  wire one up. **Modeling assumption** to surface in the UI subtitle + README:
+  ServiceNow's real auto-close anchor is instance-configured; we approximate it
+  with the last journal activity measured against the data-as-of snapshot. (If a
+  future field-map change adds an explicit updated timestamp, prefer it via
+  `max(explicit, journalMax)` in both pipelines.)
 
 ---
 
-## 3. New persisted columns (the `sentiment_*` schema)
+## Schema / column changes
 
-Appended **after `lifecycle`** in `SQL_COLUMNS` (`enrich.js`) **and** in `CASES_COLUMNS`
-DDL (`db.worker.js`) — order must stay aligned (positional Arrow bind).
+- **New SQL column (the only one): `last_activity_ms BIGINT`.** Appended **last**
+  in both `SQL_COLUMNS` (`enrich.js`) and the `CASES_COLUMNS` DDL
+  (`db.worker.js`). The Arrow insert binds **by position**, so appending leaves
+  every existing column's slot untouched. `auto_close_at_ms` is **not** stored —
+  it's derivable from `last_activity_ms` + snapshot in the page query (fewer
+  columns, single source of truth for the constant).
+- **`SCHEMA_VERSION` `'9'` → `'10'`.** v9 (sentiment grader) is already committed
+  on this branch, so this is a *separate* bump, not a shared one. Add a `// v10:`
+  changelog comment covering: cadence clock-stop for Solution Proposed,
+  `sla_due_sop` now null for them, and the new `last_activity_ms` column. Old
+  imports (v9) get the "Rebuild needed" badge and re-grade on rebuild.
+- New constant `SOLUTION_PROPOSED_AUTOCLOSE_MS = 90 * 24 * 60 * 60 * 1000` in
+  `sop-thresholds.js` (no magic numbers in logic).
+- In-memory `enrichRow` exposes `_lastActivity` (Date|null = journal-max) and
+  `_autoCloseAt` (Date|null, Solution-Proposed only =
+  `(lastActivityMs ?? createdMs) + SOLUTION_PROPOSED_AUTOCLOSE_MS`).
+- `enrich.sentiment.test.js` asserts `SCHEMA_VERSION === "9"` → update to `"10"`
+  (and its test title). Only existing test referencing the version.
 
-| Column | DDL type | JS value (both pipelines) | Meaning |
-|---|---|---|---|
-| `sentiment_scoreable` | `BOOLEAN` | `bool` | ≥ 1 attributable customer message |
-| `sentiment_valence` | `BIGINT` | `Number \| null` | compressed tone −5..+5 (null if !scoreable) |
-| `sentiment_label` | `VARCHAR` | `'Positive'\|'Neutral'\|'Negative'\|null` | bucketed valence |
-| `sentiment_start` | `BIGINT` | `Number\|null` | opening-message valence (−5..+5) |
-| `sentiment_end` | `BIGINT` | `Number\|null` | closing-message valence (null if single touchpoint) |
-| `sentiment_arc` | `VARCHAR` | `string\|null` | `improved (recovery)` / `stable` / `declined` / `single touchpoint` |
-| `sentiment_emotions` | `VARCHAR` | `string` | controlled-vocab, comma-joined |
-| `sentiment_target` | `VARCHAR` | `string\|null` | frustration target (controlled vocab) |
-| `sentiment_quote` | `VARCHAR` | `string\|null` | representative customer line (plain text, capped) |
-| `sentiment_coaching` | `VARCHAR` | `string\|null` | templated coaching note |
-| `sentiment_pii` | `BOOLEAN` | `bool` | credential / remote-access exposure in stream |
-| `sentiment_dup` | `BOOLEAN` | `bool` | duplicate analyst double-post (≤ 60 s) |
-
-`sentiment_valence` is a plain `Number|null` (not `BigInt`) — matching the **proven**
-count-column convention (`priority_rank`, `interaction_count`, `customer_turns` are plain
-Numbers fed into `BIGINT` DDL columns at `enrich.js:625,635-637`). This keeps the parity
-deep-equal trivially true (`Number === Number`). Null survival through the Arrow path is a
-Phase-2 test; if Arrow null-typing of an all-silent batch misbehaves, fall back to `DOUBLE`.
-
-Responsiveness (median first reply h, % within 1 h) is derived in `summarizeSentiment` from
-the **existing** `frt_ms` — no new column. "Auto-closed" = `is_closed && customer_turns===0`,
-derived in summary/export — no new column.
-
-`SCHEMA_VERSION` `'8' → '9'`, with a `// v9:` changelog comment matching the existing style.
+**Parity** (fields differ by key/type between pipelines, so the test maps them):
+`row._slaEligible === sql.sla_eligible`, `row._slaBreached === sql.sla_breached`,
+`(row._slaDueSop?.getTime() ?? null) === (sql.sla_due_sop?.getTime() ?? null)`,
+`(row._lastActivity?.getTime() ?? null) === Number(sql.last_activity_ms ?? NaN)`
+(treating null≡null).
 
 ---
 
-## 4. Files touched, by phase
+## Files per phase
 
-**Phase 1 — engine + tests**
-- `src/lib/sentiment.js` _(new)_ — pure engine; full API + `gradeFromRow(r)` shared helper.
-- `src/lib/sentiment.test.js` _(new)_ — `node --test`; attribution, gating, determinism,
-  valence-sign (≥60 %), arc, hygiene, summary math.
-- `package.json` _(edit)_ — add `"test": "node --test"`.
-- _(verify `eslint.config.js` lints/ignores the new test files cleanly.)_
+### Phase 1 — SLA logic (risky core)
+- `src/lib/sop-thresholds.js` — add `SOLUTION_PROPOSED_AUTOCLOSE_MS`.
+- `src/lib/enrich.js` — add `parseLastActivity`; extend `computeSlaSop`
+  (params `isSolutionProposed`, `lastActivityMs`; new `end`/`dueSop` rules;
+  updated JSDoc); thread them through **both** `enrichRow` and `enrichForSql`;
+  expose `_lastActivity`/`_autoCloseAt` (in-memory) and `last_activity_ms`
+  (SQL, `BigInt | null`); append `last_activity_ms` to `SQL_COLUMNS`; bump
+  `SCHEMA_VERSION` + `// v10:` note.
+- `src/workers/db.worker.js` — append `last_activity_ms BIGINT` to
+  `CASES_COLUMNS`; add a defensive `ALTER TABLE … ADD COLUMN IF NOT EXISTS
+  last_activity_ms BIGINT` in `legacyMigrateIfNeeded` (consistent with the
+  existing `sla_breached`/`sla_due_sop`/`lifecycle` ALTERs).
+- `src/lib/enrich.sentiment.test.js` — version assertion `"9"` → `"10"`.
+- **NEW** `src/lib/enrich.sla-solution-proposed.test.js` (`node --test`): the 7
+  task cases — (1) Resolved, last update 40d pre-snapshot, P3 → no cadence
+  breach + `_slaDueSop === null`; (2) Resolved missing initial response → still
+  breached (`initial`); (3) Resolved with a >cadence gap between two
+  pre-resolution Infor updates → still breaches (`cadence`); (4) regression: an
+  `open` case unchanged (trailing gap still judged, `_slaDueSop` set); (5)
+  parity of `sla_eligible`/`sla_breached`/`sla_due_sop`/`last_activity_ms`; (6)
+  auto-close = `last_activity_ms + 90d`, sign of countdown vs snapshot correct;
+  (7) null-journal resolved case → auto-close anchored to created.
 
-**Phase 2 — bake into enrichment**
-- `src/lib/enrich.js` _(edit)_ — import `gradeFromRow`; add the 12 `sentiment_*` keys to
-  **both** `enrichRow` and `enrichForSql` (identical snake_case keys, identical values);
-  extend `SQL_COLUMNS`; bump `SCHEMA_VERSION`; add `// v9:` changelog.
-- `src/workers/db.worker.js` _(edit)_ — append the 12 columns to `CASES_COLUMNS` DDL
-  (**required**, contrary to the brief's assumption — see Deviation 2).
-- `src/lib/enrich.sentiment.test.js` _(new)_ — **parity test** (the most important),
-  baked-equals-`gradeCase`, silent-row null survival.
+### Phase 2 — replace the tab + remove dead plumbing
+- `src/lib/queries.js` — add `getSolutionProposedAutoClose({ analyst,
+  snapshotMs })`: `WHERE SQL_SOLUTION_PROPOSED [AND assigned_to = ?]`, returns
+  number / account / priority / priority_rank / assigned_to / short_description /
+  the last-activity anchor (`coalesce(last_activity_ms, epoch_ms(created_at))`) /
+  `auto_close_at_ms = anchor + 90d` / `days_remaining = (auto_close_at_ms −
+  snapshotMs)/86400000`, **anchored to `snapshotMs`** (no `now()`), ordered
+  soonest-to-close first, nulls last. Remove `statusEquals`/`includeClosed`
+  params + their branch from `getUpdateQueue`. **Keep** `SQL_SOLUTION_PROPOSED`
+  (used by `getKpis` + the new query).
+- `src/pages/SolutionProposedQueuePage.jsx` — rewrite (same filename/route) as
+  the analyst-scoped auto-close countdown: `Section` + honest subtitle;
+  sortable, keyboard-accessible table (Case, Priority pill, Account, Last update
+  `fmtFullDate`, Auto-closes `fmtFullDate`, Time remaining `fmtDuration` with
+  urgency color — danger ≤7d/past, warn ≤30d, else normal); counts ("closing
+  within 7 / 30 days"); empty state; CSV via `rowsToCsv`/`downloadCsv`/
+  `csvTimestamp` (`csvName="solution-proposed-auto-close"`); reduced-motion safe.
+- `src/pages/UpdateQueue.jsx` — remove `statusEquals`/`includeClosed`; since the
+  only remaining caller (`UpdateQueuePage`) passes all-defaults, inline the
+  defaulted-only props (`title`/`subtitle`/`showInitialResponse`/`csvName`) and
+  drop the stale "generalized for a second tab" comment. Plain `/update-queue`
+  behavior unchanged.
+- `src/lib/sop-thresholds.js` — drop `SOLUTION_PROPOSED_STATUS` (now unused).
+- `src/components/layout/AppLayout.jsx` — keep the nav entry + path; swap icon
+  `ClipboardCheck` → `Timer` (lucide-react) to signal a countdown.
 
-**Phase 3 — UI**
-- `src/components/charts/SentimentBlock.jsx` _(new)_ — reads baked fields, falls back to
-  `summarizeSentiment(rows)`; headline tiles + recharts distribution + sortable/expandable
-  per-case table; keyboard-activatable; `EmptyState`; reduced-motion-safe.
-- `src/pages/SentimentPage.jsx` _(new)_ — sources rows via `useOutletContext()` exactly like
-  `InsightsPage` (team vs individual).
-- `src/App.jsx` _(edit)_ — register `<Route path="/sentiment" .../>`.
-- `src/components/layout/AppLayout.jsx` _(edit)_ — add `{to:"/sentiment", label:"Sentiment",
-  icon:…}` to the Tools group (icon imported from an already-proven `lucide-react` export).
-
-**Phase 4 — deep-read + export**
-- `src/lib/ai-client.js` _(edit)_ — add `reviewSentiment(payload)` → POST `/api/sentiment`
-  (mirrors `analyzeCases`; documented), gated on `isConfigured()`.
-- `src/lib/ai-scrub.js` _(edit, additive)_ — extend `scrubForAi` to also `scrubText` the
-  comment/journal/`quote` fields used by the sentiment payload (existing AiBlock fields
-  untouched → no behavior change; strengthens defense-in-depth).
-- `src/lib/sentiment-export.js` _(new)_ — exceljs two-sheet workbook (`Headline Metrics`,
-  `Per-Case Detail` in the exact column order); cells routed through `sanitizeCellForExport`.
-- `SentimentBlock.jsx` / `SentimentPage.jsx` _(edit)_ — opt-in per-case / "deep-read the N
-  negatives" action (calm not-configured card when unconfigured) + "Download grades" button.
-
-**Phase 5 — docs**
-- `CODEREVIEW(sentiment).md` _(new)_, `README.md` _(edit, "Customer sentiment" section)_.
-
----
-
-## 5. Engine design notes (Phase 1)
-
-- `parseInteractionStream(text)` → ordered `[{ts:Date|null, author, isAnalyst, text}]`,
-  reusing **identical** `WORK_NOTE_HEADER` + `ANALYST_AUTHOR` semantics (so counts never
-  disagree with `parseInteractions`). Sort by `ts` when all present, else preserve order.
-  Strips `[code]…[/code]` blocks and HTML tags; handles header-less / empty / relayed-voice.
-- `scoreText`: `POS`/`NEG`/`IMPACT` lexicons → **diminishing-returns cap** (after the first
-  3 distinct same-polarity hits in one message, additional hits weight 0.5×) → saturating
-  compression with `COMPRESS_K = 8` to −5..+5. Re-check magnitudes vs the fixture so a single
-  rant lands near ±2–3, not ±5.
-- `gradeCase`: scoreable gating (≥1 customer msg), start/end/arc, emotions, target, quote,
-  templated coaching, `pii` (AnyDesk/`password:`-style), `dup` (identical analyst body ≤60 s).
-- `summarizeSentiment(rows)`: prefers baked fields, falls back to `gradeFromRow`; computes
-  coverage / distribution / trajectory / responsiveness (`frt_ms`) / hygiene. Memoized at the
-  call site.
-- **Determinism:** no `Date.now()`, no `Math.random()`, no locale parsing. FRT comes from
-  parsed stream timestamps / baked `frt_ms`, never "now".
+### Phase 3 — verify, regress, document
+- Full green `npm run test` / `lint` / `build`; SLA regression spot-check on a
+  real export; manual QA checklist of the new page.
+- **NEW** `CODEREVIEW(solution-proposed.md)` in the repo review-note style.
+- `README.md` — update the `getUpdateQueue` row (~L509, no more
+  statusEquals/includeClosed) and any SOP note implying Solution Proposed owes
+  cadence updates; document the auto-close countdown + Decision-2 assumption.
 
 ---
 
-## 6. Deviations from the brief (each justified)
+## Downstream SLA surfaces (baked-field reads only — no code change expected)
 
-1. **Baseline files absent → authored to spec.** (Brief's documented fallback. See §0.)
-2. **Worker DDL *must* change.** Brief: "worker needs no change beyond consuming the new
-   `SQL_COLUMNS`." Reality (`db.worker.js:24-62,182,242`): tables are created from the
-   explicit `CASES_COLUMNS` DDL and rows inserted with `{create:false}`, so the new columns
-   must also be appended to that DDL with SQL types, or the Arrow insert mismatches.
-3. **12 baked fields, not 10.** Added `sentiment_pii` + `sentiment_dup`. The brief says the
-   names are "a suggestion"; baking hygiene keeps `summarizeSentiment` fully baked-field-based
-   (no stream re-parse on every filter change — the architecture's stated goal) and makes
-   hygiene a queryable dimension. Both are non-null booleans → Arrow/DuckDB-safe.
-4. **`sentiment_*` keys are snake_case in *both* `enrichRow` and `enrichForSql`** (the SLA
-   fields use `_camelCase` vs `snake_case`). Required by the brief's parity test
-   (`enrichRow(r).sentiment_*` deep-equals `enrichForSql(r).sentiment_*`) and lets the UI read
-   one uniform key regardless of source.
-5. **`sentiment_valence` = plain `Number|null` + `BIGINT` DDL** (not `BigInt`), matching the
-   proven count-column convention and keeping parity exact. (See §3.)
-6. **`scrubForAi` extended additively** to cover comment/journal/`quote` free-text for the
-   deep-read; existing AiBlock payload fields are untouched (no behavior change).
-7. **Keyboard a11y added** to the sentiment table (focusable sortable headers, Enter/Space-
-   activatable rows) — exceeds `CaseTable` (which has none), per the brief's a11y floor.
-8. **Excel export sanitizes cells** via `sanitizeCellForExport` (SECURITY #7).
-
----
-
-## 7. Security & invariants held throughout
-
-- **SECURITY #1:** engine is 100 % local; deep-read goes only through `aiClient` +
-  `scrubForAi`; no direct vendor `fetch`.
-- **SECURITY #10:** quotes render as **text** (no `dangerouslySetInnerHTML`); DOMPurify only
-  if HTML is ever introduced.
-- **SECURITY #7:** export cells sanitized against formula injection.
-- **No new runtime deps** (recharts / lucide-react / exceljs / dompurify already present;
-  tests use Node's built-in runner).
-- `npm run lint` + `npm run build` stay green; SLA / categories / interaction counts / Jira
-  behavior untouched.
-
----
-
-## 8. Gate checklist
-
-- **GATE 0 (here):** approve §0 decision + this plan.
-- **GATE 1:** `npm run test` + `npm run lint`, note on diminishing-returns magnitude change.
-- **GATE 2:** `npm run test` + `npm run lint` + `npm run build`; parity test green.
-- **GATE 3:** `npm run build` + `npm run lint`; states (data / empty / sorted / expanded).
-- **GATE 4:** `npm run build` + `npm run lint`; deep-read disabled-state + clean `.xlsx`.
-- **GATE 5:** full green run + `CODEREVIEW(sentiment).md` + README.
+`stats.js computeKpis` (slaRate/slaMet/slaEligible/slaMissedCadence; at-risk &
+breached gate on `_isOpen`), `queries.js getKpis` (`sla_rate`, `at_risk_count`,
+`breached_count` gate on `SQL_OPEN`), `slaRiskSegments` / `agingBuckets` /
+`stuckCases` / `slaBreachForecast` / `openByAssigneeAge` / `accountChurnRisk`
+(all gate open-work on `_isOpen`), and the read-only consumers `KpiRow` /
+`SlaBlock` / `SlaRiskBlock` / `SlaForecastBlock` / `StuckCasesList` /
+`AnalystProfileModal` / `TeamView` / `MyDayPage` / `MonthlySummaryReport` /
+`CaseTable` per-case SLA cell. Solution-Proposed already gates out of every
+open-only surface via `_isOpen` / `SQL_OPEN`, and now also carries
+`sla_due_sop = null` + (usually) no breach. To be re-verified by grep at GATE 1.

@@ -16,6 +16,7 @@ import JiraPage from "./pages/JiraPage.jsx";
 import JiraBlockersPage from "./pages/JiraBlockersPage.jsx";
 import JiraStatsPage from "./pages/JiraStatsPage.jsx";
 import InsightsPage from "./pages/InsightsPage.jsx";
+import SentimentPage from "./pages/SentimentPage.jsx";
 import CasesPage from "./pages/CasesPage.jsx";
 import SurveysPage from "./pages/SurveysPage.jsx";
 import UpdateQueuePage from "./pages/UpdateQueuePage.jsx";
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="/jira-blockers" element={<JiraBlockersPage />} />
           <Route path="/jira-stats" element={<JiraStatsPage />} />
           <Route path="/insights" element={<InsightsPage />} />
+          <Route path="/sentiment" element={<SentimentPage />} />
           <Route path="/cases" element={<CasesPage />} />
           <Route path="/surveys" element={<SurveysPage />} />
           <Route path="/update-queue" element={<UpdateQueuePage />} />

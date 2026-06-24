@@ -14,15 +14,7 @@ import { CopyableNumber } from "../components/CopyableNumber.jsx";
 // injection guard in csv-export.js before RFC-4180 quoting.
 import { rowsToCsv, downloadCsv, csvTimestamp } from "../lib/csv-export.js";
 
-function exportUpdateQueueCsv({
-  overdue,
-  dueSoon,
-  initialResponseMisses,
-  snapshotMs,
-  title = "Update Queue",
-  csvName = "open-case-update-que",
-  showInitialResponse = true,
-}) {
+function exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs }) {
   const queueHeaders = ["Queue", "Case", "Type/Priority", "State", "Status", "Assignee", "Last Update", "Threshold", "Account", "Description"];
   const queueRows = [
     ...overdue.map((r) => [
@@ -65,49 +57,39 @@ function exportUpdateQueueCsv({
   ]);
 
   const snapshotLabel = snapshotMs ? fmtFullDate(snapshotMs) : "unknown";
-  const parts = [
-    `# ${title} export — data as of ${snapshotLabel}`,
+  const csv = [
+    `# Update Queue export — data as of ${snapshotLabel}`,
     "",
     "## Overdue & Due Soon",
     rowsToCsv(queueHeaders, queueRows),
-  ];
-  if (showInitialResponse) {
-    parts.push("", "## Initial Response Misses", rowsToCsv(irHeaders, irRows));
-  }
-  const csv = parts.join("\r\n");
-  downloadCsv(`${csvName}-${csvTimestamp()}.csv`, csv);
+    "",
+    "## Initial Response Misses",
+    rowsToCsv(irHeaders, irRows),
+  ].join("\r\n");
+  downloadCsv(`open-case-update-que-${csvTimestamp()}.csv`, csv);
 }
 
 /* ================= Update Queue (analyst-facing) =================
- * Generalized so a second tab (Solution Proposed) can reuse the exact same
- * cadence logic and look-and-feel. Props default to the original Update Queue
- * behavior; pass `statusEquals` to scope the queue to a ServiceNow `status`,
- * and `showInitialResponse={false}` to drop the IR section + its summary stat. */
-const DEFAULT_SUBTITLE =
+ * Truly-open cases overdue (or coming due) for an Infor-authored customer-facing
+ * update per the priority SOP cadence, plus initial-response misses. Solution
+ * Proposed cases are NOT here — they no longer owe cadence updates and live on
+ * the /solution-proposed auto-close countdown (see enrich.js v10). */
+const TITLE = "Update Queue";
+const SUBTITLE =
   "Open cases overdue for an Infor-authored customer-facing update, plus initial-response misses. SOP-driven, computed against the data-as-of snapshot below.";
 
-export function UpdateQueue({
-  analyst,
-  snapshotMs,
-  dbReady,
-  statusEquals = null,
-  includeClosed = false,
-  title = "Update Queue",
-  subtitle = DEFAULT_SUBTITLE,
-  showInitialResponse = true,
-  csvName = "open-case-update-que",
-}) {
+export function UpdateQueue({ analyst, snapshotMs, dbReady }) {
   const enabled = !!(dbReady && snapshotMs);
   const { data, loading, error } = useQuery(
-    () => getUpdateQueue({ analyst, snapshotMs, statusEquals, includeClosed }),
-    [analyst, snapshotMs, statusEquals, includeClosed],
+    () => getUpdateQueue({ analyst, snapshotMs }),
+    [analyst, snapshotMs],
     { enabled }
   );
   const [selected, setSelected] = useState(null);
 
   if (!enabled) {
     return (
-      <Section title={title} subtitle={subtitle}>
+      <Section title={TITLE} subtitle={SUBTITLE}>
         <Card>
           <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic" }}>
             Loading data…
@@ -118,7 +100,7 @@ export function UpdateQueue({
   }
   if (loading) {
     return (
-      <Section title={title}>
+      <Section title={TITLE}>
         <Card>
           <div style={{ color: T.sub, fontSize: 13 }}>Computing queue…</div>
         </Card>
@@ -127,7 +109,7 @@ export function UpdateQueue({
   }
   if (error) {
     return (
-      <Section title={title}>
+      <Section title={TITLE}>
         <Card>
           <div style={{ color: T.danger, fontSize: 13 }}>
             <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
@@ -143,25 +125,23 @@ export function UpdateQueue({
 
   return (
     <>
-      <Section title={title} subtitle={subtitle}>
+      <Section title={TITLE} subtitle={SUBTITLE}>
         {/* Summary counts */}
         <Card>
           <div style={{ display: "flex", alignItems: "baseline", gap: 24, flexWrap: "wrap" }}>
             <SummaryStat label="overdue" count={summary.overdue} accent={T.danger} />
             <SummaryStat label="due soon" count={summary.dueSoon} accent={T.warn} />
-            {showInitialResponse && (
-              <SummaryStat
-                label="missed initial response"
-                count={summary.initialMisses}
-                accent={summary.initialMisses ? T.danger : T.ok}
-              />
-            )}
+            <SummaryStat
+              label="missed initial response"
+              count={summary.initialMisses}
+              accent={summary.initialMisses ? T.danger : T.ok}
+            />
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 16 }}>
               <div style={{ fontSize: 11, color: T.muted }} className="mono">
                 data as of {fmtFullDate(snapshotMs)}
               </div>
               <button
-                onClick={() => exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs, title, csvName, showInitialResponse })}
+                onClick={() => exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs })}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -215,11 +195,9 @@ export function UpdateQueue({
         )}
       </Section>
 
-      {showInitialResponse && (
-        <Section title="Initial Response Misses" subtitle="Open cases that have no first response logged AND have been open longer than the priority's initial-response target.">
-          <InitialResponseList rows={initialResponseMisses} />
-        </Section>
-      )}
+      <Section title="Initial Response Misses" subtitle="Open cases that have no first response logged AND have been open longer than the priority's initial-response target.">
+        <InitialResponseList rows={initialResponseMisses} />
+      </Section>
     </>
   );
 }

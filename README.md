@@ -15,6 +15,7 @@ An analytics dashboard for ServiceNow case exports — runnable in the browser (
 - [Pages & Features](#pages--features)
 - [Jira Integration](#jira-integration)
 - [AI Insights](#ai-insights)
+- [Customer Sentiment](#customer-sentiment)
 - [SOP / Update Queue Engine](#sop--update-queue-engine)
 - [Data Enrichment Pipeline](#data-enrichment-pipeline)
 - [DuckDB SQL Backend](#duckdb-sql-backend)
@@ -169,10 +170,10 @@ SOP-driven queue of open cases that need an Infor-authored customer-facing updat
 
 **Initial Response Misses** — open cases with no first response logged that have been open longer than their priority's initial-response target (P1: 30m, P2/P3: 2h, P4: 4h). Clicking any row in the overdue/due-soon table opens a `CaseDrilldown` panel.
 
-**CSV export** — the queue can be exported to a name-first, timestamped `.csv` (`open-case-update-que-YYYYMMDD-HHMMSS.csv`; the Solution Proposed queue exports as `solution-proposed-update-que-YYYYMMDD-HHMMSS.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
+**CSV export** — the queue can be exported to a name-first, timestamped `.csv` (`open-case-update-que-YYYYMMDD-HHMMSS.csv`) for sharing in a standup or ticket. Every cell is passed through `sanitizeCellForExport()` ([`csv-export.js`](src/lib/csv-export.js)) to neutralize spreadsheet formula injection before download.
 
 #### Solution Proposed (`/solution-proposed`)
-The same SOP cadence engine as the Update Queue, scoped to cases sitting in the ServiceNow `Solution Proposed` status (resolved pending customer confirmation, but still owing an Infor-authored cadence update). It reuses the exact overdue/due-soon logic and look: `getUpdateQueue()` is generalized with a `statusEquals` filter and an `includeClosed` flag, because a proposed solution moves the case to a resolved `state` while `status` stays `Solution Proposed` — so the queue's default open-only filter would otherwise hide every one of them. The Initial Response section is dropped (first-response targets don't apply to already-proposed solutions). Exports through the same sanitized CSV path.
+An **auto-close countdown** for cases in the ServiceNow `Solution Proposed` status (state = `Resolved`, awaiting customer confirmation). Per current policy these cases **no longer owe a recurring SOP cadence update** — instead, ServiceNow auto-closes a Resolved case 90 days (`SOLUTION_PROPOSED_AUTOCLOSE_MS`) after the **resolution notes are saved** if the customer never confirms, and this screen shows, for the selected analyst, every such case and how long until that auto-close. The countdown is measured from when the case was resolved — the timestamp of the `<b>Resolution notes</b>` journal entry (`resolved_at_ms`, baked at ingest), falling back to the last Infor note then the created date — against the data-as-of snapshot (never `Date.now()`, so it's deterministic for a given import), clamped so it can't start before creation. **The system "Case Resolved – Reminder N" auto-close warning notes do _not_ move the anchor** (only the resolution-notes save does). The table is sortable (Case / Priority / Account / Resolved / Auto-closes / Time remaining) with urgency coloring (danger ≤ 7 days or already past, warn ≤ 30 days), counts of cases closing within 7 / 30 days, a real empty state, and a sanitized CSV export (`solution-proposed-auto-close-YYYYMMDD-HHMMSS.csv`). Backed by `getSolutionProposedAutoClose()` in [`queries.js`](src/lib/queries.js). **Modeling note:** ServiceNow's true auto-close anchor is instance-configured; this models it as the resolution-notes save time against the import snapshot.
 
 ### Performance
 
@@ -181,12 +182,30 @@ The same SOP cadence engine as the Update Queue, scoped to cases sitting in the 
 > **SLA = the Infor SOP response cadence, not ServiceNow's `Made SLA` flag.**
 > ServiceNow only judges `Made SLA` on the *first* response and ignores
 > correspondence cadence afterward. Per Infor SOP, the real SLA is the response
-> cadence enforced on the Update Queue / Solution Proposed screens: a per-priority
-> required update interval (P1 1h … P4 7d; development cases 30d) plus the
-> first-response target (P1 30m … P4 4h). A case **breaches SLA** if it missed
-> its first-response target or let any update gap over its life exceed the
-> cadence — judged across the whole case, open or closed, by `computeSlaSop()`
-> in `enrich.js`. Eligibility (the denominator) = the case has a defined cadence.
+> cadence enforced on the Update Queue: a per-priority required update interval
+> (P1 1h … P4 7d; development cases 30d) plus the first-response target
+> (P1 30m … P4 4h). A case **breaches SLA** if it missed its first-response
+> target or let any update gap over its life exceed the cadence — judged across
+> the whole case by `computeSlaSop()` in `enrich.js`. Eligibility (the
+> denominator) = the case has a defined cadence.
+>
+> **Solution Proposed (state = `Resolved`) cases no longer owe a recurring
+> cadence update** (v10). Their cadence trailing-gap clock **stops at the last
+> Infor update** rather than running to the snapshot, so a resolved case sitting
+> idle stops accruing a trailing-gap breach and drops out of the
+> at-risk/overdue/forecast surfaces — but a missed first response (judged to the
+> snapshot, so a never-answered resolved case still counts) or a real inter-update
+> gap *before* resolution still breaches. SLA % generally rises as a result.
+> (Closed cases stop at their close time, as before.) The three clocks are kept
+> distinct: cadence stops at the last Infor update; the initial-response window
+> runs to the snapshot; the 90-day auto-close countdown starts when the resolution
+> notes are saved (system auto-close reminder notes do not move it — see the
+> Solution Proposed screen above).
+>
+> System auto-resolution / "Case Resolved – Reminder N" notes are authored
+> `System  Automatic Reminders (Infor)`; despite the `(Infor)` tag they are **not**
+> analyst work and are excluded from the Infor-update timeline (cadence) and the
+> interaction turn counts.
 
 - Radial gauge showing overall SLA hit rate (color-coded: green ≥ 95%, amber ≥ 85%, red below).
 - Bar chart breaking the SLA rate down by priority level.
@@ -267,6 +286,9 @@ Data source management. The **ServiceNow imports** card is a full file manager: 
 
 #### Insights (`/insights`)
 AI-powered qualitative analysis. See [AI Insights](#ai-insights).
+
+#### Customer Sentiment (`/sentiment`)
+Deterministic, on-device customer-sentiment grading — valence, arc, emotions, responsiveness, hygiene, a representative quote, and a templated coaching note — reproducing the structured columns of the LLM sentiment review without sending any case to a model. See [Customer Sentiment](#customer-sentiment).
 
 #### Cases (`/cases`)
 Full sortable and searchable case register. Every column from the enriched dataset is available. Keyword search filters across all text fields.
@@ -377,6 +399,33 @@ The proxy returns JSON with five sections: `themes`, `recurring_issues`, `skill_
 
 ---
 
+## Customer Sentiment
+
+A deterministic, **on-device** reproduction of the structured columns of the LLM "Customer Sentiment Review" — so the team never has to run a whole export through a model. The grader reads the customer-visible comment stream and emits a valence, a label, a conversation arc, emotions, a frustration target, a representative quote, and a templated coaching note. **No case is sent to a model.** The engine (`src/lib/sentiment.js`) is pure and framework-free, with no network or wall-clock dependencies, so the same row always grades the same way.
+
+> **Honest accuracy.** The grader is *exact* on coverage, responsiveness, and hygiene (those are structural counts) and *directional* on tone: valence sign agrees with the LLM review on a single line roughly 60–65% of the time, and better across a full message stream where start/end/arc are visible. The coaching note is **templated** — it states the structural facts (responsiveness, arc, closure), not the model's prose.
+
+### How it works
+
+- **Attribution mirrors the interaction-count parser exactly.** A journal entry whose author line contains `(Infor)` is an analyst turn; everything else is the customer (`WORK_NOTE_HEADER` / `ANALYST_AUTHOR` in `enrich.js`). Sentiment and interaction counts therefore never disagree.
+- **Scoring** uses a tuned support / hospitality-PMS lexicon (`POS` / `NEG` / `IMPACT`) compressed onto a −5..+5 scale (`5·tanh(raw / COMPRESS_K)`, `COMPRESS_K = 8`), with a **diminishing-returns cap**: after the first 3 distinct same-polarity cues in one message, further cues count at ½× so a multi-cue rant can't saturate the score.
+- **Scoreable gating.** A case is graded only where the customer actually wrote something. Phone-resolved / silent cases are **counted in coverage** but carry a null grade.
+- **Hygiene** (exact, structural): duplicate analyst double-posts (identical body ≤60 s apart) and credential / remote-access exposure (`AnyDesk`, `password:`) in the stream.
+
+### Baked as a queryable field
+
+Sentiment is computed once in the shared enrichment (`enrichRow` + `enrichForSql`) and persisted in DuckDB — exactly like SLA, category, and interaction counts — so it is a queryable dimension and is not re-graded on every filter change. The `sentiment_*` columns were added at **`SCHEMA_VERSION` 9**; older imports show a "Rebuild needed" badge and re-grade from source on rebuild. Both pipelines emit byte-identical sentiment values, enforced by a parity test (`enrichRow(r).sentiment_*` deep-equals `enrichForSql(r).sentiment_*`).
+
+### Sentiment page (`/sentiment`)
+
+Headline tiles (average valence + a /100 normalization, scoreable coverage, recovery rate, still-negative-at-close, median first reply + % within 1 h, hygiene flags), a sentiment-distribution chart, and a sortable, keyboard-navigable per-case table whose rows expand to the representative quote (rendered as text) and the coaching note. A **Download grades** button regenerates the two-sheet review workbook (`Headline Metrics` + `Per-Case Detail`) on device via ExcelJS, every cell routed through the formula-injection guard.
+
+### Optional Claude deep-read (opt-in, per-case)
+
+The hybrid: the lexicon engine grades the whole queue locally; for prose coaching on the handful of cases that warrant it, a **Deep-read the N negatives** action sends *only* those (≤ 10) cases — `scrubForAi`-masked — through the existing first-party AI proxy (`aiClient.reviewSentiment`). It is strictly gated on `aiClient.isConfigured()` (showing the same calm "not configured" card as the Insights feature when no proxy is set) and never fans out across the queue or calls a vendor directly (SECURITY #1).
+
+---
+
 ## SOP / Update Queue Engine
 
 The Update Queue is the most operationally critical feature. All thresholds live in `src/lib/sop-thresholds.js` — edit there when the SOP changes, nowhere else.
@@ -429,6 +478,13 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 | `_slaBreached` | journal timeline + SOP cadence | **the real SLA**: true if the case missed its first-response target or any cadence-update gap over its life (`computeSlaSop`) |
 | `_slaBreachReason` | `computeSlaSop` | why it missed — `'initial'` (first response) or `'cadence'`; `null` if met/ineligible. Powers the SLA breach-reason split |
 | `_slaDueSop` | last Infor update + cadence | SOP next-update-due deadline (open cases) — drives At-Risk / Breach Forecast / SLA Risk |
+| `sentiment_scoreable` | `work_notes` | true when the customer wrote something (else a null grade) |
+| `sentiment_valence` | `work_notes` | customer tone, −5..+5 (null if not scoreable) |
+| `sentiment_label` | `sentiment_valence` | Positive / Neutral / Negative |
+| `sentiment_arc` | first vs last customer message | improved (recovery) / stable / declined / single touchpoint |
+| `sentiment_*` (start, end, emotions, target, quote, coaching, pii, dup) | `work_notes` | the remaining baked grade outputs — see [Customer Sentiment](#customer-sentiment) |
+
+> The `sentiment_*` fields are the one set baked under **snake_case in both pipelines** (the SLA/Jira fields use `_camelCase` in `enrichRow` and `snake_case` in `enrichForSql`). One shared key name lets the UI read the grade identically whether it came from the in-memory pipeline or DuckDB, and lets the parity test deep-equal the two — see `gradeFromRow()` in `sentiment.js`.
 
 ### Jira reference parsing
 
@@ -451,7 +507,7 @@ A Web Worker (`src/workers/db.worker.js`) runs a DuckDB-WASM instance using the 
 
 ### Schema
 
-Each import owns a base table `cases_import_{uuid}` with 34 columns covering all raw and enriched fields (`SQL_COLUMNS` in `enrich.js`). `cases` is a **view** redefined to point at the active import's table, so all query helpers read `FROM cases` without change. An `imports_index` table tracks every import's `uuid`, `display_name`, `uploaded_at`, `row_count`, `file_size`, `file_type`, `schema_version`, and `is_active` flag. `SCHEMA_VERSION` is bumped when columns change — imports built against an older version are flagged in the file manager with a "Rebuild needed" badge (re-parses the stored source blob). A legacy single-`cases`-table build is auto-migrated to import #1 on first boot.
+Each import owns a base table `cases_import_{uuid}` with 49 columns covering all raw and enriched fields (`SQL_COLUMNS` in `enrich.js`), including the baked customer-sentiment grade added in `SCHEMA_VERSION` 9. `cases` is a **view** redefined to point at the active import's table, so all query helpers read `FROM cases` without change. An `imports_index` table tracks every import's `uuid`, `display_name`, `uploaded_at`, `row_count`, `file_size`, `file_type`, `schema_version`, and `is_active` flag. `SCHEMA_VERSION` is bumped when columns change — imports built against an older version are flagged in the file manager with a "Rebuild needed" badge (re-parses the stored source blob). A legacy single-`cases`-table build is auto-migrated to import #1 on first boot.
 
 ### Ingestion
 
@@ -468,7 +524,8 @@ CSV files are streamed through PapaParse in 10,000-row chunks. Each chunk is enr
 | `getCategoryData()` | Per-category counts |
 | `getAccountData()` | Top 30 accounts by volume |
 | `getProductData()` | Per-product-line counts |
-| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists (optional `statusEquals` / `includeClosed` scope the same engine to a status, e.g. Solution Proposed) |
+| `getUpdateQueue()` | SOP-driven overdue/due-soon/initial-response-miss lists for truly-open cases |
+| `getSolutionProposedAutoClose()` | Per-analyst 90-day auto-close countdown for Solution Proposed (state=Resolved) cases — counted from the resolution-notes save (`resolved_at_ms`), snapshot-anchored |
 
 All queries use parameterized statements (`conn.prepare()` + `stmt.query(...params)`). User-controlled inputs (analyst name, date range) are never interpolated into SQL strings.
 
@@ -553,6 +610,7 @@ The app works with standard ServiceNow case table exports. XLSX is strongly reco
 | `Priority` | `priority` | SLA thresholds, SOP cadence |
 | `Assigned to` | `assigned_to` | Analyst filtering |
 | `Account` | `account` | Account analytics |
+| `Contact` | `contact` | Per-case sentiment export (Contact column) |
 | `Product line` | `product_line` | Product analytics |
 | `Made SLA` | `made_sla` | Retained raw (ServiceNow first-response flag); no longer drives metrics |
 | `SLA due` | `sla_due` | Retained raw; SLA risk now uses the SOP next-update deadline |
@@ -610,6 +668,7 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 - **SQL queries** use parameterized statements throughout. User-controlled URL parameters are resolved to known values from the loaded dataset before being passed to any query.
 - **Jira HTML descriptions** are sanitized with DOMPurify before rendering; ServiceNow free-text fields are rendered as plain text only.
 - **CSV exports** (Update Queue, Solution Proposed, Jira Blockers) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via the single shared `rowsToCsv` → `toCsvRow` → `sanitizeCellForExport` path.
+- **Customer sentiment** is graded 100% on device — the engine has no network path. The optional per-case **deep-read** sends only a hand-picked handful of cases (the negatives) through the scrubbed AI proxy (`scrubForAi` + `aiClient.reviewSentiment`), strictly gated on configuration; never the whole queue, never a vendor directly. The sentiment **Excel export** routes every cell through the same `sanitizeCellForExport` formula-injection guard.
 - **Production builds** ship a Content-Security-Policy meta tag.
 
 ---
@@ -620,6 +679,8 @@ Living review documents track the codebase's health and where it's headed:
 
 | Document | Focus |
 |---|---|
-| [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | **Latest.** Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
+| [CODEREVIEW(solution-proposed.md)](./CODEREVIEW(solution-proposed.md)) | **Latest.** Solution Proposed (v10): the SLA cadence clock-stop for Resolved cases (three distinct clock-stops), the resolution-notes-saved auto-close anchor (`resolved_at_ms`) with system auto-reminder notes excluded, the new column + `SCHEMA_VERSION` 10 bump, the deleted cadence plumbing, and an adversarial self-critique pass (4 SLA findings, all fixed). |
+| [CODEREVIEW(sentiment).md](./CODEREVIEW(sentiment).md) | Feature review of the on-device Case Sentiment Grader — the bake-vs-render decision, honest accuracy limits, the `SCHEMA_VERSION` 9 columns, tuning knobs, and an adversarial self-critique pass (8 findings: 6 fixed, 2 documented non-changes). |
+| [CODEREVIEW(6-10).md](./CODEREVIEW(6-10).md) | Whole-codebase review + a prioritized roadmap of future iterations framed around what makes the app more valuable to **analysts and managers** (saved views, SLA trend-over-time, CSAT join, in-app SOP config, alerting/digests, ServiceNow direct connector, and more). |
 | [CODEREVIEW(5-31).md](./CODEREVIEW(5-31).md) | Prior review — code-quality / statistical-correctness findings (Jira percentile bias, join-key normalization, dev-SQL-in-prod) and the `feat/analytics-and-hardening` cycle. |
 | [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) | Security audit (17 items with statuses) — see [Security](#security) above. |

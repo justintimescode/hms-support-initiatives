@@ -1,11 +1,11 @@
 import { Outlet } from "react-router-dom";
 import { FilterNavLink } from "../FilterLink.jsx";
 import {
-  LayoutDashboard, Sun, ClipboardList, ClipboardCheck, FileBarChart,
+  LayoutDashboard, Sun, ClipboardList, Timer, FileBarChart,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban,
   ExternalLink, BarChart3,
-  Plug, Sparkles, Table, Mailbox, Settings,
+  Plug, Sparkles, Gauge, Table, Mailbox, Settings,
 } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { useAppData } from "../../lib/useAppData.js";
@@ -21,7 +21,7 @@ const NAV_GROUPS = [
       { to: "/",             label: "Dashboard",    icon: LayoutDashboard },
       { to: "/my-day",       label: "My Day",       icon: Sun },
       { to: "/update-queue", label: "Update Queue", icon: ClipboardList },
-      { to: "/solution-proposed", label: "Solution Proposed", icon: ClipboardCheck },
+      { to: "/solution-proposed", label: "Solution Proposed", icon: Timer },
       { to: "/report",       label: "Monthly Summary", icon: FileBarChart },
     ],
   },
@@ -57,6 +57,7 @@ const NAV_GROUPS = [
     items: [
       { to: "/connections", label: "Connections", icon: Plug },
       { to: "/insights",    label: "Insights",    icon: Sparkles },
+      { to: "/sentiment",   label: "Sentiment",   icon: Gauge },
       { to: "/cases",       label: "Cases",       icon: Table },
       { to: "/surveys",     label: "Surveys",     icon: Mailbox },
       { to: "/settings",    label: "Settings",    icon: Settings },

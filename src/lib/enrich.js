@@ -16,7 +16,11 @@ import {
   DEV_HARD_RULE_MS,
   SUPPORT_THRESHOLDS_MS,
   INITIAL_RESPONSE_MS,
+  SOLUTION_PROPOSED_AUTOCLOSE_MS,
 } from './sop-thresholds.js'
+// Deterministic, on-device sentiment grader. Pure ESM (no React/DOM) so it is
+// safe to call from both enrichment pipelines and the DuckDB worker.
+import { gradeFromRow } from './sentiment.js'
 
 // Bump when enrichForSql / SQL_COLUMNS change. Each persisted import records the
 // version it was built with; on boot, imports older than this are flagged in the
@@ -42,7 +46,37 @@ import {
 // adds the `lifecycle` column ('closed' | 'solution_proposed' | 'open'). Fixes
 // the SLA cadence under-judging of Resolved cases (their end-time is now the
 // snapshot, not null). See [[closed-vs-resolved]].
-export const SCHEMA_VERSION = '8'
+// v9: Customer sentiment graded on device from the customer-visible comment
+// stream (work_notes, falling back to additional_comments) by the deterministic
+// lexicon engine in sentiment.js. Adds the `sentiment_*` columns:
+// `sentiment_scoreable` (had an attributable customer message), `sentiment_valence`
+// (-5..+5), `sentiment_label`, `sentiment_start`/`sentiment_end` (opening/closing
+// valence), `sentiment_arc`, `sentiment_emotions`, `sentiment_target`,
+// `sentiment_quote`, `sentiment_coaching`, plus hygiene flags `sentiment_pii`
+// (pasted credential / remote-access tool) and `sentiment_dup` (analyst
+// double-post ≤60s). Silent cases bake `sentiment_scoreable=false` with null
+// scalars but still count in coverage. Same attribution as `customer_turns`
+// (parseInteractions over work_notes), so the two never disagree. Older imports
+// show "Rebuild needed" and re-grade from source on rebuild.
+// v10: Solution Proposed (State="Resolved") cases no longer owe a recurring SOP
+// cadence update (current policy). In computeSlaSop their cadence trailing-gap
+// clock STOPS at the last *Infor* update (`ts[last]`) instead of running to the
+// snapshot, so a resolved case idling stops accruing a trailing-gap cadence breach
+// and drops out of at-risk/overdue/forecast — while a real gap BETWEEN pre-resolution
+// Infor updates, and a missed initial response (judged to the snapshot), still breach.
+// `sla_due_sop` is now NULL for them (was set). SLA % generally rises.
+//   Adds the `resolved_at_ms` column = when the resolution notes were saved (the
+// header timestamp of the `<b>Resolution notes</b>` journal entry), which is the
+// START of the new /solution-proposed 90-day auto-close countdown. ServiceNow's
+// "Case Resolved - Reminder N" auto-close WARNING notes do NOT move this anchor
+// (they carry no resolution marker); marker-less resolved rows fall back to the last
+// Infor note, then created. (auto_close_at = anchor + 90d, derived at query time.)
+//   Also EXCLUDES System auto-resolution / auto-close-reminder notes (authored
+// "System  Automatic Reminders (Infor)") from Infor-update detection (parseInforUpdates)
+// and interaction turns (parseInteractions) — they were wrongly counted as analyst
+// activity because of the "(Infor)" tag, skewing cadence + turn counts on ~141
+// auto-resolved cases. Older imports show "Rebuild needed" and re-grade on rebuild.
+export const SCHEMA_VERSION = '10'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -177,6 +211,7 @@ export function normalizeXlsxRow(r) {
     status:              r['Status']              ?? null,
     priority:            r['Priority']            ?? null,
     account:             r['Account']             ?? null,
+    contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,
     close_notes:         r['Resolution notes']    ?? null,
@@ -195,6 +230,19 @@ export function normalizeXlsxRow(r) {
 
 const WORK_NOTE_HEADER = /^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-\s*(.+)/gm
 const ANALYST_AUTHOR = /\(Infor\)/i
+// ServiceNow's automated actor posts auto-resolution + "Case Resolved - Reminder N"
+// (auto-close warning) notes under the author "System" / "System  Automatic
+// Reminders" — and confusingly tags the latter with "(Infor)". Those are NOT analyst
+// work: they must not count as Infor cadence updates, interaction turns, or (for the
+// auto-close countdown) the resolution moment. Detect by the author leading with
+// "System"; `isInforAnalyst` is the genuine-analyst test used everywhere we mean "an
+// Infor person touched the case".
+const SYSTEM_AUTHOR = /^\s*System\b/i
+const isInforAnalyst = (author) => ANALYST_AUTHOR.test(author) && !SYSTEM_AUTHOR.test(author)
+// The bold label ServiceNow wraps saved resolution notes in (in the Additional
+// comments journal). The header timestamp of the entry carrying this marker is when
+// the resolution notes were saved — the start of the 90-day auto-close clock.
+const RESOLUTION_MARKER = /<b>\s*Resolution notes\s*<\/b>/i
 
 // ServiceNow's System user posts the link event in two phrasings:
 //   "Jira Reference ID HMS-12345 has been linked to this case."
@@ -319,24 +367,30 @@ export function parseInteractions(text) {
     const blocks = String(text).split(/\n\s*\n/).filter((s) => s.trim())
     return { totalTurns: blocks.length, customerTurns: 0, analystTurns: 0 }
   }
+  // System-authored notes (auto-resolution, auto-close reminders) are not human
+  // interactions — skip them entirely so they inflate neither analyst nor customer
+  // turns. `totalTurns` is therefore the count of real (human) turns.
   let customerTurns = 0, analystTurns = 0
   for (const m of matches) {
+    if (SYSTEM_AUTHOR.test(m[2])) continue
     if (ANALYST_AUTHOR.test(m[2])) analystTurns++
     else customerTurns++
   }
-  return { totalTurns: matches.length, customerTurns, analystTurns }
+  return { totalTurns: customerTurns + analystTurns, customerTurns, analystTurns }
 }
 
-/** Walk a journal text and return the Infor-authored update timeline: the
- *  sorted list of entry timestamps (ms), the latest one, and the count. Used to
- *  compute `last_infor_update` for the Update Queue AND the per-gap cadence the
- *  SOP-SLA check needs (see `computeSlaSop`). Entries without an Infor author
- *  (customer replies, system events) are ignored. */
+/** Walk a journal text and return the Infor-analyst update timeline: the sorted
+ *  list of entry timestamps (ms), the latest one, and the count. Used to compute
+ *  `last_infor_update` for the Update Queue AND the per-gap cadence the SOP-SLA
+ *  check needs (see `computeSlaSop`). Entries that aren't a genuine Infor analyst —
+ *  customer replies, AND System auto-resolution / auto-close-reminder notes (which
+ *  ServiceNow confusingly tags "System  Automatic Reminders (Infor)") — are ignored
+ *  via `isInforAnalyst`, so reminder spam can't fabricate Infor "updates". */
 export function parseInforUpdates(text) {
   if (!text) return { lastTs: null, count: 0, times: [] }
   const times = []
   for (const m of String(text).matchAll(WORK_NOTE_HEADER)) {
-    if (!ANALYST_AUTHOR.test(m[2])) continue
+    if (!isInforAnalyst(m[2])) continue
     const d = parseDate(m[1])
     if (!d) continue
     times.push(d.getTime())
@@ -344,6 +398,34 @@ export function parseInforUpdates(text) {
   times.sort((a, b) => a - b)
   const lastTs = times.length ? new Date(times[times.length - 1]) : null
   return { lastTs, count: times.length, times }
+}
+
+/** When the resolution notes were saved (the start of the 90-day auto-close clock):
+ *  the header timestamp (ms) of the LATEST journal entry carrying the
+ *  `<b>Resolution notes</b>` marker, or null when none is present. Scans the
+ *  `additional_comments` journal (where ServiceNow writes the marker). Reuses the
+ *  per-line header scan from `parseJiraRefs`: track the current entry's header date,
+ *  and when a body line carries the marker, attribute it to that header. "Latest"
+ *  handles a case that was resolved, reopened, and re-resolved.
+ *
+ *  This deliberately ignores the System "Case Resolved - Reminder N" auto-close
+ *  WARNING notes (they live in work_notes and carry no marker) — only the
+ *  resolution-notes save starts the timer, per current policy. Pure. */
+export function parseResolutionTime(text) {
+  if (!text) return null
+  let currentHeaderMs = null
+  let resolvedMs = null
+  for (const line of String(text).split('\n')) {
+    const h = line.match(/^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-/)
+    if (h) {
+      const d = parseDate(h[1])
+      currentHeaderMs = d ? d.getTime() : currentHeaderMs
+    }
+    if (RESOLUTION_MARKER.test(line) && currentHeaderMs != null) {
+      if (resolvedMs == null || currentHeaderMs > resolvedMs) resolvedMs = currentHeaderMs
+    }
+  }
+  return resolvedMs
 }
 
 /** The "real" SLA per Infor SOP — the response-cadence SLA, NOT ServiceNow's
@@ -354,23 +436,36 @@ export function parseInforUpdates(text) {
  *  cases get the 30-day hard rule (both via `classifyCase`). Cases with no
  *  cadence (no priority / unclassifiable) are excluded from the SLA %.
  *
- *  It BREACHES (lifetime view — judged across the whole case, open or closed) if
- *  either of:
+ *  It BREACHES (lifetime view — judged across the whole case) if either of:
  *    (1) Initial response — the first Infor response missed the priority's
  *        first-response target (`initialMs`, INITIAL_RESPONSE_MS). Measured from
- *        the recorded FRT when present, else the first journal entry, else (no
- *        response at all) the time elapsed to `end`.
- *    (2) Cadence — any gap between consecutive Infor updates, or the trailing
- *        gap from the last update to the case end, exceeded the cadence. `end`
- *        is the close time for closed cases and the data snapshot for open ones.
+ *        the recorded FRT when present, else the first Infor journal entry, else
+ *        (no response at all) the time elapsed to `baseEnd`.
+ *    (2) Cadence — any gap between consecutive Infor updates, or the trailing gap
+ *        from the last Infor update to `cadenceEnd`, exceeded the cadence.
+ *
+ *  TWO distinct clock-stops, kept separate on purpose (conflating them is wrong):
+ *   - `baseEnd` (initial-response + closed/open cadence): the close time for closed
+ *     cases, else the data snapshot. A Solution Proposed case Infor NEVER answered
+ *     is still a missed initial response, so it is judged to the snapshot — never to
+ *     its last activity (which could be an early customer post, masking the miss).
+ *   - `cadenceEnd` (cadence trailing gap): for Solution Proposed (state=Resolved)
+ *     cases — which NO LONGER owe a recurring update (v10) — the cadence clock STOPS
+ *     at the last *Infor* update (`ts[last]`), so the trailing gap is zero (nothing
+ *     owed after the last Infor touch) while a real gap BETWEEN pre-resolution Infor
+ *     updates is still caught by the loop. No Infor update at all ⇒ no cadence to
+ *     trail (createdMs ⇒ zero gap; the initial check owns that case). Closed/open run
+ *     to `baseEnd`. Using the Infor-only `ts[last]` (not the all-author last activity)
+ *     is what stops a late *customer* reply from fabricating a trailing-gap breach.
  *
  *  `breachReason` attributes a breach to its first point of failure
  *  ('initial' | 'cadence' | null) so the SLA % can be split by *why* cases miss
  *  — initial takes precedence, so the two buckets sum to the total missed.
  *
- *  `dueSop` (open cases only) is the SOP "next update due" deadline that drives
- *  the At-Risk / Breach-Forecast / SLA-Risk surfaces: last update + cadence, or
- *  before any response, creation + the (tighter) first-response target.
+ *  `dueSop` (truly-open cases only — null for closed AND Solution Proposed) is
+ *  the SOP "next update due" deadline that drives the At-Risk / Breach-Forecast /
+ *  SLA-Risk surfaces: last update + cadence, or before any response, creation +
+ *  the (tighter) first-response target.
  *
  *  Pure of wall-clock: callers pass `snapshotMs` (the data-as-of anchor) so the
  *  result is deterministic for a given dataset and identical across both
@@ -379,6 +474,7 @@ export function computeSlaSop({
   createdMs,
   closedMs,
   isClosed,
+  isSolutionProposed,
   frtMs,
   updateTimes,
   cadenceMs,
@@ -388,40 +484,43 @@ export function computeSlaSop({
   if (cadenceMs == null || createdMs == null) {
     return { eligible: false, breached: false, breachReason: null, dueSop: null }
   }
-  // `end` anchors the cadence/initial breach checks. For a truly-closed case it
-  // is the close time; for everything still in flight — open AND Solution-
-  // Proposed (state=Resolved, no close timestamp) — it is the data snapshot, so
-  // those cases are judged for trailing-gap and no-response breaches rather than
-  // silently exempted. (Before v8, Resolved cases had isClosed=true && no
-  // closedMs, leaving end=null and skipping every breach check.)
-  const end = isClosed ? (closedMs ?? snapshotMs ?? Date.now()) : (snapshotMs ?? Date.now())
   const ts = updateTimes || []
+  // `baseEnd` = the case's real end for SLA judgment: close time for closed cases,
+  // the data snapshot for everything still in flight (open AND Solution Proposed).
+  const baseEnd = isClosed ? (closedMs ?? snapshotMs ?? Date.now()) : (snapshotMs ?? Date.now())
+  // `cadenceEnd` = the trailing-gap anchor. Solution Proposed cases owe no update
+  // after their last Infor touch (v10), so their clock stops at `ts[last]` (zero
+  // trailing gap), with creation as the no-Infor-update floor; closed/open run to
+  // `baseEnd`. See the doc block above for why this is Infor-only, not last activity.
+  const cadenceEnd = isSolutionProposed
+    ? (ts.length ? ts[ts.length - 1] : createdMs)
+    : baseEnd
   let initialBreached = false
   let cadenceBreached = false
 
   // (1) Initial-response component — folds the priority's tighter first-response
   //     target into the SLA. Prefer the recorded FRT; fall back to the first
   //     Infor journal entry; if there is no response at all, judge the silence
-  //     since creation against the target.
+  //     since creation against the target (to `baseEnd`).
   if (initialMs != null) {
     const firstResponseMs =
       frtMs != null ? frtMs : ts.length ? ts[0] - createdMs : null
     if (firstResponseMs != null) {
       if (firstResponseMs > initialMs) initialBreached = true
-    } else if (end != null && end - createdMs > initialMs) {
+    } else if (baseEnd != null && baseEnd - createdMs > initialMs) {
       initialBreached = true
     }
   }
 
-  // (2) Cadence component — every gap between consecutive Infor updates, plus
-  //     the trailing gap to the case end, must stay within the cadence. With no
-  //     updates at all, the whole stretch since creation is the gap.
+  // (2) Cadence component — every gap between consecutive Infor updates, plus the
+  //     trailing gap to `cadenceEnd`, must stay within the cadence. With no updates
+  //     at all, the whole stretch since creation is the gap.
   if (ts.length) {
     for (let i = 1; i < ts.length && !cadenceBreached; i++) {
       if (ts[i] - ts[i - 1] > cadenceMs) cadenceBreached = true
     }
-    if (!cadenceBreached && end != null && end - ts[ts.length - 1] > cadenceMs) cadenceBreached = true
-  } else if (end != null && end - createdMs > cadenceMs) {
+    if (!cadenceBreached && cadenceEnd != null && cadenceEnd - ts[ts.length - 1] > cadenceMs) cadenceBreached = true
+  } else if (cadenceEnd != null && cadenceEnd - createdMs > cadenceMs) {
     cadenceBreached = true
   }
 
@@ -431,9 +530,12 @@ export function computeSlaSop({
   const breached = initialBreached || cadenceBreached
   const breachReason = initialBreached ? 'initial' : cadenceBreached ? 'cadence' : null
 
-  // SOP next-update-due deadline (open cases only).
+  // SOP next-update-due deadline — TRULY-open cases only. Closed cases are done;
+  // Solution Proposed cases no longer owe a cadence update (v10), so neither gets
+  // a `dueSop` and neither appears in the At-Risk / Overdue / Forecast surfaces
+  // (all of which gate on a non-null due date over open work).
   let dueSop = null
-  if (!isClosed) {
+  if (!isClosed && !isSolutionProposed) {
     dueSop = ts.length
       ? ts[ts.length - 1] + cadenceMs
       : createdMs + (initialMs != null ? initialMs : cadenceMs)
@@ -482,6 +584,7 @@ export const enrichRow = (r, snapshotMs) => {
       : "open"
   const isClosed = lifecycle === "closed"
   const isOpen = lifecycle === "open"
+  const isSolutionProposed = lifecycle === "solution_proposed"
   const madeSla =
     r.made_sla === true ||
     String(r.made_sla).toLowerCase() === "true" ||
@@ -492,6 +595,9 @@ export const enrichRow = (r, snapshotMs) => {
     .join(" ")
   const ix = parseInteractions(r.work_notes)
   const inforUpdates = parseInforUpdates(r.additional_comments)
+  // When the resolution notes were saved (the auto-close clock START). Marker-only;
+  // null when the case has no saved resolution notes in the journal.
+  const resolvedAtMs = parseResolutionTime(r.additional_comments)
   const pr = priorityRank(r.priority)
   const cls = classifyCase(r.state, pr)
   // SOP-cadence SLA (the real SLA): replaces ServiceNow's `made_sla` flag.
@@ -499,12 +605,27 @@ export const enrichRow = (r, snapshotMs) => {
     createdMs: created ? created.getTime() : null,
     closedMs: closed ? closed.getTime() : null,
     isClosed,
+    isSolutionProposed,
     frtMs,
     updateTimes: inforUpdates.times,
     cadenceMs: cls.threshold_ms,
     initialMs: INITIAL_RESPONSE_MS[pr] ?? null,
     snapshotMs,
   })
+  // Auto-close countdown anchor for Solution Proposed: when the resolution notes were
+  // saved, falling back to the last genuine Infor-analyst note (system-reminder-free,
+  // via parseInforUpdates) and then to creation; clamped ≥ creation so a backdated
+  // header can't start the 90-day clock before the case existed. System auto-close
+  // reminder notes never move this anchor. `_autoCloseAt` is Solution-Proposed-only.
+  const createdMsVal = created ? created.getTime() : null
+  const lastInforMs = inforUpdates.lastTs ? inforUpdates.lastTs.getTime() : null
+  const anchorRaw = resolvedAtMs ?? lastInforMs ?? createdMsVal
+  const autoCloseAnchorMs =
+    anchorRaw != null && createdMsVal != null ? Math.max(anchorRaw, createdMsVal) : anchorRaw
+  const autoCloseAt =
+    isSolutionProposed && autoCloseAnchorMs != null
+      ? new Date(autoCloseAnchorMs + SOLUTION_PROPOSED_AUTOCLOSE_MS)
+      : null
   const jira = parseJiraRefs(jiraJournals(r), r.cause)
   const jiraDaysSinceLinked = jira.firstLinkedAt
     ? Math.floor((Date.now() - jira.firstLinkedAt.getTime()) / 86400000)
@@ -539,12 +660,22 @@ export const enrichRow = (r, snapshotMs) => {
     _analystTurns: ix.analystTurns,
     _lastInforUpdate: inforUpdates.lastTs,
     _inforUpdateCount: inforUpdates.count,
+    // Resolution-notes-saved time (any in-memory consumer) and the Solution-Proposed
+    // 90-day auto-close deadline derived from it (null unless solution_proposed). The
+    // /solution-proposed countdown reads the SQL twin `resolved_at_ms`.
+    _resolvedAt: resolvedAtMs != null ? new Date(resolvedAtMs) : null,
+    _autoCloseAt: autoCloseAt,
     _caseType: cls.case_type,
     _updateThresholdMs: cls.threshold_ms,
     _jiraTickets: jira.tickets,
     _jiraActiveTickets: jira.activeTickets,
     _jiraFirstLinked: jira.firstLinkedAt,
     _jiraDaysSinceLinked: jiraDaysSinceLinked,
+    // Customer sentiment (v9). Emitted under the SAME snake_case keys as
+    // enrichForSql (not the `_camelCase` SLA convention) so the parity test can
+    // deep-equal the two and the UI reads one key regardless of source. One
+    // parse per row; `frtMs` is shared so the coaching note is identical.
+    ...gradeFromRow(r, frtMs),
   }
 }
 
@@ -568,6 +699,7 @@ export const enrichForSql = (r, snapshotMs) => {
       ? "solution_proposed"
       : "open"
   const isClosed = lifecycle === "closed"
+  const isSolutionProposed = lifecycle === "solution_proposed"
   const madeSlaRaw = r.made_sla
   const madeSla =
     madeSlaRaw === true ||
@@ -576,14 +708,20 @@ export const enrichForSql = (r, snapshotMs) => {
     String(madeSlaRaw).toLowerCase() === "yes"
   const pr = priorityRank(r.priority)
   const inforUpdates = parseInforUpdates(r.additional_comments)
+  // Resolution-notes-saved time (auto-close clock START), marker-only. Mirrors
+  // enrichRow exactly (same helper, same input) so parity holds. The created/last-Infor
+  // fallback for the anchor is applied at query time (getSolutionProposedAutoClose).
+  const resolvedAtMs = parseResolutionTime(r.additional_comments)
   const cls = classifyCase(r.state, pr)
   // SOP-cadence SLA (the real SLA). `sla_eligible` now means "has a defined SOP
   // cadence" (was "Made SLA field present"); `sla_breached` is the lifetime
-  // cadence/first-response breach; `sla_due_sop` is the next-update deadline.
+  // cadence/first-response breach; `sla_due_sop` is the next-update deadline
+  // (null for closed AND Solution Proposed — see computeSlaSop).
   const sop = computeSlaSop({
     createdMs: created ? created.getTime() : null,
     closedMs: closed ? closed.getTime() : null,
     isClosed,
+    isSolutionProposed,
     frtMs,
     updateTimes: inforUpdates.times,
     cadenceMs: cls.threshold_ms,
@@ -639,6 +777,16 @@ export const enrichForSql = (r, snapshotMs) => {
     jira_keys: jira.tickets.map((t) => t.id).join("|"),
     jira_active_keys: jira.activeTickets.join("|"),
     jira_first_linked: jira.firstLinkedAt,         // Date | null
+    // Customer sentiment (v9). Identical values to enrichRow (same row, same
+    // frtMs). Plain Number | string | boolean | null — never undefined — so the
+    // worker's Arrow column build (buildArrowTable) types them cleanly.
+    ...gradeFromRow(r, frtMs),
+    // Resolution-notes-saved time in ms (v10) — the START of the Solution-Proposed
+    // 90-day auto-close countdown (the /solution-proposed page derives auto_close_at
+    // = anchor + 90d against the snapshot, where the anchor coalesces this → last
+    // Infor update → created). Marker-only; null when no resolution notes are saved.
+    // BigInt to match the BIGINT DDL + the other `*_ms` columns.
+    resolved_at_ms: resolvedAtMs == null ? null : BigInt(resolvedAtMs),
   }
 }
 
@@ -685,4 +833,21 @@ export const SQL_COLUMNS = [
   "sla_due_sop",
   // Case lifecycle (v8). Appended for the same positional-alignment reason.
   "lifecycle",
+  // Customer sentiment (v9). Appended (positional alignment with CASES_COLUMNS
+  // in db.worker.js). Produced by gradeFromRow; null/false for silent cases.
+  "sentiment_scoreable", // BOOLEAN
+  "sentiment_valence",   // BIGINT  (plain Number | null, like priority_rank)
+  "sentiment_label",     // VARCHAR
+  "sentiment_start",     // BIGINT  (opening valence | null)
+  "sentiment_end",       // BIGINT  (closing valence | null)
+  "sentiment_arc",       // VARCHAR
+  "sentiment_emotions",  // VARCHAR
+  "sentiment_target",    // VARCHAR
+  "sentiment_quote",     // VARCHAR
+  "sentiment_coaching",  // VARCHAR
+  "sentiment_pii",       // BOOLEAN
+  "sentiment_dup",       // BOOLEAN
+  // Resolution-notes-saved time (v10) — auto-close countdown anchor. Appended
+  // (positional alignment with CASES_COLUMNS in db.worker.js). BigInt | null.
+  "resolved_at_ms",      // BIGINT
 ]

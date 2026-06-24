@@ -32,6 +32,11 @@ export const INITIAL_RESPONSE_MS = {
   4: 4 * 60 * 60 * 1000,       // P4: 4h
 }
 
-// Status (ServiceNow `status` column) whose cases must still be updated at the
-// regular priority SOP cadence. Matched case-insensitively in queries.
-export const SOLUTION_PROPOSED_STATUS = 'Solution Proposed'
+// Auto-close horizon for Solution Proposed (State="Resolved") cases. ServiceNow
+// auto-closes a Resolved case 90 days after its last update if the customer
+// never confirms. We model that countdown from the case's last journal activity
+// against the data-as-of snapshot (see `_autoCloseAt` in enrich.js and
+// getSolutionProposedAutoClose in queries.js). Resolved cases NO LONGER owe a
+// recurring SOP cadence update (their SLA cadence clock stops at the last
+// update — see computeSlaSop); this is the clock that replaces it.
+export const SOLUTION_PROPOSED_AUTOCLOSE_MS = 90 * 24 * 60 * 60 * 1000

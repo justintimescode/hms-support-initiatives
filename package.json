@@ -1,7 +1,7 @@
 {
   "name": "kpi-analyzer",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "ServiceNow + Jira KPI analyzer — desktop app",
   "author": "Infor",
   "type": "module",
@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "test": "node --test",
     "preview": "vite preview",
     "electron:dev": "vite build && electron .",
     "electron:build": "vite build && electron-builder --win"

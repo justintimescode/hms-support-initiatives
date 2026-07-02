@@ -4,6 +4,7 @@ import { OwnedCasesBlock } from "../components/charts/OwnedCasesBlock.jsx"
 import { TrajectoryBlock } from "../components/charts/TrajectoryBlock.jsx"
 import { ClosedCadenceBlock } from "../components/charts/ClosedCadenceBlock.jsx"
 import { BacklogForecastBlock } from "../components/charts/BacklogForecastBlock.jsx"
+import { ParentAccountTrendBlock } from "../components/charts/ParentAccountTrendBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function TrendsPage() {
@@ -30,6 +31,7 @@ export default function TrendsPage() {
         <TrajectoryBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
         <ClosedCadenceBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
         <BacklogForecastBlock rows={rows} snapshotMs={snapshotMs} />
+        <ParentAccountTrendBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
       </div>
     </Section>
   )

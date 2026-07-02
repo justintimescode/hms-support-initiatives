@@ -211,6 +211,13 @@ export function normalizeXlsxRow(r) {
     status:              r['Status']              ?? null,
     priority:            r['Priority']            ?? null,
     account:             r['Account']             ?? null,
+    // Customer-hierarchy parent (the DoD branch grouping — e.g. "Armed Forces -
+    // Army (HQ)"). Raw passthrough: not baked into the SQL schema, but carried on
+    // the in-memory enriched row (enrichRow spreads `...r`) where the DoD
+    // parent-account visualizations read it via src/lib/dod.js. CSV exports use
+    // the system field name directly (see parseFileToRows) so this XLSX label
+    // mapping is only needed for the recommended XLSX path.
+    parent_account:      r['Parent Account']      ?? r['Parent account'] ?? null,
     contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,

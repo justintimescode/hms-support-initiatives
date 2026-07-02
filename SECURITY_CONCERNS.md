@@ -2,22 +2,26 @@
 
 A review of the codebase identified the following security issues. They are grouped by severity and each includes the relevant file and a suggested remediation. Items marked **RESOLVED** have been addressed; the resolution is documented for audit purposes.
 
+> **REVISION (2026-06-25):** re-reviewed the whole codebase against everything added since the previous pass — the **on-device Case Sentiment Grader** (v1.1.0: `sentiment.js`, the deep-read, the XLSX export), the v10 SLA changes, and the **Electron desktop build** (`electron/`). Net result: the sentiment grader is largely safe by design (#19), but it added a second AI egress endpoint (#1) and the free-text scrub it relies on is now load-bearing (#15); the packaged Electron app re-introduces the dev-server's unauthenticated-relay exposure in a *distributed* binary (#18); and the dependency picture has shifted — `dompurify` and `electron` now carry advisories that matter here (#17). New items #18–#19 added; #1, #7, #10, #13, #15, #16, #17 updated.
+
 ---
 
 ## Critical
 
 ### 1. Customer data sent to external AI API without consent or disclosure
 **Status: RESOLVED**
-**Files:** `src/lib/ai-client.js`, `src/lib/ai-scrub.js`, `src/components/ai/AiBlock.jsx`
+**Files:** `src/lib/ai-client.js`, `src/lib/ai-scrub.js`, `src/components/ai/AiBlock.jsx`, `src/components/ai/SentimentDeepRead.jsx`
 
 The previous inline `fetch('https://api.anthropic.com/...')` shipped the API key into the client bundle and sent raw customer data directly to a vendor. This has been replaced with a first-party proxy architecture:
 
 - All AI traffic now routes through `VITE_AI_PROXY_URL` (a backend you control). The browser never contacts a model vendor directly.
 - When no proxy is configured, `AiNotConfiguredError` is thrown and the UI shows a calm "not configured" state — no data leaves the browser.
-- Every payload is scrubbed by `scrubForAi()` before it leaves the browser: case numbers → `CASE-<hash>`, account names → `ACCOUNT-<hash>`, analyst names → `ANALYST-<hash>`, free-text fields get email/name/case-number regex scrubbing and a 400-char cap.
+- Every payload is scrubbed by `scrubForAi()` before it leaves the browser: case numbers → `CASE-<hash>`, account names → `ACCOUNT-<hash>`, analyst names → `ANALYST-<hash>`, free-text fields get email/phone/name/case-number regex scrubbing and a 400-char cap.
 - The scrub is deterministic (FNV-1a hash) so the AI can still reason about correlations without seeing real values.
 
-**Remaining concern:** The proxy backend (`VITE_AI_PROXY_URL`) does not yet exist. Until it is built and deployed, the AI feature is inert. When the proxy is built, it must: (a) hold the model API key server-side, (b) re-scrub PII as a second defense layer, and (c) not log raw payloads.
+> **UPDATE (2026-06, sentiment deep-read):** `ai-client.js` gained a **second egress method** — `reviewSentiment()` → `POST {proxy}/api/sentiment` — for the Case Sentiment Grader's optional "deep read" (see #19). It follows the same contract as `analyzeCases()`: gated on `isConfigured()` (inert when no proxy is set), and `SentimentDeepRead.jsx` runs `scrubForAi()` on the payload *before* sending. Two differences worth flagging: (1) the deep-read payload carries the customer's **verbatim comment text and representative quote**, so the free-text scrub (#15) is now genuinely load-bearing rather than theoretical; (2) only a hand-picked handful (≤10 negative cases, `MAX_DEEP_READ`) is ever sent — it never fans out across the queue. Responses are mapped back to local cases by a non-PII `ref` index and rendered as plain text (no `dangerouslySetInnerHTML`).
+
+**Remaining concern:** The proxy backend (`VITE_AI_PROXY_URL`) does not yet exist. Until it is built and deployed, the AI feature is inert. When the proxy is built, it must serve **both** `/api/insights` and `/api/sentiment`, and must: (a) hold the model API key server-side, (b) re-scrub PII as a second defense layer (especially the deep-read's verbatim comment field, per #15), and (c) not log raw payloads.
 
 ---
 
@@ -103,6 +107,8 @@ Magic-byte validation and a size ceiling are now applied before any parser touch
 
 > **AUDIT NOTE (2026-06, Jira Blockers export):** the "Cases waiting on Jira" table export (`JiraDashboard.jsx` → `jira-cases-<timestamp>.csv`) uses the shared `rowsToCsv`/`downloadCsv` from `csv-export.js` — no new row builder, sanitizer coverage intact. `downloadCsv` also gained a UTF-8 BOM so Excel on Windows decodes non-ASCII account/analyst names correctly.
 
+> **AUDIT NOTE (2026-06, sentiment XLSX export):** the Case Sentiment Grader added a *new* export path — `sentiment-export.js` builds a two-sheet **`.xlsx`** workbook via exceljs, not a CSV. It does **not** bypass the guard: every string cell is funneled through a `txt()` helper that calls `sanitizeCellForExport()` from `csv-export.js`; numbers/dates are written as typed cells (no injection surface). This matters because Excel evaluates formulas in `.xlsx` files just as it does in `.csv`, so the `=`/`+`/`-`/`@` prefix guard is still required. Verified: the only string sinks (`txt(...)` at every `addRow`) route through the shared sanitizer. New non-CSV export features must do the same.
+
 ---
 
 ### 8. Analyst param from URL (SQL injection risk)
@@ -147,7 +153,7 @@ dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(detail.html) }}
 
 ServiceNow free-text fields (`work_notes`, `close_notes`, `short_description`) are still rendered as plain text content (safe). The comment in `enrich.js` explicitly warns that DOMPurify must be applied before any future switch to `dangerouslySetInnerHTML` for those fields.
 
-**Remaining concern:** `dompurify` (`^3.4.5`) is installed. Verify it is kept up to date — DOMPurify has had bypass CVEs in the past and patch releases matter.
+**Remaining concern:** `dompurify` (`^3.4.5`) is installed. Verify it is kept up to date — DOMPurify has had bypass CVEs in the past and patch releases matter. **This is no longer hypothetical:** as of 2026-06 `npm audit` flags the installed `dompurify <= 3.4.10` with **multiple sanitizer-bypass advisories** (IN_PLACE / cross-realm / `<template>` shadow-root / config-pollution bypasses — see #17). Most target `IN_PLACE` mode, which this app does not use (it sanitizes a string and assigns the result), so reachability is limited — but DOMPurify here guards the one live `dangerouslySetInnerHTML` sink, so this should be patched. The fix is **non-breaking** (`npm audit fix` bumps within the 3.x line). See #17.
 
 ---
 
@@ -193,6 +199,8 @@ This is the standard pattern for Vite dev proxies and is acceptable for a local 
 - If the workstation is compromised, the token is exposed.
 - The token grants read access to the entire Atlassian organization's Jira (not just the HMS project).
 
+> **UPDATE (2026-06, desktop build):** the plaintext `.env` token applies to **`npm run dev` only**. The packaged Electron app does **not** use `.env` — `electron/creds.cjs` has each user enter their *own* Jira email + token in the first-run setup screen and persists it to `<userData>/credentials.enc` via Electron `safeStorage` (Windows **DPAPI**, keyed to the logged-in Windows user; the file is useless if copied to another machine/account), written `mode 0600`. The token is never returned to the renderer (`creds:status` deliberately omits it) and is injected server-side by the loopback proxy (see #18). This is a meaningful improvement over the dev `.env` for the distributed app. Residual: `creds.cjs` falls back to **plaintext** if `safeStorage.isEncryptionAvailable()` is false, and the token is still org-wide in scope.
+
 **INCIDENT — token committed and pushed (action required):** a real Atlassian API token was committed in `.env.example` (commit `b8dc0aa`) and pushed to GitLab. It has since been redacted to a placeholder (commit `9c2a64a`), but the token still exists in earlier history on the remote. **The token must be revoked** at https://id.atlassian.com/manage-profile/security/api-tokens and a fresh one generated for local `.env` — redaction does not invalidate an already-exposed credential. History was intentionally left unrewritten (revocation is the real fix); if a clean history is also desired, purge with `git filter-repo` and force-push.
 
 **Suggested fix:**
@@ -227,16 +235,18 @@ Properties:
 ---
 
 ### 15. AI free-text scrub is heuristic and incomplete (NEW)
-**Status: OPEN (latent — AI proxy not yet deployed)**
-**File:** `src/lib/ai-scrub.js`
+**Status: OPEN (latent — AI proxy not yet deployed; but the consuming path now exists)**
+**Files:** `src/lib/ai-scrub.js`, `src/lib/ai-scrub.test.js`
 
-`scrubText()` masks emails, ServiceNow-shaped case numbers, and "First Last" name pairs, then caps free text at 400 chars. Identifiers (case number, account, analyst) are hashed deterministically. This is solid defense-in-depth, but the free-text regex scrub does **not** catch: phone numbers, postal addresses, single-token names, hotel/property names embedded in prose, confirmation/reservation numbers, credit-card fragments, or non-Latin names. The `NAME_PAIR_RE` heuristic also produces false positives (e.g. "Night Audit" → "[name]") without improving safety.
+`scrubText()` masks emails, ServiceNow-shaped case numbers, phone numbers, and "First Last" name pairs, then caps free text at 400 chars. Identifiers (case number, account, analyst) are hashed deterministically. This is solid defense-in-depth, but the free-text regex scrub does **not** catch: postal addresses, single-token names, hotel/property names embedded in prose, confirmation/reservation numbers, credit-card fragments, or non-Latin names. The `NAME_PAIR_RE` heuristic also produces false positives (e.g. "Night Audit" → "[name]") without improving safety.
 
-Currently moot: no proxy is configured (#1), so no payload ever leaves the browser. But **before the AI proxy ships**, this scrub must be hardened and — per #1 — the server must re-scrub as a second layer and must not log raw payloads. Treat the client scrub as best-effort masking, never as a guarantee.
+> **UPDATE (2026-06):** two of the original gaps were addressed. (1) A `PHONE_RE` was added (conservative — requires separators so it won't eat ISO dates or bare numeric IDs), and `scrubForAi` now scrubs the deep-read free-text keys (`comments`, `quote`, `work_notes`) in addition to `short_description`/`close_notes`. (2) The suggested unit test now exists (`ai-scrub.test.js`) — it asserts the email/phone/case/name masking, the ISO-date/short-number non-over-match, the 400-char cap, and the non-mutating/deterministic guarantees. **However**, the risk is no longer purely hypothetical: the sentiment **deep-read** (#1, #19) is a concrete code path that packages the customer's *verbatim comment stream and representative quote* into the payload `scrubText` protects. The 400-char cap and the regex set are now the actual last line of defense for that text — so the residual gaps above are higher-priority than when this item read "currently moot."
+
+Still gated: no proxy is configured (#1), so no payload leaves the browser yet. But **before the AI proxy ships**, harden this scrub and — per #1 — have the server re-scrub as a second layer and never log raw payloads. Treat the client scrub as best-effort masking, never as a guarantee.
 
 **Suggested fix:**
-- Expand the regex set (phone, address, long digit runs) and/or move the authoritative scrub server-side.
-- Add a unit test asserting the invariants documented at the bottom of `ai-scrub.js`.
+- Expand the regex set further (postal addresses, long digit runs, reservation/confirmation patterns) and/or move the authoritative scrub server-side.
+- ~~Add a unit test asserting the invariants documented at the bottom of `ai-scrub.js`.~~ **Done** (`ai-scrub.test.js`). Extend it as the regex set grows.
 
 ---
 
@@ -255,31 +265,87 @@ The `npm run dev` server mounts middlewares that read, write, and delete data wi
 
 This is the **normal runtime**, not a developer-only edge case: live Jira sync and the disk mirror (#14) both require `npm run dev`. A static `vite build` has none of these middlewares, so deployed builds are unaffected.
 
+> **IMPORTANT (2026-06):** a static `vite build` is unaffected, but the **Electron desktop build is not** — `electron/server.cjs` is a faithful port of these same middlewares (`/api/jira`, `/api/cache/jira`, `/api/cache/sn`) running inside the packaged app, and it carries every issue described here (no `Origin`/`Host`/auth check, unbounded body writes, `err.message` path leaks, the authenticated Jira relay). So this exposure is no longer confined to a developer's machine — it ships in a distributed binary. The fixes below apply equally to `server.cjs`. See **#18** for the full Electron analysis.
+
 **Suggested fix:**
-- Reject requests whose `Host` is not `localhost`/`127.0.0.1`, and deny cross-site requests (`Sec-Fetch-Site: cross-site`, or an `Origin` allowlist) on every `/api/cache/*` and `/api/jira` route — this closes both CSRF and DNS-rebinding.
+- Reject requests whose `Host` is not `localhost`/`127.0.0.1`, and deny cross-site requests (`Sec-Fetch-Site: cross-site`, or an `Origin` allowlist) on every `/api/cache/*` and `/api/jira` route — this closes both CSRF and DNS-rebinding. **Apply to `electron/server.cjs` as well.**
 - Require a per-session shared token (minted at dev-server start, handed to the client) on the mutating and data-returning routes.
 - Add a body-size cap to the cache write routes and return generic error messages instead of `err.message`.
 - Scope the Jira proxy to the specific REST paths the app actually calls rather than forwarding everything under `/api/jira`.
 
 ---
 
-### 17. Unpatched transitive dependency advisories (NEW)
+### 17. Unpatched dependency advisories (`npm audit`) (NEW)
 **Status: OPEN**
-**Severity: Low** (transitive / mostly build-time; not clearly reachable in the browser bundle)
+**Severity: Low–Medium** (the picture has shifted: one advisory is now **browser-reachable** and one **high-severity advisory ships in the Electron runtime**; the rest remain transitive/build-side)
 **Files:** `package.json`, `package-lock.json`
 
-`npm audit` currently reports 4 advisories (1 high, 3 moderate), all transitive:
+> **RE-AUDIT (2026-06-25):** the count grew well past the "4 advisories" the original note recorded, and — more importantly — two are no longer merely build-time. The current `npm audit` (full tree) reports advisories against `dompurify`, `electron`, `qs`, `tmp`, `uuid`, plus `@babel/core`, `form-data`, `js-yaml`, and `tar`.
 
-- **`tmp` < 0.2.6** (high) — path traversal via unsanitized prefix/postfix (GHSA-ph9p-34f9-6g65). Node-side build tooling, not shipped to the browser.
-- **`qs` 6.11.x** (moderate) — `qs.stringify` DoS on null/undefined entries in comma-format arrays (GHSA-q8mj-m7cp-5q26). Build/Node-side.
-- **`uuid` < 11.1.1** via **`exceljs`** (moderate) — missing buffer bounds check in v3/v5/v6 **when `buf` is provided** (GHSA-w5hq-g745-h8pq). exceljs is dynamically imported for XLSX parsing, so uuid can reach the client, but the advisory only triggers when a caller passes a `buf` to uuid v3/v5/v6 — exceljs uses random v4, so it is not exercised here.
+**Now reachable / shipped (act on these):**
 
-Real-world exploitability in this app is low, but these should be tracked and patched, consistent with #5/#10's "keep parser/sanitizer libraries current."
+- **`dompurify <= 3.4.10`** (moderate, multiple advisories) — sanitizer bypasses in IN_PLACE / cross-realm / `<template>` shadow-root / config-pollution modes. **This is the one library here that runs in the browser on attacker-influenced data** — it guards the lone `dangerouslySetInnerHTML` sink (Jira description HTML, #10). The app uses string-in/string-out sanitization, not `IN_PLACE`, so most of these bypasses aren't directly exercised — but this is exactly the "keep DOMPurify current" risk #10 warned about. **Fix is non-breaking** (`npm audit fix` stays within 3.x). Patch it.
+- **`electron <= 39.8.4`** (high, ~18 advisories incl. ASAR integrity bypass, multiple use-after-frees, header injection, IPC spoofing) — the project pins `electron ^33.0.0`, so the **distributed desktop binary** (#18) ships an outdated Electron. Most of these need specific renderer/IPC conditions, but a packaged app handling customer PII should not sit ~9 majors behind. Fix is **breaking** (`npm audit fix --force` would jump to electron 42); plan a deliberate upgrade + smoke test rather than blindly forcing it.
+
+**Transitive / build-side (lower priority):**
+
+- **`tmp` < 0.2.6** (high) — path traversal via unsanitized prefix/postfix (GHSA-ph9p-34f9-6g65). Build tooling, not in the browser bundle.
+- **`qs` 6.11.x** (moderate) — `qs.stringify` DoS (GHSA-q8mj-m7cp-5q26). Node/build-side.
+- **`uuid` < 11.1.1** via **`exceljs`** (moderate) — missing buffer bounds check in v3/v5/v6 **only when `buf` is provided** (GHSA-w5hq-g745-h8pq). exceljs reaches the client (XLSX parse + sentiment export), but it uses random v4 and passes no `buf`, so the advisory isn't exercised here.
+- **`@babel/core`, `form-data`, `js-yaml`, `tar`** — pulled in via Vite/Babel and `electron-builder`/`@electron/rebuild`; these run at build/package time only, not in the shipped app.
 
 **Suggested fix:**
-- Run `npm audit fix` for `tmp`/`qs` (non-breaking).
-- **Do not run `npm audit fix --force`** — it "resolves" the uuid advisory by *downgrading* `exceljs` to 3.4.0, a major regression from the 4.4 line the project deliberately migrated to in #5. Instead track an upstream `exceljs` release that bumps `uuid`, or accept the low risk with a note.
+- Run `npm audit fix` for the **non-breaking** set first — it resolves `dompurify`, `qs`, `tmp`, `@babel/core`, `form-data`, `js-yaml`. The `dompurify` bump is the priority (browser-reachable).
+- Plan a **deliberate Electron major upgrade** (33 → current) with a regression pass on the loopback server, IPC, and the setup/credential flow — don't rely on `--force` to do it silently.
+- **Do not run `npm audit fix --force` blind** — it still "resolves" the `uuid` advisory by *downgrading* `exceljs` to 3.4.0, a regression from the 4.4 line the project deliberately migrated to (#5), and it would also force the Electron/electron-builder majors. Track an upstream `exceljs` release that bumps `uuid` instead, or accept the (un-exercised) risk with a note.
 - Re-run `npm audit` in CI so new advisories surface on each dependency change.
+
+---
+
+### 18. Electron desktop build: packaged loopback server repeats the dev-server exposure (NEW)
+**Status: OPEN (loopback server) — renderer is otherwise well-hardened**
+**Severity: Medium** (the shipped Jira-relay + raw-customer-data routes mirror #16, now inside a *distributed* binary)
+**Files:** `electron/main.cjs`, `electron/server.cjs`, `electron/creds.cjs`, `electron/preload.cjs`
+
+The Windows desktop build (`npm run electron:build`) packages a local HTTP server (`server.cjs`) that runs in the Electron main process and is the production replacement for the Vite dev middleware — the renderer fetches the same relative `/api/jira`, `/api/cache/jira`, `/api/cache/sn` URLs. This is a brand-new distributed surface a static `vite build` doesn't have.
+
+**Hardened (good — verified):**
+- Renderer `webPreferences`: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. `preload.cjs` exposes only a 4-method `electronAPI` over `contextBridge` (`test` / `saveAndLaunch` / `status` / `openExternal`) — no `ipcRenderer`, `fs`, or Node surface leaks to the renderer.
+- `setWindowOpenHandler` denies in-app popups and routes `https?:` links to the system browser; `open:external` re-validates the scheme.
+- Credentials are encrypted at rest — see #13: `creds.cjs` uses Electron `safeStorage` (Windows DPAPI), `mode 0600`, token never returned to the renderer.
+- The server binds to **`127.0.0.1` only** (not the LAN), and `serveStatic` has a path-traversal guard plus a `distDir` prefix check.
+- The built `index.html` carries the production CSP (#9) — the Electron app loads the `vite build` output, so the meta-CSP applies in the renderer.
+
+**Gaps:**
+1. **Same no-`Origin`/`Host`/auth posture as #16 — now shipped.** `server.cjs` validates no `Origin`/`Host`, mints no CSRF token, requires no auth. `GET /api/cache/sn/{uuid}/source` streams the **raw, unscrubbed customer export**; `handleJira` injects the user's DPAPI-stored token on **every** forwarded request and relays **any method/path** under `/api/jira` — a confused-deputy against the whole Atlassian org. A malicious page in the user's browser can reach the loopback server via **DNS-rebinding** (and simple cross-origin `POST`s need no preflight). The port is now **stable across launches** (persisted in `<userData>/server-port.json` so OPFS/localStorage — which are keyed to the origin — survive restarts), which makes it easier to discover by a localhost port scan than the dev server's per-run random port.
+2. **Unbounded request bodies** — `streamBodyToFile` buffers all chunks in memory, then writes; no size cap on `/api/cache/*` writes (memory + disk-fill DoS).
+3. **Error bodies leak paths** — `res.end(err.message)` / `res.end(e.message)` exposes absolute `%APPDATA%` filesystem paths.
+4. **No `will-navigate` handler** — `setWindowOpenHandler` covers `window.open`/`target=_blank` but not in-page navigation away from the loopback origin (defense-in-depth gap).
+5. **DevTools enabled in the production menu** (`role: 'toggleDevTools'`). The renderer has no Node access, so impact is bounded to inspecting already-local data — but it's avoidable exposure for an app holding customer PII.
+6. **`serveStatic` guard uses `filePath.startsWith(distDir)`** without a trailing separator — a classic prefix-match footgun (a sibling dir whose name starts with the dist basename would pass the check). No such sibling exists in the packaged layout today, so it's latent; harden to `startsWith(distDir + path.sep)` or `path.relative`.
+7. **Outdated Electron** ships in the binary — see #17 (`electron <= 39.8.4`, high).
+
+**Suggested fix:**
+- Apply #16's fixes to `server.cjs`: reject non-`localhost` `Host`, deny `Sec-Fetch-Site: cross-site` (or an `Origin` allowlist), and require a per-session token minted at boot and handed to the renderer on `/api/cache/*` and `/api/jira`. This closes both CSRF and DNS-rebinding for the shipped app.
+- Add a request-body size cap; return generic error strings instead of `err.message`.
+- Add a `will-navigate` handler pinning the renderer to the loopback origin; drop `toggleDevTools` from production menus (or gate it behind a debug flag).
+- Plan an Electron major upgrade off the 33.x line (#17).
+
+---
+
+### 19. On-device Case Sentiment Grader — reviewed (NEW)
+**Status: REVIEWED — low risk; egress folds into #1/#15, export into #7**
+**Severity: Informational**
+**Files:** `src/lib/sentiment.js`, `src/lib/sentiment-export.js`, `src/components/ai/SentimentDeepRead.jsx`, `src/components/charts/SentimentBlock.jsx`, `src/pages/SentimentPage.jsx`
+
+The v1.1.0 Case Sentiment Grader was reviewed as a new feature. Its core (`sentiment.js`) is a pure lexicon/heuristic engine — **no network, no model, and no new dependency** (verified against `package.json`: no Transformers.js/ONNX/WebLLM). It operates only on journal text already in the browser and emits no identifier it wasn't given. Findings:
+
+- **Rendering is safe.** The sentiment columns that contain customer free-text (representative quote, coaching note, emotions) are rendered as React text nodes (auto-escaped). A codebase-wide search confirms the only `dangerouslySetInnerHTML` sink remains the DOMPurify-sanitized Jira description (#10) — the grader introduced no new HTML sink.
+- **Export is sanitized (#7).** `sentiment-export.js` builds an XLSX via exceljs and routes every string cell through `sanitizeCellForExport()` (the `txt()` helper); typed numbers/dates have no injection surface. Excel evaluates formulas in `.xlsx` too, so this is necessary — and the new path correctly reuses the shared guard.
+- **The deep-read is the only egress (#1).** `SentimentDeepRead.jsx` is the lone network path: gated on `aiClient.isConfigured()` (inert with no proxy), capped at ≤10 hand-picked negatives, scrubbed via `scrubForAi()` before send, responses mapped back by a non-PII `ref` index. Its payload carries verbatim customer comments + the quote, so the scrub gaps in #15 apply directly to it.
+- **New PII-hygiene flag (a feature, not a risk).** `gradeCase` sets a `sentiment_pii` flag (and surfaces the affected case numbers) when the customer-visible journal contains AnyDesk/TeamViewer mentions or a `password:`-shaped token — i.e. it *helps* analysts spot accidentally-pasted remote-access creds. The flagged case numbers stay in the local/exported report; nothing leaves the device.
+
+**No action required** beyond keeping #15's scrub current before the AI proxy ships.
 
 ---
 
@@ -287,20 +353,22 @@ Real-world exploitability in this app is low, but these should be tracked and pa
 
 | # | Issue | Severity | Status |
 |---|---|---|---|
-| 1 | Customer data sent to external AI API | Critical | RESOLVED |
+| 1 | Customer data sent to external AI API | Critical | RESOLVED — proxy seam holds; **+** new `/api/sentiment` deep-read egress (scrubbed, inert until proxy) |
 | 2 | `window.__db` exposed in dev mode | High | RESOLVED |
 | 3 | Analyst names in URL / browser history | High | RESOLVED |
 | 4 | OPFS data persists unencrypted, no default expiry | High | PARTIALLY RESOLVED — **regressed**: 24h auto-TTL removed; auto-delete now opt-in & OFF by default |
 | 5 | Outdated `xlsx` package with known vulns | Medium | RESOLVED (`xlsx` removed, migrated to `exceljs`, validated 574/574) |
 | 6 | No file type / magic byte validation | Medium | RESOLVED |
-| 7 | CSV formula injection not sanitized | Medium | RESOLVED (2026-05) — export shipped bypassing the guard; now wired through `sanitizeCellForExport` |
+| 7 | CSV / formula injection not sanitized | Medium | RESOLVED — all CSV + the new sentiment **XLSX** export route through `sanitizeCellForExport` |
 | 8 | Analyst param from URL (SQL injection risk) | Medium | RESOLVED |
 | 9 | No Content Security Policy | Low | RESOLVED (prod build) |
-| 10 | Free-text fields not sanitized for XSS | Low | PARTIALLY RESOLVED (Jira HTML sanitized; SN fields text-only) |
+| 10 | Free-text fields not sanitized for XSS | Low | PARTIALLY RESOLVED (Jira HTML sanitized; SN + sentiment fields text-only) — **DOMPurify now has reachable advisories, see #17** |
 | 11 | No authentication | Informational | OPEN |
 | 12 | `window.__jira` dev hook | Informational | OPEN |
-| 13 | Jira API token in plaintext `.env` (+ token leaked to GitLab) | Informational | OPEN (by design) — **leaked token must be revoked** |
-| 14 | ServiceNow imports mirrored to plaintext disk files | Informational | MOSTLY RESOLVED — **NEW**: opt-in & OFF by default; delete/sweep fixed; plaintext when opted in |
-| 15 | AI free-text scrub is heuristic / incomplete | Informational | OPEN (latent — proxy not deployed) — **NEW** |
-| 16 | Dev-server middleware: no origin/host/auth on data + Jira-proxy routes | Medium | OPEN — **NEW** |
-| 17 | Unpatched transitive dependency advisories (`npm audit`) | Low | OPEN — **NEW** |
+| 13 | Jira API token in plaintext `.env` (+ token leaked to GitLab) | Informational | OPEN (by design) — **leaked token must be revoked**; desktop build now uses **DPAPI-encrypted** creds |
+| 14 | ServiceNow imports mirrored to plaintext disk files | Informational | MOSTLY RESOLVED — opt-in & OFF by default (browser) / ON (desktop, own profile); plaintext when enabled |
+| 15 | AI free-text scrub is heuristic / incomplete | Informational | OPEN (latent — proxy not deployed) — phone scrub + tests added; **now load-bearing for the deep-read** |
+| 16 | Dev-server middleware: no origin/host/auth on data + Jira-proxy routes | Medium | OPEN — **also ships in Electron `server.cjs`, see #18** |
+| 17 | Unpatched dependency advisories (`npm audit`) | Low–Medium | OPEN — **dompurify now browser-reachable; electron high & shipped** |
+| 18 | Electron desktop: packaged loopback server repeats #16 in a distributed binary | Medium | OPEN — **NEW** (renderer otherwise well-hardened) |
+| 19 | On-device Case Sentiment Grader | Informational | REVIEWED — **NEW**; low risk (egress → #1/#15, export → #7) |

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FileSpreadsheet, Cloud } from "lucide-react";
+import { FileSpreadsheet, Cloud, Loader2 } from "lucide-react";
 import { T, alpha } from "../../lib/theme.js";
 import { fmtAgo } from "../../lib/format.js";
 
@@ -9,7 +9,7 @@ import { fmtAgo } from "../../lib/format.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone }) {
+function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone, busy }) {
   const ago = fmtAgo(ts);
   const isMissing = ago == null;
   const stale = !isMissing && (now - ts) > DAY_MS;
@@ -53,6 +53,13 @@ function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone }) {
       >
         {text}
       </span>
+      {busy && (
+        <Loader2
+          size={11}
+          aria-label="syncing"
+          style={{ color: T.muted, animation: "spin 0.8s linear infinite", flexShrink: 0 }}
+        />
+      )}
     </div>
   );
 }
@@ -89,6 +96,7 @@ export function FreshnessIndicator({ activeImport, jiraState }) {
         now={now}
         missingLabel={jiraNeverSynced || "never synced"}
         missingTone={T.muted}
+        busy={!!jiraState?.autoSyncing}
       />
     </div>
   );

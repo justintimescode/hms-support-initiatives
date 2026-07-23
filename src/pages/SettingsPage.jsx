@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useOutletContext } from "react-router-dom"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { T } from "../lib/theme.js"
@@ -30,6 +31,7 @@ export default function SettingsPage() {
   const [enabled, setEnabled] = useState(initial.enabled)
   const [days, setDays] = useState(initial.days)
   const [diskBackup, setDiskBackupState] = useState(getDiskBackup())
+  const { jiraAutoSync, setJiraAutoSyncPref } = useOutletContext()
 
   const persist = (next) => {
     const merged = { enabled, days, ...next }
@@ -92,6 +94,22 @@ export default function SettingsPage() {
               </div>
             </div>
             <Toggle checked={diskBackup} onChange={toggleDiskBackup} />
+          </div>
+        </Card>
+
+        <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="eyebrow" style={{ color: T.muted }}>Jira auto-sync</div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
+            <div style={{ maxWidth: 420 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Auto-refresh Jira in the background</div>
+              <div style={{ fontSize: 13, color: T.sub, marginTop: 4, lineHeight: 1.5 }}>
+                When on, the app quietly pulls only the Jira issues changed since the last sync every{" "}
+                {jiraAutoSync?.intervalMin ?? 15} minutes and whenever you return to the window — a small
+                incremental fetch, not a full re-pull. Once a day it runs a full reconcile to catch deleted
+                or moved issues. Needs an initial sync first; turn it off to sync only on demand.
+              </div>
+            </div>
+            <Toggle checked={!!jiraAutoSync?.enabled} onChange={(on) => setJiraAutoSyncPref({ enabled: on })} />
           </div>
         </Card>
       </div>

@@ -49,3 +49,30 @@ export function setDiskBackup(enabled) {
     localStorage.setItem(DISK_BACKUP_KEY, JSON.stringify({ enabled: !!enabled }))
   } catch { /* quota / unavailable — fine */ }
 }
+
+// Background Jira auto-refresh. When on, the app runs a lightweight "since last
+// sync" delta poll on an interval and on window focus, plus a full reconcile
+// once the cache is a day stale (to catch deletions/moves the delta can't see).
+// Default ON: Jira data is read-only here and each delta is a tiny, incremental
+// fetch — not a full 365-day re-pull.
+const JIRA_AUTOSYNC_KEY = "kpi.jiraAutoSync"
+
+/** @returns {{ enabled: boolean, intervalMin: number }} */
+export function getJiraAutoSync() {
+  try {
+    const v = JSON.parse(localStorage.getItem(JIRA_AUTOSYNC_KEY) || "null")
+    if (v && typeof v === "object") {
+      return { enabled: !!v.enabled, intervalMin: Math.max(1, Number(v.intervalMin) || 15) }
+    }
+  } catch { /* corrupt / unavailable */ }
+  return { enabled: true, intervalMin: 15 }
+}
+
+export function setJiraAutoSync({ enabled, intervalMin }) {
+  try {
+    localStorage.setItem(
+      JIRA_AUTOSYNC_KEY,
+      JSON.stringify({ enabled: !!enabled, intervalMin: Math.max(1, Number(intervalMin) || 15) }),
+    )
+  } catch { /* quota / unavailable — fine */ }
+}

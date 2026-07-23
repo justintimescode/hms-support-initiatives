@@ -17,7 +17,7 @@ export function TopBar({ ctx }) {
     view,
     teamMembers, kpis,
     printMenuOpen, setPrintMenuOpen, triggerPrint,
-    activeImport, jiraState,
+    activeImport, jiraState, jiraAutoSyncing,
   } = ctx
 
   if (!rows) {
@@ -26,7 +26,7 @@ export function TopBar({ ctx }) {
         className="no-print"
         style={{ display: "flex", justifyContent: "flex-end", marginBottom: 18 }}
       >
-        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} />
+        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} jiraAutoSyncing={jiraAutoSyncing} />
       </div>
     )
   }
@@ -170,7 +170,7 @@ export function TopBar({ ctx }) {
           )}
         </div>
 
-        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} />
+        <FreshnessIndicator activeImport={activeImport} jiraState={jiraState} jiraAutoSyncing={jiraAutoSyncing} />
       </div>
     </div>
   )

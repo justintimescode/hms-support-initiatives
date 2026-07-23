@@ -30,7 +30,12 @@ import {
   deleteDiskImport, clearDiskCache,
 } from "./imports-cache.js"
 import { SCHEMA_VERSION } from "./enrich.js"
-import { getAutoDelete, getDiskBackup } from "./settings.js"
+import { getAutoDelete, getDiskBackup, getJiraAutoSync, setJiraAutoSync } from "./settings.js"
+
+// Background Jira refresh tuning (see the scheduler effect in useAppData below).
+const JIRA_OVERLAP_MIN = 5                        // widen each delta window for clock skew
+const JIRA_FOCUS_MIN_AGE_MS = 2 * 60_000          // skip focus refetches this fresh
+const JIRA_RECONCILE_AGE_MS = 24 * 60 * 60_000    // once a day stale, do a full reconcile
 
 // On boot, optionally prune imports older than the user's retention setting.
 // The active import is never auto-deleted (don't silently lose the working set).
@@ -212,6 +217,16 @@ export function useAppData() {
     error: null,
     progress: null,
   })
+  // Separate autoSyncing flag so background sync updates don't cascade through
+  // data-dependent pages (just UI feedback in FreshnessIndicator).
+  const [jiraAutoSyncing, setJiraAutoSyncing] = useState(false)
+  // Background-sync plumbing: a lock so manual + scheduled syncs never overlap,
+  // a ref mirror of jiraState the scheduler reads without re-arming its timer,
+  // and the auto-sync preference as live state (so the toggle re-wires the
+  // interval without a reload).
+  const syncLockRef = useRef(false)
+  const jiraStateRef = useRef(jiraState)
+  const [jiraAutoSync, setJiraAutoSyncState] = useState(getJiraAutoSync)
   const [printMode, setPrintMode] = useState(null)
   const [printMenuOpen, setPrintMenuOpen] = useState(false)
   const inputRef = useRef(null)
@@ -370,24 +385,33 @@ export function useAppData() {
     return () => { cancelled = true }
   }, [])
 
-  const syncJira = useCallback(async (mode = "full") => {
-    setJiraState((s) => ({ ...s, status: "loading", error: null, progress: null }))
+  // Core sync runner shared by the manual buttons and the background scheduler.
+  // `since` = day window (buttons); `sinceExpr` = a relative token like "-20m"
+  // (background delta). With neither it's a full-project pull. `background: true`
+  // keeps the UI on cached data — no loading/error flip — and only toggles the
+  // `autoSyncing` flag; a background failure just logs and retries next tick.
+  const runJiraSync = useCallback(async ({ since, sinceExpr, background = false } = {}) => {
+    if (syncLockRef.current) return          // a manual or scheduled sync is already in flight
+    syncLockRef.current = true
+    if (background) setJiraAutoSyncing(true)
+    else setJiraState((s) => ({ ...s, status: "loading", error: null, progress: null }))
     try {
       const reachable = await pingJira()
       if (!reachable) {
-        setJiraState((s) => ({ ...s, status: "unconfigured", error: null }))
+        // A background blip shouldn't wipe the connected UI — only a foreground
+        // sync downgrades to "unconfigured"; the scheduler just skips this tick.
+        if (!background) setJiraState((s) => ({ ...s, status: "unconfigured", error: null }))
         return
       }
-      // Day-window modes pull a partial slice and merge onto the cache so
-      // older issues aren't dropped. "full" pulls the whole project.
-      const SYNC_WINDOWS = { "24h": 1, "5d": 5, "14d": 14, recent: 14, "30d": 30 }
-      const since = SYNC_WINDOWS[mode]
       const { issues: rawIssues, fetchedAt, fieldMap, statusMap, project } = await fetchHmsProject({
         since,
-        onProgress: (info) => setJiraState((s) => ({ ...s, progress: info })),
+        sinceExpr,
+        onProgress: background ? undefined : (info) => setJiraState((s) => ({ ...s, progress: info })),
       })
+      // Any partial window (day-window OR delta expr) merges onto the cache so
+      // older issues aren't dropped; a full pull replaces.
       let mergedRaw = rawIssues
-      if (since != null) {
+      if (since != null || sinceExpr != null) {
         const cached = await loadCache()
         if (cached?.issues) mergedRaw = mergeIssues(cached.issues, rawIssues)
       }
@@ -406,14 +430,26 @@ export function useAppData() {
       }
       const issues = mergedRaw.map((i) => enrichIssue(i, fieldMap, statusMap))
       setJiraState({ status: "ready", issues, meta, error: null, progress: null })
+      if (background) setJiraAutoSyncing(false)
     } catch (err) {
       if (err instanceof JiraError && err.status === 401) {
+        // 401 means bad/revoked creds — definitive, so surface it either way.
         setJiraState((s) => ({ ...s, status: "unconfigured", error: null }))
-      } else {
-        setJiraState((s) => ({ ...s, status: "error", error: err?.message || "Jira sync failed." }))
+      } else if (background) {
+        console.warn("[jira] background sync failed —", err?.message || err)
       }
+      if (background) setJiraAutoSyncing(false)
+    } finally {
+      syncLockRef.current = false
     }
   }, [])
+
+  const syncJira = useCallback((mode = "full") => {
+    // Day-window modes pull a partial slice and merge onto the cache so older
+    // issues aren't dropped. "full" (no window) pulls the whole project.
+    const SYNC_WINDOWS = { "24h": 1, "5d": 5, "14d": 14, recent: 14, "30d": 30 }
+    return runJiraSync({ since: SYNC_WINDOWS[mode], background: false })
+  }, [runJiraSync])
 
   const hydrateFromCache = useCallback(async () => {
     setJiraState((s) => ({ ...s, status: "hydrating" }))
@@ -427,6 +463,55 @@ export function useAppData() {
     setJiraState((s) => ({ ...s, status: "idle" }))
     return false
   }, [])
+
+  // Persist + surface the auto-sync preference; updating state re-arms the
+  // scheduler effect below without a reload.
+  const setJiraAutoSyncPref = useCallback((next) => {
+    setJiraAutoSyncState((prev) => {
+      const merged = { ...prev, ...next }
+      setJiraAutoSync(merged)
+      return merged
+    })
+  }, [])
+
+  // Mirror jiraState into a ref so the scheduler can read the latest status /
+  // fetchedAt without listing jiraState as an effect dependency (which would
+  // tear down and re-arm the interval on every sync).
+  useEffect(() => { jiraStateRef.current = jiraState }, [jiraState])
+
+  // Decide whether a background refresh is due and run the cheapest one that
+  // covers the gap: a "since last sync" delta normally, or a full reconcile
+  // once the cache is a day stale (to catch deletions/moves a delta can't see).
+  const maybeAutoSync = useCallback(() => {
+    if (syncLockRef.current) return
+    const st = jiraStateRef.current
+    // Baseline required: only auto-refresh once a prior sync populated the cache.
+    if (st.status !== "ready" || !st.meta?.fetchedAt) return
+    const age = Date.now() - st.meta.fetchedAt
+    if (age < JIRA_FOCUS_MIN_AGE_MS) return          // too fresh — skip focus spam
+    if (age > JIRA_RECONCILE_AGE_MS) {
+      void runJiraSync({ background: true })          // full reconcile
+    } else {
+      const minutes = Math.ceil(age / 60_000) + JIRA_OVERLAP_MIN
+      void runJiraSync({ sinceExpr: `-${minutes}m`, background: true })
+    }
+  }, [runJiraSync])
+
+  // Arm the scheduler while auto-sync is enabled: a periodic delta poll plus a
+  // refresh whenever the window regains focus / becomes visible. Re-runs (and
+  // re-arms) when the preference changes.
+  useEffect(() => {
+    if (!jiraAutoSync.enabled) return undefined
+    const id = setInterval(maybeAutoSync, jiraAutoSync.intervalMin * 60_000)
+    const onVisible = () => { if (document.visibilityState === "visible") maybeAutoSync() }
+    window.addEventListener("focus", maybeAutoSync)
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(id)
+      window.removeEventListener("focus", maybeAutoSync)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [jiraAutoSync, maybeAutoSync])
 
   /* ---------- ingest (multi-import) ---------- */
 
@@ -817,7 +902,7 @@ export function useAppData() {
     // print
     printMode, setPrintMode, printMenuOpen, setPrintMenuOpen, triggerPrint,
     // jira
-    jiraState, syncJira, hydrateFromCache,
+    jiraState, jiraAutoSyncing, syncJira, hydrateFromCache, jiraAutoSync, setJiraAutoSyncPref,
     // derived data
     enriched, enrichedAnalyst, enrichedAll, enrichedAllJoined,
     compareWindow, compareEnriched,

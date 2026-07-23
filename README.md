@@ -27,6 +27,7 @@ An analytics dashboard for ServiceNow case exports — runnable in the browser (
 - [Other Commands](#other-commands)
 - [Security](#security)
 - [Roadmap & Code Reviews](#roadmap--code-reviews)
+- [Releases](#releases)
 
 ---
 
@@ -254,6 +255,7 @@ An **auto-close countdown** for cases in the ServiceNow `Solution Proposed` stat
 - Lorenz curve showing how evenly work is distributed across the team.
 - Gini coefficient (0 = perfectly equal, 1 = one person does everything).
 - Top-20% and top-50% share statistics.
+- **Resolved / Closed by assignee** — stacked bar chart of completed work per analyst, separating Closed (State=Closed) from Resolved (Solution Proposed, awaiting customer confirmation), sorted high to low. Click any bar segment to drill into those cases in a `CaseDrilldown` panel. (`WorkloadResolvedBlock.jsx`)
 - Per-analyst open-case aging stacked bar chart.
 
 #### Team Leaderboard (`/team`)
@@ -297,7 +299,11 @@ Full sortable and searchable case register. Every column from the enriched datas
 Placeholder for future CSAT/survey data integration.
 
 #### Settings (`/settings`)
-Local, browser-only app preferences (stored in `localStorage`, no backend). Exposes **Auto-delete old imports** (prune imports older than a threshold on startup; the active import is always kept) and **Back up imports to disk** (the `.servicenow-cache/` disk mirror for cross-browser / cross-restart recovery — see [Security](#security)). Auto-delete is off by default; disk backup defaults off in the browser and **on in the desktop (Electron) app**, where the mirror under `%APPDATA%\KPI Analyzer` is what persists imports across restarts.
+Local, browser-only app preferences (stored in `localStorage`, no backend). Exposes three toggles:
+
+- **Auto-delete old imports** — prune imports older than a configurable threshold on startup; the active import is always kept. Off by default.
+- **Back up imports to disk** — mirror each import's raw source to `.servicenow-cache/` for cross-browser / cross-restart recovery. Off by default in the browser (writes into the project folder); **on by default in the desktop (Electron) app** where the mirror under `%APPDATA%\KPI Analyzer` is what persists imports across restarts. See [Security](#security).
+- **Jira auto-sync** — when on (default), the app runs a lightweight delta poll (fetching only issues changed since the last sync) on an interval (default 15 min) and whenever the window regains focus. Once a day it runs a full reconcile to catch deleted or moved issues. A sync lock prevents manual and scheduled syncs from overlapping; background failures log silently without disturbing the UI. Requires an initial manual sync first. Turn it off to sync only on demand.
 
 ---
 
@@ -327,6 +333,16 @@ Restart `npm run dev` after editing `.env`. The proxy reads credentials once at 
 | Full sync | 365 days | First sync or full refresh |
 
 Incremental syncs merge onto the existing cache (updated issues replace, new ones append). A full sync replaces everything.
+
+### Background auto-sync
+
+When **Settings → Jira auto-sync** is on (default), a scheduler runs automatically:
+
+- **Delta poll** — fetches only issues updated since the last sync, runs every 15 minutes and on window focus / visibility change. Uses a `sinceExpr` JQL bound so the request is minimal.
+- **Daily full reconcile** — once the cache is a day stale it runs a full sync to catch deletions and moved issues that a delta cannot see.
+- **Sync lock** — a ref-based lock prevents manual and scheduled syncs from overlapping; if a sync is in flight the next trigger is dropped, not queued.
+- **Silent failure** — background sync failures log a warning and retry next tick without disturbing the connected Jira UI or triggering an error state.
+- **FreshnessIndicator** — while a background sync is in progress the Jira freshness pill in the top bar shows a spinner. The `jiraAutoSyncing` flag is kept in its own separate React state (not merged into `jiraState`) so background sync pulses do not cascade re-renders through data-dependent pages.
 
 ### Caching
 
@@ -670,6 +686,19 @@ See [SECURITY_CONCERNS.md](./SECURITY_CONCERNS.md) for the full audit (17 items,
 - **CSV exports** (Update Queue, Solution Proposed, Jira Blockers) route every cell through the formula-injection sanitizer in `src/lib/csv-export.js` via the single shared `rowsToCsv` → `toCsvRow` → `sanitizeCellForExport` path.
 - **Customer sentiment** is graded 100% on device — the engine has no network path. The optional per-case **deep-read** sends only a hand-picked handful of cases (the negatives) through the scrubbed AI proxy (`scrubForAi` + `aiClient.reviewSentiment`), strictly gated on configuration; never the whole queue, never a vendor directly. The sentiment **Excel export** routes every cell through the same `sanitizeCellForExport` formula-injection guard.
 - **Production builds** ship a Content-Security-Policy meta tag.
+
+---
+
+## Releases
+
+| Version | Date | Highlights |
+|---|---|---|
+| **1.2.1** | 2026-07-23 | Perf fix: isolate `jiraAutoSyncing` into its own React state atom so background Jira sync pulses don't cascade re-renders through data-dependent pages; `FreshnessIndicator` receives it as a dedicated prop. |
+| **1.2.0** | 2026-07-09 | Background Jira auto-sync (delta poll + daily full reconcile, sync lock, silent failure); Jira auto-sync Settings toggle; **Resolved / Closed by assignee** workload chart with segment drilldown (`WorkloadResolvedBlock`); spinner in FreshnessIndicator during sync. |
+| **1.1.2** | 2026-07-02 | Docs: expanded `SECURITY_CONCERNS.md`. |
+| **1.1.1** | 2026-06-25 | See git log. |
+| **1.1.0** | 2026-06-22 | See git log. |
+| **1.0.3** | 2026-06-19 | See git log. |
 
 ---
 

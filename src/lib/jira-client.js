@@ -297,17 +297,24 @@ export async function pingJira() {
  * @param {object} [opts]
  * @param {number} [opts.since]  issues updated within N days; defaults to
  *                               FULL_SYNC_DAYS for a "full" sync.
+ * @param {string} [opts.sinceExpr]  a raw JQL relative-time token used as the
+ *                               `updated >=` bound (e.g. "-20m"). Overrides
+ *                               `since` — used by the background delta poll to
+ *                               derive the window from the last sync time.
  * @param {(info) => void} [opts.onProgress]  info = { fetched, total|null }
- * @returns {Promise<{ issues, fetchedAt, fieldMap, statusMap }>}
+ * @returns {Promise<{ issues, fetchedAt, fieldMap, statusMap, project }>}
  */
-export async function fetchHmsProject({ since, onProgress } = {}) {
+export async function fetchHmsProject({ since, sinceExpr, onProgress } = {}) {
   const [fieldMap, statusMap, project] = await Promise.all([
     getFieldMap(), getStatusMap(), resolveProject(),
   ])
   const windowDays = since || FULL_SYNC_DAYS
+  // A caller-supplied `sinceExpr` (e.g. "-20m") wins so the background poll can
+  // fetch just what changed since the last sync; otherwise use the day window.
+  const updatedSince = sinceExpr || `-${windowDays}d`
   // Scoped by the resolved project's real key — guaranteed to be exactly the
   // "Hospitality Management Solution" space and nothing else.
-  const jql = `project = "${project.key}" AND updated >= -${windowDays}d ORDER BY updated DESC`
+  const jql = `project = "${project.key}" AND updated >= ${updatedSince} ORDER BY updated DESC`
   const issues = await searchIssues({
     jql,
     fields: fieldsFor(fieldMap),

@@ -216,8 +216,10 @@ export function useAppData() {
     meta: null,
     error: null,
     progress: null,
-    autoSyncing: false,
   })
+  // Separate autoSyncing flag so background sync updates don't cascade through
+  // data-dependent pages (just UI feedback in FreshnessIndicator).
+  const [jiraAutoSyncing, setJiraAutoSyncing] = useState(false)
   // Background-sync plumbing: a lock so manual + scheduled syncs never overlap,
   // a ref mirror of jiraState the scheduler reads without re-arming its timer,
   // and the auto-sync preference as live state (so the toggle re-wires the
@@ -391,7 +393,7 @@ export function useAppData() {
   const runJiraSync = useCallback(async ({ since, sinceExpr, background = false } = {}) => {
     if (syncLockRef.current) return          // a manual or scheduled sync is already in flight
     syncLockRef.current = true
-    if (background) setJiraState((s) => ({ ...s, autoSyncing: true }))
+    if (background) setJiraAutoSyncing(true)
     else setJiraState((s) => ({ ...s, status: "loading", error: null, progress: null }))
     try {
       const reachable = await pingJira()
@@ -427,17 +429,16 @@ export function useAppData() {
         console.warn("[jira] cache did not persist; reload will require re-sync")
       }
       const issues = mergedRaw.map((i) => enrichIssue(i, fieldMap, statusMap))
-      setJiraState({ status: "ready", issues, meta, error: null, progress: null, autoSyncing: false })
+      setJiraState({ status: "ready", issues, meta, error: null, progress: null })
+      if (background) setJiraAutoSyncing(false)
     } catch (err) {
       if (err instanceof JiraError && err.status === 401) {
         // 401 means bad/revoked creds — definitive, so surface it either way.
-        setJiraState((s) => ({ ...s, status: "unconfigured", error: null, autoSyncing: false }))
+        setJiraState((s) => ({ ...s, status: "unconfigured", error: null }))
       } else if (background) {
         console.warn("[jira] background sync failed —", err?.message || err)
-        setJiraState((s) => ({ ...s, autoSyncing: false }))
-      } else {
-        setJiraState((s) => ({ ...s, status: "error", error: err?.message || "Jira sync failed." }))
       }
+      if (background) setJiraAutoSyncing(false)
     } finally {
       syncLockRef.current = false
     }
@@ -901,7 +902,7 @@ export function useAppData() {
     // print
     printMode, setPrintMode, printMenuOpen, setPrintMenuOpen, triggerPrint,
     // jira
-    jiraState, syncJira, hydrateFromCache, jiraAutoSync, setJiraAutoSyncPref,
+    jiraState, jiraAutoSyncing, syncJira, hydrateFromCache, jiraAutoSync, setJiraAutoSyncPref,
     // derived data
     enriched, enrichedAnalyst, enrichedAll, enrichedAllJoined,
     compareWindow, compareEnriched,

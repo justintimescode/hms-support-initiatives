@@ -64,7 +64,7 @@ function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone, busy }) {
   );
 }
 
-export function FreshnessIndicator({ activeImport, jiraState }) {
+export function FreshnessIndicator({ activeImport, jiraState, jiraAutoSyncing }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60_000);
@@ -96,7 +96,7 @@ export function FreshnessIndicator({ activeImport, jiraState }) {
         now={now}
         missingLabel={jiraNeverSynced || "never synced"}
         missingTone={T.muted}
-        busy={!!jiraState?.autoSyncing}
+        busy={jiraAutoSyncing}
       />
     </div>
   );

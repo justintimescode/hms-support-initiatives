@@ -38,11 +38,11 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`, go to **Connections**, and drop a ServiceNow case export (CSV or XLSX). Every other page populates automatically.
+Open `http://localhost:5173` and drop a ServiceNow case export (CSV or XLSX) on the dashboard. Every other page populates automatically. **That is the only required setup step** — no accounts, no tokens.
 
-For Jira live sync, copy `.env.example` to `.env`, fill in your Atlassian email and API token, and restart the dev server. The token is read once at startup by Vite's Node-side proxy config and never reaches the browser bundle.
+Jira is an optional second source. When you want the Jira pages (*All HMS Jira's*, *Statistics*, and the blocker analysis joined onto case rows), go to **Settings → Jira connection** and enter your Atlassian email and API token. It verifies against `/myself` before saving, takes effect on the next request with no restart, and the token is stored server-side — it never reaches the browser bundle. `.env` still works for a pre-seeded setup (see [Environment Variables](#environment-variables)); credentials saved in Settings take precedence over it.
 
-> Distributing to teammates who don't run a dev server? See [Desktop App (Windows)](#desktop-app-windows) — it ships the same app as a double-click installer with a built-in Jira setup screen.
+> Distributing to teammates who don't run a dev server? See [Desktop App (Windows)](#desktop-app-windows) — it ships the same app as a double-click installer.
 
 ---
 
@@ -67,13 +67,13 @@ To run the packaged app locally during development (builds `dist/`, then launche
 npm run electron:dev
 ```
 
-### First-run setup & credentials
+### First run & credentials
 
-On first launch the app shows a **setup screen** (`electron/setup.html`): Jira site URL, Atlassian email, and API token, with a link to Atlassian's token page and a **Test connection** button that verifies against `/myself` before saving. Credentials are stored **per user, encrypted via Electron `safeStorage`** (Windows DPAPI — keyed to the Windows login, useless if copied elsewhere) at `%APPDATA%\KPI Analyzer\credentials.enc`. This replaces the dev-only plaintext `.env`; each teammate enters their own token, so Jira access is scoped to their own permissions.
+The app opens straight to the dashboard — **there is no credential gate**. Drop a ServiceNow export and start working; nothing about the first run requires a Jira account.
 
-Credentials can be changed or cleared later from the **File** menu (*Reconfigure Jira credentials* / *Clear saved credentials*).
+Jira credentials are entered in-app at **Settings → Jira connection**, the same place and the same UI as in dev. **Test connection** verifies against `/myself` before anything is saved. In the packaged app the token is stored **per user, encrypted via Electron `safeStorage`** (Windows DPAPI — keyed to the Windows login, useless if copied elsewhere) at `%APPDATA%\KPI Analyzer\credentials.enc`, so each teammate's Jira access is scoped to their own permissions. **Disconnect** in the same card removes it; the **File** menu has shortcuts (*Jira connection…* / *Clear saved Jira credentials*).
 
-> The desktop build only covers the Jira proxy + caches. The optional AI proxy (`VITE_AI_PROXY_URL`) is a build-time variable and is not wired into the setup screen; it stays disabled in packaged builds unless baked in at `npm run build` time.
+> The desktop build only covers the Jira proxy + caches. The optional AI proxy (`VITE_AI_PROXY_URL`) is a build-time variable and is not exposed in Settings; it stays disabled in packaged builds unless baked in at `npm run build` time.
 
 ---
 
@@ -89,7 +89,7 @@ Browser
 │
 ├── Web Worker (db.worker.js)
 │   ├── DuckDB-WASM (blocking browser build)
-│   ├── OPFS persistence (opfs://cases.duckdb)
+│   ├── opfs://cases.duckdb (NOT durable — index rebuilt from source blobs)
 │   └── Multi-import model: one table per upload, `cases` view → active import
 │
 ├── Vite dev-server proxy (/api/jira → infor.atlassian.net)
@@ -131,9 +131,21 @@ Every upload is a persistent **import**, not a one-shot replace. The app keeps a
 
 Persistence has three layers:
 
-- **OPFS (primary, browser-side).** Each import becomes a DuckDB table `cases_import_{uuid}` persisted to `opfs://cases.duckdb`. `cases` is a SQL **view** that points at the active import's table, so every `FROM cases` query reads the active import unchanged. Survives page reloads.
-- **Raw source blob (OPFS).** The original CSV/XLSX is also kept at `imports/{uuid}/source.{ext}` so the in-memory chart pipeline can be re-derived on activation and "Rebuild from source" works with current enrichment logic.
+- **Raw source blob (OPFS) — the actual source of truth.** The original CSV/XLSX is kept at `imports/{uuid}/source.{ext}` with its metadata at `imports/{uuid}/meta.json`. The in-memory chart pipeline is re-derived from it on activation, "Rebuild from source" re-runs current enrichment against it, and the import index is rebuilt from it at startup (`restoreFromOpfs`).
+- **DuckDB tables (derived).** Each import becomes a table `cases_import_{uuid}`; `cases` is a SQL **view** pointing at the active import's table, so every `FROM cases` query reads the active import unchanged. The worker opens the database at `opfs://cases.duckdb`, **but do not assume that file is durable** — see below. Treat the tables as a cache over the blobs, not as primary storage.
 - **Disk mirror (dev-server, `npm run dev` only — opt-in, OFF by default).** When **Settings → Back up imports to disk** is enabled, each import's raw source + metadata is mirrored to `<project>/.servicenow-cache/{uuid}/` via a Vite middleware so a *different* browser or a cleared profile can recover imports on next boot. The directory holds **unscrubbed customer case data** and is gitignored. It is off by default so customer data stays out of the project folder unless you opt in; deleting an import (manually or via auto-delete) removes its disk copy, and a boot-time sweep clears orphans — see [Security](#security).
+
+### DuckDB durability caveat
+
+`opfs://cases.duckdb` **does not currently persist**, and the app is built to survive that rather than assume it away.
+
+The worker uses the *blocking* duckdb-wasm build, whose `open()` is synchronous. Preparing an OPFS file handle is async (`registerOPFSFileName` → `prepareFileHandle(path, 3)`), and that call only registers a handle when `handle.getSize()` is non-zero — so a brand-new, empty database can never bootstrap itself into OPFS. duckdb logs `Buffering missing file: opfs:/cases.duckdb`, keeps everything in WASM memory, and the file stays at 0 bytes. A durable DuckDB file needs the **async** API, whose `open()` awaits handle preparation; that is a worker-wide refactor (every `conn.query` becomes `await`ed).
+
+Consequences to keep in mind when changing this area:
+
+- `init()` measures the file size and reports `dbDurable`; the Connections page says the list is "rebuilt from your stored files at startup" when it is false. **Do not report success from `open()` alone** — a non-persistent database is indistinguishable from a persistent one until the next reload, which is how this went unnoticed while it stranded dozens of imports.
+- The index is rebuilt on every cold boot by re-parsing each stored blob, so startup cost scales with the number of imports. Deleting old imports is the user-facing remedy.
+- `getTotalStorageBytes()` walks the whole `imports/` tree, so anything stranded there is still charged to the user. Clear-all sweeps **every** directory (`listImportDirectories()`), not just indexed uuids, and the Connections page names the gap between the two — otherwise orphaned bytes are unreclaimable and the two numbers silently disagree.
 
 > **Retention:** there is **no automatic expiry by default.** Imports persist until you delete them or enable **Settings → Auto-delete old imports** (off by default; prunes imports older than N days on startup, never the active one). A **Data stored locally** notice in the sidebar shows the import count and bytes used, linking to the file manager. *(An earlier single-dataset build auto-cleared data after 24h; the multi-import refactor removed that — see SECURITY_CONCERNS.md #4.)*
 
@@ -276,7 +288,7 @@ Open cases that have at least one active Jira ticket reference, parsed from work
 ### Jira
 
 #### All HMS Jira's (`/jira`)
-Live engineering analytics for the HMS Jira project. Requires a configured `.env` and `npm run dev`. See [Jira Integration](#jira-integration).
+Live engineering analytics for the HMS Jira project. Optional — needs Jira connected in **Settings** and a local proxy (`npm run dev` or the desktop app). See [Jira Integration](#jira-integration).
 
 #### Statistics (`/jira-stats`)
 Deep-dive statistics for the HMS project. See [Jira Integration](#jira-integration).
@@ -309,18 +321,22 @@ Local, browser-only app preferences (stored in `localStorage`, no backend). Expo
 
 ## Jira Integration
 
-Jira sync runs through a Vite dev-server proxy (`/api/jira → infor.atlassian.net/rest`). The proxy injects HTTP Basic auth server-side — the token never reaches the browser bundle. **This is dev-only**: a `vite build` has no dev server, so live sync is unavailable in static builds.
+Jira is **optional**. The app boots, imports ServiceNow exports and runs every non-Jira page with no credentials at all; connect it when you want the Jira pages.
+
+Sync runs through a local proxy (`/api/jira → <your site>/rest`) that injects HTTP Basic auth server-side, so the token never reaches the browser bundle. The dev server (`vite.config.js → jiraProxyPlugin`) and the packaged app (`electron/server.cjs → handleJira`) implement the same contract. **A bare `vite build` has neither**, so live sync is unavailable in static builds.
 
 ### Setup
 
-```
-JIRA_BASE_URL=https://infor.atlassian.net
-JIRA_EMAIL=your.email@infor.com
-JIRA_API_TOKEN=<token from id.atlassian.com/manage-profile/security/api-tokens>
-JIRA_PROJECT_KEY=HMS
-```
+Go to **Settings → Jira connection**, enter your Jira site URL, Atlassian email, and an [API token](https://id.atlassian.com/manage-profile/security/api-tokens), then **Connect**. The credentials are verified against `/myself` before they are saved, and resolved per request — no restart, in either build.
 
-Restart `npm run dev` after editing `.env`. The proxy reads credentials once at startup.
+Where the token lands:
+
+| Build | Location | Protection |
+|---|---|---|
+| `npm run dev` | `.jira-creds.json` in the project folder | gitignored, plaintext (same trust level as the `.env` it replaces), mode `0600` |
+| Desktop app | `%APPDATA%\KPI Analyzer\credentials.enc` | encrypted with Electron `safeStorage` (Windows DPAPI, keyed to your login) |
+
+`.env` still works and is read as a fallback, so a scripted dev setup can pre-seed credentials (see [Environment Variables](#environment-variables)). Credentials saved in Settings take precedence over `.env`, and both are re-read per request.
 
 ### Sync modes
 
@@ -330,9 +346,11 @@ Restart `npm run dev` after editing `.env`. The proxy reads credentials once at 
 | Last 5 days | 5 days | End-of-week refresh |
 | Last 14 days | 14 days | Sprint retrospective |
 | Last month | 30 days | Monthly review |
-| Full sync | 365 days | First sync or full refresh |
+| Full sync | 90 days | First sync or full refresh |
 
 Incremental syncs merge onto the existing cache (updated issues replace, new ones append). A full sync replaces everything.
+
+**90-day retention.** Every Jira analytic reads a window of 90 days or less (the widest is created-vs-resolved at 12 weeks), so the sync and the cache are both bounded to 90 days of `updated` history — earlier builds pulled 365 days, caching ~10k issues with embedded changelogs that nothing ever read. Issues that fall out of the window are pruned when the cache is read and again whenever it is written, so an incremental merge cannot grow the cache past the window. The single knob is `FULL_SYNC_DAYS` in [src/lib/jira-client.js](src/lib/jira-client.js); widening it means re-checking the window constants in `jira-stats.js` / `JiraStatsPage.jsx` first.
 
 ### Background auto-sync
 
@@ -347,6 +365,12 @@ When **Settings → Jira auto-sync** is on (default), a scheduler runs automatic
 ### Caching
 
 Jira data is cached as a JSON file at `.jira-cache/cache.json` via a Vite dev plugin (`jiraFileCachePlugin`). The file is fully inspectable, survives browser clearing, and is served at `/api/cache/jira`. On startup, the app hydrates from this file before attempting a live sync.
+
+**What gets cached.** Only `{ key, fields, changelog }` per issue, and the changelog is reduced to `history.created` plus `field === 'status'` items — the only parts `parseStatusHistory()` reads. `expand=changelog` otherwise returns every field edit with author objects and both the id and display form of each value, which accounted for 355 MB of a 386 MB cache file that nothing read. Slimming happens at fetch time and again on read (`slimIssues()`), so an oversized cache from an older build shrinks on the next boot. Combined with the 90-day window, a real HMS cache went **386 MB → 18.5 MB** with every status transition preserved.
+
+A pre-upgrade cache can be big enough that parsing it once in the renderer is itself slow. `node --max-old-space-size=8192 scripts/compact-jira-cache.mjs` normalises the file in place (keeping a `.bak`) using the same imported prune + slim; deleting `.jira-cache/` and re-syncing works equally well.
+
+Adding a field a consumer needs means updating `slimIssue()` **and** re-syncing — an already-slimmed cache won't have it.
 
 ### Project resolution
 
@@ -644,17 +668,17 @@ The app works with standard ServiceNow case table exports. XLSX is strongly reco
 
 ## Environment Variables
 
-All variables live in `.env` (gitignored). Copy `.env.example` to get started.
+**No variable is required to run the app.** All of them live in `.env` (gitignored); copy `.env.example` if you want one.
 
 | Variable | Required | Description |
 |---|---|---|
-| `JIRA_BASE_URL` | For Jira | Atlassian instance URL, e.g. `https://infor.atlassian.net` |
-| `JIRA_EMAIL` | For Jira | Your Atlassian account email |
-| `JIRA_API_TOKEN` | For Jira | API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
-| `JIRA_PROJECT_KEY` | For Jira | Project key, e.g. `HMS` |
+| `JIRA_BASE_URL` | Optional | Atlassian instance URL, e.g. `https://infor.atlassian.net` |
+| `JIRA_EMAIL` | Optional | Your Atlassian account email |
+| `JIRA_API_TOKEN` | Optional | API token from [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens) |
+| `JIRA_PROJECT_KEY` | Optional | Project key, e.g. `HMS` |
 | `VITE_AI_PROXY_URL` | For AI | Base URL of your first-party AI proxy backend |
 
-`JIRA_*` variables are intentionally **not** prefixed with `VITE_` — Vite only exposes `VITE_`-prefixed vars to the client bundle. The Jira credentials are read by `vite.config.js` on the Node side and used to build a server-side `Authorization` header. They never appear in the browser bundle.
+The `JIRA_*` variables are a **fallback** for the credentials normally entered in **Settings → Jira connection** — useful for a scripted or pre-seeded dev setup. Settings wins where both exist. They are intentionally **not** prefixed with `VITE_` — Vite only exposes `VITE_`-prefixed vars to the client bundle. These are read by `vite.config.js` on the Node side and used to build a server-side `Authorization` header, so they never appear in the browser bundle.
 
 `VITE_AI_PROXY_URL` **is** prefixed with `VITE_` because the proxy URL (not a secret) is needed in the client bundle to know where to send requests. The API key lives on the proxy server, not here.
 

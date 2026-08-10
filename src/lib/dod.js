@@ -3,9 +3,9 @@
 // The app is focused on Department of Defense support. Every ServiceNow case
 // carries a "Parent Account" (the customer-hierarchy parent), and the DoD
 // customers roll up to four branch HQs. The parent-account visualizations on the
-// Accounts and Trends tabs count ONLY cases whose parent account is one of these
-// four branches; cases with any OTHER parent account, or none, are intentionally
-// excluded (per product direction — this app is DoD-scoped).
+// DoD tab count ONLY cases whose parent account is one of these four branches;
+// cases with any OTHER parent account, or none, are intentionally excluded (per
+// product direction — this app is DoD-scoped).
 //
 // `parent_account` reaches the in-memory enriched row as a raw passthrough:
 // normalizeXlsxRow (enrich.js) maps the XLSX "Parent Account" column, and CSV

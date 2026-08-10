@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from "react";
 import DOMPurify from "dompurify";
-import { Loader2, AlertTriangle, XCircle, Activity } from "lucide-react";
+import { Loader2, XCircle, Activity, Plug } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { fmtDuration, fmtDateTime, fmtAgo, priorityColor } from "../../lib/format.js";
-import { fetchIssueDetail, PROJECT_KEY } from "../../lib/jira-client.js";
+import { fetchIssueDetail, PROJECT_KEY, FULL_SYNC_DAYS } from "../../lib/jira-client.js";
 import { jiraSummary, recentlyCreated, recentlyResolved } from "../../lib/jira-enrich.js";
 import { Card } from "../layout/Card.jsx";
+import { FilterLink } from "../FilterLink.jsx";
 
 /* ================= Jira Analysis (live project) ================= */
 
@@ -47,7 +48,7 @@ export function JiraSyncControls({ meta, onSync }) {
       <button onClick={() => onSync("5d")} style={jiraBtn(false, false)} title="Issues updated in the last 5 days">Last 5 days</button>
       <button onClick={() => onSync("14d")} style={jiraBtn(false, false)} title="Issues updated in the last 14 days">Last 14 days</button>
       <button onClick={() => onSync("30d")} style={jiraBtn(false, false)} title="Issues updated in the last 30 days">Last month</button>
-      <button onClick={() => onSync("full")} style={jiraBtn(true, false)} title="Issues updated in the last ~12 months">Full sync</button>
+      <button onClick={() => onSync("full")} style={jiraBtn(true, false)} title={`Issues updated in the last ${FULL_SYNC_DAYS} days — anything older is dropped from the cache`}>Full sync</button>
     </div>
   )
 }
@@ -325,14 +326,14 @@ function JiraAnalysisReady({ issues, meta, onSync, scopeNote }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div style={{ fontSize: 12, color: T.muted }}>
           {scopeNote
-            ? `Whole ${PROJECT_KEY} project (last 365 days) — not filtered to ${scopeNote}.`
-            : `Whole ${PROJECT_KEY} project · last 365 days.`}
+            ? `Whole ${PROJECT_KEY} project (last ${FULL_SYNC_DAYS} days) — not filtered to ${scopeNote}.`
+            : `Whole ${PROJECT_KEY} project · last ${FULL_SYNC_DAYS} days.`}
         </div>
         <JiraSyncControls meta={meta} onSync={onSync} />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
-        <JiraKpiCard label="Issues (1y)" value={summary.total} />
+        <JiraKpiCard label={`Issues (${FULL_SYNC_DAYS}d)`} value={summary.total} />
         <JiraKpiCard label="Open now" value={summary.open} sub={`${openPct}% of total`} />
         <JiraKpiCard label="Created" value={summary.created30d} sub={`${summary.created7d} in last 7d`} />
         <JiraKpiCard label="Resolved" value={summary.resolved30d} sub={`${summary.resolved7d} in last 7d`} />
@@ -414,15 +415,19 @@ export function JiraAnalysisBlock({ jiraState, onSync, onLoadCache, scopeNote })
   } else if (status === "unconfigured") {
     body = (
       <>
-        <AlertTriangle size={28} style={{ color: T.warn }} />
-        <div style={{ fontWeight: 600, marginTop: 12 }}>No Jira credentials configured</div>
-        <div style={{ color: T.sub, fontSize: 13, marginTop: 4, maxWidth: 460 }}>
-          Copy <span className="mono">.env.example</span> to <span className="mono">.env</span>, fill in
-          your Atlassian email and API token, then restart <span className="mono">npm run dev</span>.
-          Live Jira sync runs through the Vite dev proxy, so it is only available in dev mode — a static
-          build will show this screen.
+        <Plug size={28} style={{ color: T.accent }} />
+        <div style={{ fontWeight: 600, marginTop: 12 }}>Jira isn't connected yet</div>
+        <div style={{ color: T.sub, fontSize: 13, marginTop: 4, maxWidth: 460, lineHeight: 1.55 }}>
+          This page needs live Jira data. Add your Atlassian email and API token in Settings — it applies
+          immediately, and the rest of the app keeps working either way. Live sync runs through the local
+          proxy, so it needs the desktop app or <span className="mono">npm run dev</span>.
         </div>
-        <button onClick={() => onSync("full")} style={{ ...jiraBtn(true, false), marginTop: 16 }}>Retry</button>
+        <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", justifyContent: "center" }}>
+          <FilterLink to="/settings" style={{ textDecoration: "none" }}>
+            <span style={{ ...jiraBtn(true, false), display: "inline-block" }}>Connect Jira in Settings</span>
+          </FilterLink>
+          <button onClick={() => onSync("full")} style={jiraBtn(false, false)}>Retry</button>
+        </div>
       </>
     )
   } else if (status === "error") {
@@ -442,8 +447,7 @@ export function JiraAnalysisBlock({ jiraState, onSync, onLoadCache, scopeNote })
         <div style={{ color: T.sub, fontSize: 13, marginTop: 4, maxWidth: 460 }}>
           Pull live issue data from the Hospitality Management Solution project to see cycle time,
           throughput, backlog flow, aging WIP, and workload distribution. Data is cached locally and
-          refreshed on demand. Requires a configured <span className="mono">.env</span> and
-          {" "}<span className="mono">npm run dev</span>.
+          refreshed on demand.
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap", justifyContent: "center" }}>
           <button onClick={() => onSync("full")} style={jiraBtn(true, false)}>Sync Jira now</button>

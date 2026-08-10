@@ -6,7 +6,7 @@ import { T } from "../../lib/theme.js";
 import { dodParentAccountStats } from "../../lib/dod.js";
 import { Card } from "../layout/Card.jsx";
 
-/* ============== DoD Parent Accounts (Accounts tab) ==============
+/* ============== DoD Parent Accounts (DoD tab) ==============
  * Case volume + lifecycle split across the four DoD branch parent accounts. Only
  * cases whose parent account is one of the branches are counted; all other / no
  * parent-account cases are excluded by design (this app is DoD-scoped). */

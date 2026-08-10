@@ -92,6 +92,9 @@ let db = null
 let conn = null
 let opfsAvailable = false
 let usingOpfs = false
+// Whether the DuckDB file itself persists. False = the index is derived state,
+// rebuilt from the OPFS source blobs at startup. See init().
+let dbDurable = false
 
 function log(msg, level = 'info') {
   postMessage({ type: 'log', level, msg })
@@ -397,6 +400,17 @@ async function init() {
 
   if (opfsAvailable) {
     try {
+      // registerOPFSFileName() is REQUIRED before open() and must be awaited.
+      //
+      // We use the *blocking* duckdb build (see the vite alias for
+      // '@duckdb/duckdb-wasm-blocking-browser'), whose open() is synchronous:
+      // it calls duckdb_web_open and nothing else. Preparing an OPFS file
+      // handle is async (registerOPFSFileName → prepareFileHandle(path, 3)), so
+      // a bare open('opfs://…') leaves the WASM filesystem with no handle for
+      // the path — the database silently lives in WASM memory and flushFiles()
+      // has nothing to write. Symptom: every import works for the session and
+      // is gone on reload, while its OPFS source blob stays behind forever.
+      await db.registerOPFSFileName(OPFS_PATH)
       db.open({ path: OPFS_PATH, accessMode: duckdb.DuckDBAccessMode.READ_WRITE })
       usingOpfs = true
       log(`Opened OPFS-backed DB at ${OPFS_PATH}`)
@@ -415,7 +429,44 @@ async function init() {
   legacyMigrateIfNeeded()
   redefineView(activeUuid())
   flush()
-  return { imports: readIndex(), activeUuid: activeUuid() }
+
+  // Measure durability rather than trusting the open() call. A non-persistent
+  // DB behaves identically to a persistent one until the next reload, which is
+  // how this went unnoticed long enough to strand dozens of imports.
+  //
+  // Measured behaviour with this build: registerOPFSFileName creates the file,
+  // but duckdb then logs "Buffering missing file: opfs:/cases.duckdb" and keeps
+  // the database in WASM memory, leaving the file at 0 bytes. prepareFileHandle
+  // only registers a handle when handle.getSize() is non-zero, so a brand-new
+  // (empty) database can never bootstrap itself into OPFS here — the sync open()
+  // of the blocking build has no way out of that chicken-and-egg. Durable
+  // DuckDB storage needs the async API, whose open() awaits handle prep.
+  //
+  // So: a non-zero file is the only proof of durability. When it's zero the
+  // index is derived state, rebuilt from the OPFS source blobs on boot (see
+  // restoreFromOpfs in useAppData.js) — which is why imports still survive.
+  dbDurable = usingOpfs && (await opfsDbFileBytes()) > 0
+  if (usingOpfs && !dbDurable) {
+    log(
+      `${OPFS_PATH} is 0 bytes — the imports index is NOT durable and is rebuilt ` +
+        `from stored source files on each load`,
+      'warn',
+    )
+  }
+
+  return { imports: readIndex(), activeUuid: activeUuid(), opfsAvailable, usingOpfs, dbDurable }
+}
+
+/** Size of the OPFS-backed database file in bytes; 0 when absent or empty.
+ *  `opfs://cases.duckdb` maps to `cases.duckdb` at the OPFS root. */
+async function opfsDbFileBytes() {
+  try {
+    const root = await navigator.storage.getDirectory()
+    const handle = await root.getFileHandle(OPFS_PATH.replace(/^opfs:\/\//, ''))
+    return (await handle.getFile()).size
+  } catch {
+    return 0
+  }
 }
 
 function getStatus() {
@@ -437,6 +488,7 @@ function getStatus() {
     loadedAt: meta?.uploadedAt ?? null,
     opfsAvailable,
     usingOpfs,
+    dbDurable,
   }
 }
 

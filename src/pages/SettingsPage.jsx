@@ -4,6 +4,8 @@ import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { T } from "../lib/theme.js"
 import { getAutoDelete, setAutoDelete, getDiskBackup, setDiskBackup } from "../lib/settings.js"
+import { JiraConnectionCard } from "../components/settings/JiraConnectionCard.jsx"
+import { FULL_SYNC_DAYS } from "../lib/jira-client.js"
 
 /** Pill-style on/off switch, accessible (role="switch" + aria-checked). */
 function Toggle({ checked, onChange }) {
@@ -31,7 +33,7 @@ export default function SettingsPage() {
   const [enabled, setEnabled] = useState(initial.enabled)
   const [days, setDays] = useState(initial.days)
   const [diskBackup, setDiskBackupState] = useState(getDiskBackup())
-  const { jiraAutoSync, setJiraAutoSyncPref } = useOutletContext()
+  const { jiraAutoSync, setJiraAutoSyncPref, jiraCreds, onJiraCredsChanged } = useOutletContext()
 
   const persist = (next) => {
     const merged = { enabled, days, ...next }
@@ -46,8 +48,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <Section title="Settings" subtitle="App preferences and configuration. Stored locally in this browser.">
+    <Section title="Settings" subtitle="App preferences and connections. Stored locally on this machine.">
       <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 620 }}>
+        <JiraConnectionCard onChanged={onJiraCredsChanged} />
+
         <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div className="eyebrow" style={{ color: T.muted }}>Data retention</div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
@@ -107,6 +111,15 @@ export default function SettingsPage() {
                 {jiraAutoSync?.intervalMin ?? 15} minutes and whenever you return to the window — a small
                 incremental fetch, not a full re-pull. Once a day it runs a full reconcile to catch deleted
                 or moved issues. Needs an initial sync first; turn it off to sync only on demand.
+                {" "}The cache holds the last {FULL_SYNC_DAYS} days of Jira activity — older issues are
+                dropped automatically, which is all the Jira charts here look at.
+                {jiraCreds && !jiraCreds.configured && (
+                  <>
+                    {" "}<span style={{ color: T.muted, fontStyle: "italic" }}>
+                      Idle until Jira is connected above.
+                    </span>
+                  </>
+                )}
               </div>
             </div>
             <Toggle checked={!!jiraAutoSync?.enabled} onChange={(on) => setJiraAutoSyncPref({ enabled: on })} />

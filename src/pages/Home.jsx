@@ -9,7 +9,7 @@ import { Card } from "../components/layout/Card.jsx"
 import { Pill } from "../components/Pill.jsx"
 import { KpiRow } from "../components/KpiRow.jsx"
 import { CaseListModal } from "../components/CaseListModal.jsx"
-import { EmptyState } from "../components/EmptyState.jsx"
+import { UploadScreen } from "../components/UploadScreen.jsx"
 import { useQuery } from "../lib/useQuery.js"
 import { getKpis, getCompareKpis } from "../lib/queries.js"
 import { DevCompare } from "../components/dev/DevCompare.jsx"
@@ -17,7 +17,10 @@ import { kpiMetrics } from "../components/dev/devCompareUtils.js"
 
 export default function Home() {
   const ctx = useOutletContext()
-  const { rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, dateRange, compareWindow, enriched } = ctx
+  const {
+    rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, dateRange,
+    compareWindow, enriched, handleFile, uploading, uploadError, inputRef,
+  } = ctx
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const [showMissedSla, setShowMissedSla] = useState(false)
   // The complement of the card's "met" count: SLA-eligible cases in the
@@ -33,16 +36,19 @@ export default function Home() {
     { enabled: !!rows && !!compareWindow },
   )
 
+  // First run: no import yet. This is the whole onboarding — one required step
+  // (drop an export), with Jira called out as the optional extra it is.
   if (!rows) {
     return (
-      <Section title="Dashboard">
-        <EmptyState
-          title="Welcome — load some data to begin"
-          message="This is a local case-analytics tool for the ServiceNow case export. Drop a CSV or XLSX on the Connections page and every other tab populates automatically. Nothing leaves your browser."
-        />
-      </Section>
+      <UploadScreen
+        onPick={handleFile}
+        uploading={uploading}
+        error={uploadError}
+        inputRef={inputRef}
+      />
     )
   }
+
 
   return (
     <>
@@ -129,11 +135,13 @@ function ShortcutCard({ to, icon: Icon, label, hint }) {
   )
 }
 
+// Jira is an optional source, so an absent connection reads as neutral
+// ("not connected", muted) rather than as a problem to fix.
 function jiraSummary(jiraState) {
-  if (!jiraState) return "Not configured"
+  if (!jiraState) return "Optional — connect in Settings"
   const { status, meta } = jiraState
   if (status === "ready" && meta?.count != null) return `${meta.count} issues cached`
-  if (status === "unconfigured") return "Add a token in .env to sync"
+  if (status === "unconfigured") return "Optional — connect in Settings"
   if (status === "error") return jiraState.error || "Sync failed"
   if (status === "loading") return "Syncing…"
   if (status === "hydrating") return "Loading cache…"
@@ -143,7 +151,7 @@ function jiraPillTone(jiraState) {
   const s = jiraState?.status
   if (s === "ready") return T.ok
   if (s === "loading" || s === "hydrating") return T.warn
-  if (s === "unconfigured" || s === "error") return T.danger
+  if (s === "error") return T.danger
   return T.muted
 }
 function jiraPillLabel(jiraState) {
@@ -151,7 +159,7 @@ function jiraPillLabel(jiraState) {
   if (s === "ready") return "connected"
   if (s === "loading") return "syncing…"
   if (s === "hydrating") return "loading…"
-  if (s === "unconfigured") return "needs token"
+  if (s === "unconfigured") return "not connected"
   if (s === "error") return "error"
   return "idle"
 }

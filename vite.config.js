@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 
+const DEFAULT_JIRA_BASE_URL = 'https://infor.atlassian.net'
+
 // Read .env directly so its values always win over a stale process.env
 // (Vite's built-in loadEnv lets system env vars shadow .env, which silently
 // breaks Jira sync when a user has an old JIRA_API_TOKEN exported in their
@@ -21,6 +23,203 @@ function readDotEnv() {
     out[line.slice(0, i).trim()] = line.slice(i + 1)
   }
   return out
+}
+
+/* --------------------------- Jira credentials ----------------------------- */
+// Jira is an OPTIONAL data source: the app boots, imports ServiceNow exports and
+// runs every non-Jira page with no credentials at all. When someone does want
+// the Jira pages they enter their Atlassian email + API token in Settings, and
+// this is where the dev server keeps them.
+//
+// Precedence: the in-app credentials (written here by /api/creds/jira) beat
+// .env, so saving in Settings always wins over a stale .env. Both are resolved
+// per REQUEST, not at config time, so adding or changing credentials takes
+// effect immediately — no `npm run dev` restart.
+//
+// SECURITY: .jira-creds.json holds a PLAINTEXT token in the project folder,
+// exactly like the .env it replaces, and is gitignored. This is the dev-server
+// path only. The packaged desktop app stores the token encrypted with the OS
+// keystore instead (electron/creds.cjs).
+const CREDS_FILE = path.join(here, '.jira-creds.json')
+
+function readSavedCreds() {
+  try {
+    const c = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'))
+    if (c?.email && c?.token) {
+      return { baseUrl: c.baseUrl || DEFAULT_JIRA_BASE_URL, email: c.email, token: c.token }
+    }
+  } catch { /* missing / corrupt — treat as unconfigured */ }
+  return null
+}
+
+/** In-app credentials, else .env, else null. `source` tells the UI which. */
+function resolveJiraCreds() {
+  const saved = readSavedCreds()
+  if (saved) return { ...saved, source: 'file' }
+  const env = readDotEnv()
+  if (env.JIRA_EMAIL && env.JIRA_API_TOKEN) {
+    return {
+      baseUrl: env.JIRA_BASE_URL || DEFAULT_JIRA_BASE_URL,
+      email: env.JIRA_EMAIL,
+      token: env.JIRA_API_TOKEN,
+      source: 'env',
+    }
+  }
+  return null
+}
+
+const toAuthHeader = (c) =>
+  c?.email && c?.token ? 'Basic ' + Buffer.from(`${c.email}:${c.token}`).toString('base64') : null
+
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => {
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')) }
+      catch (e) { reject(e) }
+    })
+    req.on('error', reject)
+  })
+}
+
+const sendJson = (res, status, body) => {
+  res.statusCode = status
+  res.setHeader('Content-Type', 'application/json')
+  res.end(JSON.stringify(body))
+}
+
+/** Validate a candidate credential set against /myself without saving it.
+ *  Shared by the dev server and (in spirit) electron/main.cjs's creds:test. */
+async function probeJira({ baseUrl, email, token }) {
+  if (!email || !token) return { ok: false, message: 'Email and API token are required.' }
+  const base = (baseUrl || DEFAULT_JIRA_BASE_URL).replace(/\/$/, '')
+  try {
+    const res = await fetch(`${base}/rest/api/3/myself`, {
+      headers: {
+        Authorization: toAuthHeader({ email, token }),
+        Accept: 'application/json',
+        'X-Atlassian-Token': 'no-check',
+      },
+    })
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, message: 'Authentication failed — check your email and API token.' }
+    }
+    if (!res.ok) return { ok: false, status: res.status, message: `Jira returned HTTP ${res.status}.` }
+    const me = await res.json()
+    return { ok: true, displayName: me.displayName || me.emailAddress || 'your account' }
+  } catch (err) {
+    return { ok: false, message: `Could not reach ${base} — ${err.message}` }
+  }
+}
+
+// Dev-only credential management endpoint, mirrored by the Electron IPC bridge
+// (electron/preload.cjs) so src/lib/jira-creds.js can talk to either one:
+//   GET    /api/creds/jira        → { configured, baseUrl, email, source }
+//   POST   /api/creds/jira        → save { baseUrl, email, token }
+//   POST   /api/creds/jira/test   → probe without saving
+//   DELETE /api/creds/jira        → forget the saved credentials
+function jiraCredsPlugin() {
+  return {
+    name: 'jira-creds',
+    configureServer(server) {
+      server.middlewares.use('/api/creds/jira', (req, res, next) => {
+        const sub = new URL(req.url, 'http://x').pathname.replace(/\/$/, '')
+
+        if (req.method === 'GET' && !sub) {
+          const c = resolveJiraCreds()
+          // The token is deliberately never returned — only whether one exists.
+          return sendJson(res, 200, {
+            configured: !!c,
+            baseUrl: c?.baseUrl || DEFAULT_JIRA_BASE_URL,
+            email: c?.email || '',
+            source: c?.source || null,
+            storage: 'file',
+          })
+        }
+
+        if (req.method === 'POST' && sub === '/test') {
+          readJson(req)
+            .then(probeJira)
+            .then((r) => sendJson(res, 200, r))
+            .catch((e) => sendJson(res, 400, { ok: false, message: e.message }))
+          return
+        }
+
+        if (req.method === 'POST' && !sub) {
+          readJson(req)
+            .then(({ baseUrl, email, token }) => {
+              if (!email || !token) return sendJson(res, 200, { ok: false, message: 'Email and API token are required.' })
+              const body = JSON.stringify({ baseUrl: baseUrl || DEFAULT_JIRA_BASE_URL, email, token }, null, 2)
+              fs.writeFileSync(CREDS_FILE, body, { mode: 0o600 })
+              console.info('[jira-creds] saved credentials for', email)
+              sendJson(res, 200, { ok: true })
+            })
+            .catch((e) => sendJson(res, 200, { ok: false, message: `Could not save credentials: ${e.message}` }))
+          return
+        }
+
+        if (req.method === 'DELETE' && !sub) {
+          try { fs.unlinkSync(CREDS_FILE) } catch { /* already gone */ }
+          const env = resolveJiraCreds() // .env may still supply credentials
+          return sendJson(res, 200, { ok: true, configured: !!env, source: env?.source || null })
+        }
+
+        next()
+      })
+    },
+  }
+}
+
+// Jira REST proxy. Replaces server.proxy['/api/jira'] because a static proxy
+// target/auth header is fixed at config time, and credentials here are entered
+// at runtime in Settings. Same contract as the packaged app's proxy
+// (electron/server.cjs → handleJira), so the client code is identical in both.
+function jiraProxyPlugin() {
+  return {
+    name: 'jira-proxy',
+    configureServer(server) {
+      // req.url is the path AFTER the mount point, query string included.
+      server.middlewares.use('/api/jira', async (req, res) => {
+        const creds = resolveJiraCreds()
+        const auth = toAuthHeader(creds)
+        if (!auth) {
+          // 401 (not 500) so pingJira() reads this as "not configured" and the
+          // UI invites the user to add credentials in Settings.
+          return sendJson(res, 401, {
+            errorMessages: ['Jira is not connected. Add your Atlassian email and API token in Settings.'],
+          })
+        }
+
+        const target = creds.baseUrl.replace(/\/$/, '') + '/rest' + req.url
+        // Atlassian applies XSRF protection to API calls that arrive with a
+        // browser Origin/Referer header — GETs pass, but POSTs (e.g.
+        // /search/jql) get a 403. Sending only these headers makes the request
+        // read as server-to-server; HTTP Basic auth is the real credential, and
+        // X-Atlassian-Token is the documented opt-out.
+        const headers = { Authorization: auth, Accept: 'application/json', 'X-Atlassian-Token': 'no-check' }
+        if (req.headers['content-type']) headers['Content-Type'] = req.headers['content-type']
+
+        let body
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          const chunks = []
+          for await (const c of req) chunks.push(c)
+          if (chunks.length) body = Buffer.concat(chunks)
+        }
+
+        try {
+          const upstream = await fetch(target, { method: req.method, headers, body })
+          const payload = Buffer.from(await upstream.arrayBuffer())
+          res.statusCode = upstream.status
+          res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+          // The client handles 429/5xx retries itself; just pass them through.
+          res.end(payload)
+        } catch (err) {
+          sendJson(res, 502, { errorMessages: [`Proxy to Jira failed: ${err.message}`] })
+        }
+      })
+    },
+  }
 }
 
 // Dev-only file-backed Jira cache. The dashboard's cache used to live in
@@ -232,26 +431,28 @@ function cspProdPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig(() => {
-  // .env values stay on the Node side; they are never bundled into the client.
-  // We read .env directly rather than via Vite's loadEnv so the file always
-  // wins over any matching variable in the shell environment.
-  const env = readDotEnv()
-  const jiraBase = env.JIRA_BASE_URL || 'https://infor.atlassian.net'
-  const hasJiraCreds = Boolean(env.JIRA_EMAIL && env.JIRA_API_TOKEN)
-  const jiraAuth = hasJiraCreds
-    ? 'Basic ' + Buffer.from(`${env.JIRA_EMAIL}:${env.JIRA_API_TOKEN}`).toString('base64')
-    : null
-
-  if (!hasJiraCreds) {
-    console.warn(
-      '[vite] No JIRA_EMAIL / JIRA_API_TOKEN in .env — the /api/jira proxy will ' +
-      'forward requests unauthenticated (Jira will return 401). Copy .env.example ' +
-      'to .env and fill it in to enable live Jira sync.'
+  // Credentials stay on the Node side; they are never bundled into the client.
+  // Resolved per request (see resolveJiraCreds) rather than baked in here, so
+  // Jira can be connected from Settings without restarting the dev server.
+  const creds = resolveJiraCreds()
+  if (creds) {
+    console.info(`[vite] Jira credentials found (${creds.source === 'env' ? '.env' : '.jira-creds.json'}) — ${creds.email}`)
+  } else {
+    console.info(
+      '[vite] No Jira credentials yet — that is fine. ServiceNow imports and every ' +
+      'non-Jira page work without them; connect Jira any time from Settings → Jira connection.'
     )
   }
 
   return {
-    plugins: [react(), jiraFileCachePlugin(), snFileCachePlugin(), cspProdPlugin()],
+    plugins: [
+      react(),
+      jiraCredsPlugin(),
+      jiraProxyPlugin(),
+      jiraFileCachePlugin(),
+      snFileCachePlugin(),
+      cspProdPlugin(),
+    ],
     // duckdb-wasm ships its own pre-bundled artifacts; let Vite pass them through
     // rather than try to pre-bundle them with esbuild.
     optimizeDeps: { exclude: ['@duckdb/duckdb-wasm'] },
@@ -267,34 +468,10 @@ export default defineConfig(() => {
       },
     },
     worker: { format: 'es' },
-    server: {
-      proxy: {
-        // Browser calls /api/jira/* — the dev server forwards to Jira's REST
-        // API and injects HTTP Basic auth server-side so the token never
-        // reaches the client bundle. DEV ONLY: a static `vite build` has no
-        // dev server, so live sync is unavailable in `vite preview` / deploys.
-        '/api/jira': {
-          target: jiraBase,
-          changeOrigin: true,
-          secure: true,
-          rewrite: (p) => p.replace(/^\/api\/jira/, '/rest'),
-          configure: (proxy) => {
-            proxy.on('proxyReq', (proxyReq) => {
-              if (jiraAuth) proxyReq.setHeader('Authorization', jiraAuth)
-              proxyReq.setHeader('Accept', 'application/json')
-              // Atlassian applies XSRF protection to API calls that arrive
-              // with a browser Origin/Referer header — GETs pass, but POSTs
-              // (e.g. /search/jql) get a 403. Strip them so the proxied
-              // request reads as server-to-server; HTTP Basic auth is the
-              // real credential. X-Atlassian-Token is the documented opt-out.
-              proxyReq.removeHeader('origin')
-              proxyReq.removeHeader('referer')
-              proxyReq.removeHeader('cookie')
-              proxyReq.setHeader('X-Atlassian-Token', 'no-check')
-            })
-          },
-        },
-      },
-    },
+    // /api/jira is served by jiraProxyPlugin() above rather than server.proxy:
+    // the target and auth header have to be read per request so credentials can
+    // be entered at runtime. DEV ONLY either way — a static `vite build` has no
+    // dev server, so live sync is unavailable in `vite preview` / deploys (the
+    // packaged desktop app ships its own equivalent in electron/server.cjs).
   }
 })

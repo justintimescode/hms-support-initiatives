@@ -7,6 +7,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import Papa from "papaparse"
 import { enrichRow, priorityRank, normalizeXlsxRow } from "./enrich.js"
+import { safeRandomUUID } from "./uuid.js"
 import { dbClient } from "./db-client.js"
 import {
   pingJira, fetchHmsProject, loadCache, saveCache, mergeIssues, pruneIssues,
@@ -649,7 +650,7 @@ export function useAppData() {
       const normalized = await parseFileToRows(file, ext)
       if (!normalized.length) throw new Error("No rows found in the file.")
 
-      uuid = crypto.randomUUID()
+      uuid = safeRandomUUID()
       // Distinct display name when the same filename was uploaded before.
       const dupes = imports.filter((i) => i.filename === file.name).length
       const displayName = dupes ? `${file.name} (${dupes + 1})` : file.name

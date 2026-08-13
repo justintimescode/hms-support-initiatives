@@ -8,6 +8,7 @@
 // imports survive reloads.
 
 import * as duckdb from '@duckdb/duckdb-wasm-blocking-browser'
+import { safeRandomUUID } from '../lib/uuid.js'
 import duckdb_wasm_eh from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url'
 import Papa from 'papaparse'
 import * as arrow from 'apache-arrow'
@@ -357,7 +358,7 @@ function legacyMigrateIfNeeded() {
     }
   } catch { /* no meta table — fine */ }
 
-  const uuid = crypto.randomUUID()
+  const uuid = safeRandomUUID()
   const tableName = tableNameFor(uuid)
   const rowCount = Number(rowsToPlain(conn.query('SELECT count(*) AS c FROM cases'))[0]?.c ?? 0)
   conn.query(`CREATE TABLE ${tableName} AS SELECT * FROM cases`)
@@ -527,7 +528,7 @@ async function loadCsv({ file }) {
     })
   })
   clearAllImports()
-  createImport({ uuid: crypto.randomUUID(), filename: file.name, displayName: file.name, fileSize: file.size, fileType: 'csv', rows })
+  createImport({ uuid: safeRandomUUID(), filename: file.name, displayName: file.name, fileSize: file.size, fileType: 'csv', rows })
   return getStatus()
 }
 
@@ -536,7 +537,7 @@ async function loadRowsData({ rows, filename }) {
   if (!conn) throw new Error('loadRows: worker not initialized')
   clearAllImports()
   const ext = (filename || 'upload.xlsx').split('.').pop()?.toLowerCase() || 'xlsx'
-  createImport({ uuid: crypto.randomUUID(), filename: filename || 'upload.xlsx', displayName: filename || 'upload.xlsx', fileSize: 0, fileType: ext, rows })
+  createImport({ uuid: safeRandomUUID(), filename: filename || 'upload.xlsx', displayName: filename || 'upload.xlsx', fileSize: 0, fileType: ext, rows })
   return getStatus()
 }
 

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+﻿import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -473,5 +473,8 @@ export default defineConfig(() => {
     // be entered at runtime. DEV ONLY either way — a static `vite build` has no
     // dev server, so live sync is unavailable in `vite preview` / deploys (the
     // packaged desktop app ships its own equivalent in electron/server.cjs).
+    server: {
+      allowedHosts: ['inbavwinterfac2'],
+    },
   }
 })

@@ -5,7 +5,7 @@ import {
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban, Shield,
   ExternalLink, BarChart3,
-  Plug, Sparkles, Gauge, Table, Mailbox, Settings,
+  Plug, Sparkles, Gauge, Table, Mailbox, Settings, Bot,
 } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { useAppData } from "../../lib/useAppData.js";
@@ -59,6 +59,7 @@ const NAV_GROUPS = [
       { to: "/connections", label: "Connections", icon: Plug },
       { to: "/insights",    label: "Insights",    icon: Sparkles },
       { to: "/sentiment",   label: "Sentiment",   icon: Gauge },
+      { to: "/ai-assisted", label: "AI Assisted?", icon: Bot },
       { to: "/cases",       label: "Cases",       icon: Table },
       { to: "/surveys",     label: "Surveys",     icon: Mailbox },
       { to: "/settings",    label: "Settings",    icon: Settings },

@@ -13,21 +13,24 @@ export default function TrendsPage() {
   const rows = view === "team"
     ? (teamMembersAll ? teamMembersAll.flatMap((m) => m.rows) : enrichedAnalyst)
     : enrichedAnalyst
-  const highlightRange = dateRange?.from != null ? dateRange : null
+  // The charts still receive the UNFILTERED rows — they zoom by slicing their own
+  // precomputed series, which is what keeps cumulative counts and rolling
+  // averages correct at the left edge of the window. See lib/time-axis.js.
+  const range = dateRange?.from != null ? dateRange : null
 
   return (
     <Section
       title="Trends Over Time"
       subtitle={
         view === "team"
-          ? "Team-wide backlog trajectory and weekly intake-versus-resolved cadence. Use this to see whether the team is keeping pace with incoming work, or whether work is accumulating faster than it can be cleared. The shaded band marks the active date filter, if any."
-          : "How the backlog has moved over time, and whether intake is outpacing resolution week to week. The daily line shows the open-case count from the oldest record to today; a daily bar chart tracks how many cases were actually closed each day; the weekly bars compare new cases versus resolved ones to surface backlog growth or recovery. The shaded band marks the active date filter, if any."
+          ? "Team-wide backlog trajectory and weekly intake-versus-resolved cadence. Use this to see whether the team is keeping pace with incoming work, or whether work is accumulating faster than it can be cleared. Charts zoom to the active date filter; switch any card to All time for the full arc."
+          : "How the backlog has moved over time, and whether intake is outpacing resolution week to week. The daily line shows the open-case count; a daily bar chart tracks how many cases were actually closed each day; the weekly bars compare new cases versus resolved ones to surface backlog growth or recovery. Charts zoom to the active date filter; switch any card to All time for the full arc."
       }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <OwnedCasesBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
-        <TrajectoryBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
-        <ClosedCadenceBlock rows={rows} highlightRange={highlightRange} snapshotMs={snapshotMs} />
+        <OwnedCasesBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
+        <TrajectoryBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
+        <ClosedCadenceBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
       </div>
     </Section>
   )

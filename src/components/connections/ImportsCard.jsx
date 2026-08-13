@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import {
   FileSpreadsheet, Upload, Loader2, AlertTriangle, MoreVertical,
   Check, Pencil, RotateCcw, Trash2, CircleDot, Circle,
@@ -110,6 +110,21 @@ export function ImportsCard(ctx) {
           </span>
         </div>
       )}
+      {/* Evictable bucket: OPFS works, but the browser may reclaim it under
+          storage pressure — and the source blobs are the only durable copy of an
+          import, so eviction looks like the app deleting your data. Only worth
+          warning about when there is no disk mirror to fall back on. */}
+      {persistence && persistence.opfsAvailable
+        && persistence.storagePersisted === false && !persistence.diskBackup && (
+        <div style={warnBanner}>
+          <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
+          <span>
+            <strong>This browser hasn&apos;t granted persistent storage.</strong> Imports survive a reload, but the
+            browser can evict them if it needs space — which can wipe them while the tab sits idle. Turn on
+            &ldquo;Back up imports to disk&rdquo; in Settings to keep a second copy that survives eviction.
+          </span>
+        </div>
+      )}
       {orphanNote && (
         <div style={warnBanner}>
           <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
@@ -159,7 +174,25 @@ export function ImportsCard(ctx) {
                 borderTop: idx === 0 ? "none" : `1px solid ${T.borderSoft}`,
                 background: isActive ? T.surfaceAlt : "transparent",
               }}>
-                {isActive ? <CircleDot size={15} style={{ color: T.accent, flexShrink: 0 }} /> : <Circle size={15} style={{ color: T.muted, flexShrink: 0 }} />}
+                {/* The radio dot is a real control: clicking an inactive row's
+                    dot activates that import (same action as the menu item). */}
+                {isActive ? (
+                  <CircleDot size={15} style={{ color: T.accent, flexShrink: 0 }} aria-hidden />
+                ) : (
+                  <button
+                    onClick={() => doActivate(imp.uuid)}
+                    disabled={busy != null}
+                    role="radio"
+                    aria-checked={false}
+                    aria-label={`Activate ${imp.displayName}`}
+                    title="Activate this import"
+                    style={dotBtn}
+                    onMouseEnter={(e) => { e.currentTarget.style.color = T.accent }}
+                    onMouseLeave={(e) => { e.currentTarget.style.color = T.muted }}
+                  >
+                    <Circle size={15} />
+                  </button>
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   {isEditing ? (
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -280,19 +313,65 @@ function DropTarget({ drag, setDrag, uploading, inputRef, onPick }) {
   )
 }
 
+const MENU_W = 200
+
+/* The row list clips its overflow (rounded corners), so an absolutely-positioned
+ * dropdown was cut off — and clipped pixels aren't hit-testable, which made the
+ * "Activate" item look present but unclickable. The menu is therefore positioned
+ * `fixed` off the trigger's viewport rect, and flipped above the button when
+ * there isn't room below, so every item is always visible and clickable. */
 function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRebuild, onDelete }) {
+  const btnRef = useRef(null)
+  const [pos, setPos] = useState(null)
+  // 4 items (3 when already active) at ~37px each, plus the 1px borders.
+  const menuH = (isActive ? 3 : 4) * 37 + 2
+
+  const place = () => {
+    const b = btnRef.current?.getBoundingClientRect()
+    if (!b) return
+    const below = window.innerHeight - b.bottom - 8
+    const flip = below < menuH && b.top > below
+    setPos({
+      left: Math.max(8, Math.min(b.right - MENU_W, window.innerWidth - MENU_W - 8)),
+      top: flip ? Math.max(8, b.top - menuH - 4) : b.bottom + 4,
+    })
+  }
+
+  const toggle = () => {
+    if (!open) place()
+    onToggle()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => { if (e.key === "Escape") onToggle() }
+    window.addEventListener("keydown", onKey)
+    window.addEventListener("resize", place)
+    window.addEventListener("scroll", place, true)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("resize", place)
+      window.removeEventListener("scroll", place, true)
+    }
+  })
+
   return (
-    <div style={{ position: "relative", flexShrink: 0 }}>
-      <button onClick={onToggle} style={iconBtn} title="Actions" aria-label="Actions"><MoreVertical size={16} /></button>
-      {open && (
+    <div style={{ flexShrink: 0 }}>
+      <button ref={btnRef} onClick={toggle} style={iconBtn} title="Actions"
+        aria-label="Actions" aria-haspopup="menu" aria-expanded={open}><MoreVertical size={16} /></button>
+      {open && pos && (
         <>
-          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 10 }} />
-          <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 4, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, minWidth: 190, boxShadow: T.shadowMd, zIndex: 11, overflow: "hidden" }}>
+          <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div role="menu" style={{
+            position: "fixed", left: pos.left, top: pos.top,
+            background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
+            width: MENU_W, boxShadow: T.shadowMd, zIndex: 41, overflow: "hidden",
+          }}>
             {!isActive && <MenuItem icon={CircleDot} label="Activate" onClick={onActivate} />}
             <MenuItem icon={Pencil} label="Rename" onClick={onRename} />
             <MenuItem icon={RotateCcw} label="Rebuild from source" onClick={onRebuild} disabled={!hasBlob}
               title={hasBlob ? "Re-parse the stored source file with current logic" : "No stored source — re-upload instead"} />
-            <MenuItem icon={Trash2} label="Delete" onClick={onDelete} danger />
+            <MenuItem icon={Trash2} label="Delete" onClick={onDelete} danger last />
           </div>
         </>
       )}
@@ -300,13 +379,13 @@ function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRe
   )
 }
 
-function MenuItem({ icon: Icon, label, onClick, danger, disabled, title }) {
+function MenuItem({ icon: Icon, label, onClick, danger, disabled, title, last }) {
   return (
-    <button onClick={disabled ? undefined : onClick} disabled={disabled} title={title}
+    <button onClick={disabled ? undefined : onClick} disabled={disabled} title={title} role="menuitem"
       style={{
         display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
         padding: "9px 12px", background: "transparent", border: "none",
-        borderBottom: `1px solid ${T.borderSoft}`, fontFamily: "DM Sans, sans-serif", fontSize: 13,
+        borderBottom: last ? "none" : `1px solid ${T.borderSoft}`, fontFamily: "DM Sans, sans-serif", fontSize: 13,
         color: disabled ? T.muted : danger ? T.danger : T.ink, cursor: disabled ? "not-allowed" : "pointer",
       }}
       onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = T.surfaceAlt)}
@@ -361,6 +440,11 @@ const iconBtn = {
   display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 8px",
   background: "transparent", color: T.sub, border: "none", borderRadius: 4,
   cursor: "pointer", fontFamily: "DM Sans, sans-serif",
+}
+const dotBtn = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+  padding: 0, background: "transparent", color: T.muted, border: "none",
+  borderRadius: "50%", cursor: "pointer", flexShrink: 0, lineHeight: 0,
 }
 const clearAllBtn = {
   display: "inline-flex", alignItems: "center", padding: "6px 12px",

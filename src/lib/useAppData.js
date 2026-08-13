@@ -24,6 +24,7 @@ import { scrubForAi } from "./ai-scrub.js"
 import {
   storeImportBlob, storeImportMeta, readImportBlob, readImportMeta,
   deleteImportFiles, listImportDirectories, getTotalStorageBytes,
+  ensurePersistentStorage,
 } from "./imports-store.js"
 import {
   listDiskMetas, writeDiskBlob, writeDiskMeta, readDiskBlob,
@@ -372,10 +373,22 @@ export function useAppData() {
   // active import's rows (this also fixes the old reload-loses-charts bug).
   React.useEffect(() => {
     let cancelled = false
+    // Request persistent storage BEFORE the worker opens OPFS. The import source
+    // blobs are the only durable copy of an import, so an evictable bucket means
+    // the browser can silently drop every import while the tab sits idle.
+    const persistPromise = ensurePersistentStorage()
     dbClient
       .init()
       .then(async ({ imports: list, activeUuid, opfsAvailable, usingOpfs, dbDurable }) => {
         if (cancelled) return
+        const storagePersisted = await persistPromise
+        if (cancelled) return
+        if (storagePersisted === false) {
+          console.warn(
+            "[storage] persistent storage denied — the browser may evict stored imports. " +
+              "Enable \"Back up imports to disk\" in Settings for a second copy.",
+          )
+        }
         const pruned = await enforceAutoDelete(list || [], activeUuid)
         if (cancelled) return
         setDbReady(true)
@@ -386,6 +399,9 @@ export function useAppData() {
           opfsAvailable: !!opfsAvailable,
           usingOpfs: !!usingOpfs,
           dbDurable: !!dbDurable,
+          // true | false | null (API absent). false = the bucket is evictable.
+          storagePersisted,
+          diskBackup: getDiskBackup(),
         })
 
         // Cold boot: the DuckDB index is empty. Two recovery sources, in order

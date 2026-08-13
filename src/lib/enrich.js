@@ -218,6 +218,15 @@ export function normalizeXlsxRow(r) {
     // the system field name directly (see parseFileToRows) so this XLSX label
     // mapping is only needed for the recommended XLSX path.
     parent_account:      r['Parent Account']      ?? r['Parent account'] ?? null,
+    // Analyst-applied AI-assistance tags — e.g. "Kiro Assisted", "Gen AI Provided
+    // direction", "Kiro Not Required / Not Applicable" — comma-separated when a
+    // case carries more than one. Raw passthrough with the same treatment as
+    // `parent_account` above: not baked into the SQL schema, carried on the
+    // in-memory enriched row (enrichRow spreads `...r`) where the AI Assisted?
+    // visualizations read it via src/lib/ai-tags.js. CSV exports use the system
+    // field name directly (see parseFileToRows) so this XLSX label mapping is
+    // only needed for the recommended XLSX path.
+    tags:                r['Tags']                ?? null,
     contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,

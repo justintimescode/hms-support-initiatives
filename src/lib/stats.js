@@ -345,7 +345,17 @@ export const startOfMonday = (d) => {
   return x;
 };
 
-export const dailyTrajectory = (rows, refNow = Date.now()) => {
+/** Daily backlog grid, oldest case → `refNow` (the data snapshot).
+ *
+ *  `gridEndMs` extends the x-axis PAST the snapshot — used by the Trends charts
+ *  so the axis reaches the current calendar day instead of stopping on the day
+ *  the export was uploaded. Days after the snapshot are marked `stale: true` and
+ *  carry `created`/`closed` as **null**, not 0: we have no observations for them,
+ *  and a zero bar would assert "nothing came in today" when the truth is "we
+ *  haven't imported today yet". `open`/`owned`/`solutionProposed` DO carry
+ *  forward on those days — a case open at the snapshot is still open until an
+ *  import says otherwise. */
+export const dailyTrajectory = (rows, refNow = Date.now(), gridEndMs = null) => {
   if (!rows || !rows.length) return [];
   let minCreated = null;
   let maxEnd = null;
@@ -357,7 +367,10 @@ export const dailyTrajectory = (rows, refNow = Date.now()) => {
   }
   if (!minCreated || !maxEnd) return [];
   const start = startOfDay(minCreated);
-  const end = startOfDay(maxEnd);
+  const observedEnd = startOfDay(maxEnd).getTime();
+  const end = gridEndMs != null && startOfDay(gridEndMs).getTime() > observedEnd
+    ? startOfDay(gridEndMs)
+    : startOfDay(maxEnd);
   const totalDays = Math.floor((end - start) / 864e5) + 1;
   if (totalDays > 2000) return [];
 
@@ -391,7 +404,19 @@ export const dailyTrajectory = (rows, refNow = Date.now()) => {
     // `solutionProposed` is the rest of `owned` once truly-open is removed —
     // cases on our books that day sitting in a resolved/Solution-Proposed state.
     // By construction open + solutionProposed === owned, so the three stack.
-    out.push({ date: dayStart, open, created, closed, owned, solutionProposed: owned - open });
+    // Past the last observed day the counters below are structurally zero (there
+    // are no rows out there) — surface that as null/`stale` so charts can draw a
+    // gap instead of a fabricated zero. See the jsdoc above.
+    const stale = dayStart > observedEnd;
+    out.push({
+      date: dayStart,
+      open,
+      created: stale ? null : created,
+      closed: stale ? null : closed,
+      owned,
+      solutionProposed: owned - open,
+      stale,
+    });
     cursor.setDate(cursor.getDate() + 1);
   }
   return out;
@@ -408,10 +433,14 @@ export const dailyTrajectory = (rows, refNow = Date.now()) => {
  *  up with the backlog-trajectory chart above it. Adds a trailing N-day rolling
  *  average so the weekday/weekend spikiness of raw daily closes is readable.
  *  `refNow` should be the data snapshot timestamp for determinism. */
-export const dailyClosed = (rows, refNow = Date.now(), window = 7) => {
-  const traj = dailyTrajectory(rows, refNow);
-  const out = traj.map((d) => ({ date: d.date, closed: d.closed, rollingAvg: 0 }));
+export const dailyClosed = (rows, refNow = Date.now(), window = 7, gridEndMs = null) => {
+  const traj = dailyTrajectory(rows, refNow, gridEndMs);
+  const out = traj.map((d) => ({ date: d.date, closed: d.closed, rollingAvg: 0, stale: d.stale }));
   for (let i = 0; i < out.length; i++) {
+    // Unobserved days (past the snapshot) get a null average rather than being
+    // averaged in as zeroes — otherwise a stale import would drag the trailing
+    // mean down and read as a throughput collapse that never happened.
+    if (out[i].stale) { out[i].rollingAvg = null; continue; }
     let s = 0;
     let n = 0;
     for (let j = Math.max(0, i - (window - 1)); j <= i; j++) {

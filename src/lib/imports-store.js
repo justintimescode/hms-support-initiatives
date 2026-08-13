@@ -9,6 +9,30 @@
 
 const ROOT_DIR = 'imports'
 
+// Ask the browser to mark this origin's storage bucket "persistent". Without
+// this the bucket is best-effort and the browser may evict it wholesale under
+// storage pressure — which takes the import source blobs with it. Those blobs
+// are the ONLY durable copy of an import (the DuckDB index file is 0 bytes and
+// the index is rebuilt from them on every boot — see db.worker.js init), so an
+// eviction reads to the user as "the app deleted my import".
+//
+// On http://localhost the bucket is shared with every other localhost dev app,
+// which makes eviction considerably more likely than on a real origin.
+//
+// Chrome/Edge grant this without a prompt only for engaged origins (installed,
+// bookmarked, high site-engagement, or notification permission); otherwise they
+// deny silently. Either way the caller learns the answer and can warn.
+/** @returns {Promise<boolean|null>} true = persistent, false = evictable, null = API absent */
+export async function ensurePersistentStorage() {
+  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return null
+  try {
+    if (await navigator.storage.persisted()) return true
+    return await navigator.storage.persist()
+  } catch {
+    return null
+  }
+}
+
 async function opfsRoot() {
   if (typeof navigator === 'undefined' || !navigator.storage?.getDirectory) return null
   try {

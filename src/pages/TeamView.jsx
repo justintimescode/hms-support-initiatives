@@ -141,8 +141,8 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
 
       {(page === "trends" || printMode) && (
         <div className="print-section">
-          <Section title="Trends Over Time" subtitle="Team-wide backlog trajectory and weekly intake-versus-resolved cadence. Use this to see whether the team is keeping pace with incoming work, or whether work is accumulating faster than it can be cleared. The shaded band marks the active date filter, if any.">
-            <TrajectoryBlock rows={trajectoryRows} highlightRange={highlightRange?.from != null ? highlightRange : null} />
+          <Section title="Trends Over Time" subtitle="Team-wide backlog trajectory and weekly intake-versus-resolved cadence. Use this to see whether the team is keeping pace with incoming work, or whether work is accumulating faster than it can be cleared. Charts zoom to the active date filter; switch any card to All time for the full arc.">
+            <TrajectoryBlock rows={trajectoryRows} dateRange={highlightRange?.from != null ? highlightRange : null} />
           </Section>
           <Section title="Workload Cadence" subtitle="Team-wide weekly rhythm. The bars show average open caseload and case creation by weekday; the heatmap pinpoints the weekday-and-hour slots where intake concentrates. Useful for staffing decisions and on-call coverage. Click a heatmap tile to see the cases created in that slot.">
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

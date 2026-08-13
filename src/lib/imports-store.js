@@ -65,7 +65,7 @@ async function importDir(uuid, create = false) {
 /** Write the raw uploaded file to imports/{uuid}/source.{ext}. */
 export async function storeImportBlob(uuid, file, ext) {
   const dir = await importDir(uuid, true)
-  if (!dir) throw new Error('OPFS unavailable — cannot persist import source file.')
+  if (!dir) return // OPFS unavailable (e.g. insecure context) — proceed in-memory only
   const handle = await dir.getFileHandle(`source.${ext}`, { create: true })
   const writable = await handle.createWritable()
   await writable.write(file)

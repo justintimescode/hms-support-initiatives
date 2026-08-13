@@ -9,10 +9,10 @@ import { DevCompare } from "../components/dev/DevCompare.jsx"
 import { flattenByKey } from "../components/dev/devCompareUtils.js"
 
 export default function AccountsPage() {
-  const { rows, view, accountData, accountDataAll, productData, analyst, dateRange, enrichedAllJoined, snapshotMs } = useOutletContext()
+  const { rows, view, accountData, accountDataAll, productData, analyst, manager, dateRange, enrichedAllJoined, snapshotMs } = useOutletContext()
   const dr = dateRange || { from: null, to: null, field: "_created" }
-  const acctSql = useQuery(() => getAccountData({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
-  const prodSql = useQuery(() => getProductData({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
+  const acctSql = useQuery(() => getAccountData({ analyst, manager, dateRange: dr }), [analyst, manager, dr.from, dr.to, dr.field], { enabled: !!rows })
+  const prodSql = useQuery(() => getProductData({ analyst, manager, dateRange: dr }), [analyst, manager, dr.from, dr.to, dr.field], { enabled: !!rows })
   if (!rows) return <Section title="Accounts & Products"><EmptyState /></Section>
   return (
     <Section

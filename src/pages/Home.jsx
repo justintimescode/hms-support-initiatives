@@ -18,7 +18,7 @@ import { kpiMetrics } from "../components/dev/devCompareUtils.js"
 export default function Home() {
   const ctx = useOutletContext()
   const {
-    rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, dateRange,
+    rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, manager, dateRange,
     compareWindow, enriched, handleFile, uploading, uploadError, inputRef,
   } = ctx
   const dr = dateRange || { from: null, to: null, field: "_created" }
@@ -29,10 +29,10 @@ export default function Home() {
     () => (enriched || []).filter((r) => r._slaEligible && r._slaBreached),
     [enriched],
   )
-  const kpiSql = useQuery(() => getKpis({ analyst, dateRange: dr }), [analyst, dr.from, dr.to, dr.field], { enabled: !!rows })
+  const kpiSql = useQuery(() => getKpis({ analyst, manager, dateRange: dr }), [analyst, manager, dr.from, dr.to, dr.field], { enabled: !!rows })
   const cmpSql = useQuery(
-    () => getCompareKpis({ analyst, compareWindow, field: dr.field }),
-    [analyst, compareWindow?.from, compareWindow?.to, dr.field],
+    () => getCompareKpis({ analyst, manager, compareWindow, field: dr.field }),
+    [analyst, manager, compareWindow?.from, compareWindow?.to, dr.field],
     { enabled: !!rows && !!compareWindow },
   )
 

@@ -4,13 +4,13 @@ import { getKpis } from "../lib/queries.js";
 import { Card } from "./layout/Card.jsx";
 
 /* ================= Dev side-by-side (Phase 3, getKpis gate) ================= */
-export function DevKpiCompare({ jsKpis, analyst, dateRange, dbReady }) {
+export function DevKpiCompare({ jsKpis, analyst, manager, dateRange, dbReady }) {
   // Only render in dev, and only once DuckDB has data to query.
   const enabled = !!(import.meta?.env?.DEV && dbReady && jsKpis);
   const dr = dateRange || { from: null, to: null, field: "_created" };
   const { data: sqlKpis, loading, error } = useQuery(
-    () => getKpis({ analyst, dateRange: dr }),
-    [analyst, dr.from, dr.to, dr.field],
+    () => getKpis({ analyst, manager, dateRange: dr }),
+    [analyst, manager, dr.from, dr.to, dr.field],
     { enabled }
   );
 

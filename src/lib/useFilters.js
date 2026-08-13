@@ -10,6 +10,7 @@ import { isoFromMs, msFromIso } from "./format.js"
 import { matchPreset } from "./stats.js"
 
 const TOKEN_RE = /^a(\d+)$/
+const MANAGER_TOKEN_RE = /^m(\d+)$/
 
 /**
  * @param {object} [opts]
@@ -18,17 +19,21 @@ const TOKEN_RE = /^a(\d+)$/
  *   token <-> name resolution. Pass an empty array (default) when no
  *   data is loaded — incoming `?a=…` URLs gracefully fall back to
  *   `__all__`.
+ * @param {string[]} [opts.managerNames] raw manager names from the loaded
+ *   dataset — same opaque-token treatment as `analystNames`, under `?m=…`.
  * @returns {{
  *   analyst: string,                                  // '__all__' or a resolved name
  *   setAnalyst: (name: string|null) => void,
+ *   manager: string,                                  // '__all__' or a resolved name
+ *   setManager: (name: string|null) => void,
  *   dateRange: { preset: string, from: number|null, to: number|null, field: string },
  *   setDateRange: (range: { from?: number|null, to?: number|null, field?: string }) => void,
  *   compareOn: boolean,
  *   setCompareOn: (on: boolean) => void,
- *   buildFilterSearch: (overrides?: { analyst?: string|null }) => string,
+ *   buildFilterSearch: (overrides?: { analyst?: string|null, manager?: string|null }) => string,
  * }}
  */
-export function useFilters({ analystNames = [] } = {}) {
+export function useFilters({ analystNames = [], managerNames = [] } = {}) {
   const [params, setParams] = useSearchParams()
 
   // Stable alphabetical ordering. The index in this array is the token
@@ -37,6 +42,10 @@ export function useFilters({ analystNames = [] } = {}) {
   const sortedNames = useMemo(
     () => [...analystNames].sort((a, b) => String(a).localeCompare(String(b))),
     [analystNames],
+  )
+  const sortedManagers = useMemo(
+    () => [...managerNames].sort((a, b) => String(a).localeCompare(String(b))),
+    [managerNames],
   )
 
   /* ---------- analyst (opaque token ↔ name) ---------- */
@@ -74,6 +83,44 @@ export function useFilters({ analystNames = [] } = {}) {
       )
     },
     [setParams, sortedNames],
+  )
+
+  /* ---------- manager (opaque token ↔ name) ---------- */
+  // Same SECURITY #8 treatment as the analyst: `?m=` only indexes into
+  // `sortedManagers` (names derived from the loaded dataset), so the resolved
+  // `manager` is always '__all__' or a real known name, and every consumer
+  // passes it as a parameterized value (queries.js buildWhere: `manager = ?`).
+  const managerTokenParam = params.get("m")
+  const manager = useMemo(() => {
+    if (!managerTokenParam) return "__all__"
+    const m = managerTokenParam.match(MANAGER_TOKEN_RE)
+    if (!m) return "__all__"
+    const idx = parseInt(m[1], 10)
+    return sortedManagers[idx] || "__all__"
+  }, [managerTokenParam, sortedManagers])
+
+  const setManager = useCallback(
+    (name) => {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          // A manager change swaps the analyst roster underneath the analyst
+          // filter, so the analyst selection is cleared alongside — you land on
+          // "All analysts" of the newly picked team.
+          next.delete("a")
+          if (!name || name === "__all__") {
+            next.delete("m")
+          } else {
+            const idx = sortedManagers.indexOf(name)
+            if (idx < 0) next.delete("m")
+            else next.set("m", `m${idx}`)
+          }
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setParams, sortedManagers],
   )
 
   /* ---------- date range ---------- */
@@ -142,11 +189,24 @@ export function useFilters({ analystNames = [] } = {}) {
           else next.set("a", `a${idx}`)
         }
       }
+      if ("manager" in overrides) {
+        const name = overrides.manager
+        if (!name || name === "__all__") {
+          next.delete("m")
+        } else {
+          const idx = sortedManagers.indexOf(name)
+          if (idx < 0) next.delete("m")
+          else next.set("m", `m${idx}`)
+        }
+      }
       const s = next.toString()
       return s ? `?${s}` : ""
     },
-    [params, sortedNames],
+    [params, sortedNames, sortedManagers],
   )
 
-  return { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch }
+  return {
+    analyst, setAnalyst, manager, setManager,
+    dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch,
+  }
 }

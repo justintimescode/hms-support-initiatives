@@ -1,6 +1,6 @@
-// On-device regeneration of the "Customer Sentiment Review" workbook — the same
-// two-sheet structure the LLM produced, rebuilt from the baked grades so the
-// team never has to run a whole export through a model. No network, no model.
+// On-device "Customer Sentiment & Escalation Early-Warning" workbook — rebuilt
+// from the baked grades so the team never has to run an export through a model.
+// No network, no model.
 //
 // SECURITY #7: every string cell goes through sanitizeCellForExport so a
 // ServiceNow value like `=cmd|…` can't execute as a formula when opened in
@@ -9,20 +9,24 @@
 import { summarizeSentiment } from "./sentiment.js";
 import { sanitizeCellForExport, csvTimestamp } from "./csv-export.js";
 
-// Per-Case Detail — EXACT column order from the review spreadsheet.
+// Per-Case Detail — one row per case, triage columns first.
 export const PER_CASE_COLUMNS = [
-  "Case", "Account", "Contact", "Priority", "Status", "Created", "Closed",
-  "Product", "My msgs", "Cust msgs", "First reply (h)", "Valence (-5..+5)",
-  "Sentiment", "Start", "End", "Arc", "Emotions", "Frustration target",
-  "Representative customer quote", "Coaching note", "Auto-closed",
+  "Case", "Account", "Contact", "Priority", "Lifecycle", "Status", "Created", "Closed",
+  "Escalated", "Escalation reason", "Risk (0-100)", "Risk factors",
+  "Customer response", "Chases", "Unanswered", "Waiting (d)",
+  "My msgs", "Cust msgs", "First reply (h)",
+  "Valence (-5..+5)", "Sentiment", "Start", "End", "Arc", "Signals",
+  "Representative customer quote", "Last customer message", "Notes", "Auto-closed",
 ];
 
 const COL_WIDTH = {
-  "Case": 14, "Account": 22, "Contact": 18, "Priority": 13, "Status": 16,
-  "Created": 18, "Closed": 18, "Product": 18, "My msgs": 9, "Cust msgs": 9,
-  "First reply (h)": 13, "Valence (-5..+5)": 14, "Sentiment": 11, "Start": 7,
-  "End": 7, "Arc": 20, "Emotions": 26, "Frustration target": 16,
-  "Representative customer quote": 52, "Coaching note": 52, "Auto-closed": 11,
+  "Case": 14, "Account": 22, "Contact": 18, "Priority": 13, "Lifecycle": 16, "Status": 16,
+  "Created": 18, "Closed": 18, "Escalated": 10, "Escalation reason": 36,
+  "Risk (0-100)": 12, "Risk factors": 52, "Customer response": 16,
+  "Chases": 8, "Unanswered": 11, "Waiting (d)": 11,
+  "My msgs": 9, "Cust msgs": 9, "First reply (h)": 13,
+  "Valence (-5..+5)": 14, "Sentiment": 11, "Start": 7, "End": 7, "Arc": 16, "Signals": 26,
+  "Representative customer quote": 52, "Last customer message": 52, "Notes": 52, "Auto-closed": 11,
 };
 
 const round2 = (x) => Math.round(x * 100) / 100;
@@ -32,10 +36,9 @@ const txt = (v) => sanitizeCellForExport(v == null ? "" : String(v));
 const pctStr = (x) => `${Math.round((x || 0) * 100)}%`;
 
 /**
- * Build the two-sheet sentiment workbook for the given rows (no DOM — pure, so
- * it is unit-testable in Node). Pulls values straight from the baked grades via
- * summarizeSentiment (which prefers baked columns), plus the raw enriched row
- * for the few non-sentiment columns (Contact, Status, Product, dates, auto-closed).
+ * Build the two-sheet workbook for the given rows (no DOM — pure, unit-testable
+ * in Node). Values come from the baked grades via summarizeSentiment, plus the
+ * raw enriched row for the non-sentiment columns.
  *
  * @param {object[]} rows  enriched case rows (the page's current filtered set)
  * @returns {Promise<import("exceljs").Workbook>}
@@ -44,10 +47,8 @@ export async function buildSentimentWorkbook(rows) {
   const ExcelJS = (await import("exceljs")).default;
   const { graded, summary } = summarizeSentiment(rows || []);
   const byNumber = new Map((rows || []).map((r) => [r.number, r]));
-  // Auto-closed = a closed case with no written customer voice. Keyed off the
-  // same body-based signal as scoreability (NOT the header-count custMsgs, which
-  // counts an empty-bodied customer entry), so this matches the "Phone / silent"
-  // coverage line (rows − scoreable) instead of disagreeing on empty-body cases.
+  // Auto-closed = a closed case with no written customer voice — matches the
+  // "silent" coverage line (body-based, not header-count based).
   const isAutoClosed = (g) => {
     const r = byNumber.get(g.number);
     return !!(r && r._isClosed && !g.scoreable);
@@ -59,28 +60,38 @@ export async function buildSentimentWorkbook(rows) {
   /* ---- Sheet 1: Headline Metrics ---- */
   const hm = wb.addWorksheet("Headline Metrics", { views: [{ state: "frozen", ySplit: 1 }] });
   hm.columns = [
-    { header: "Section", key: "section", width: 16 },
-    { header: "Metric", key: "metric", width: 40 },
+    { header: "Section", key: "section", width: 18 },
+    { header: "Metric", key: "metric", width: 44 },
     { header: "Value", key: "value", width: 18 },
-    { header: "Detail", key: "detail", width: 52 },
+    { header: "Detail", key: "detail", width: 56 },
   ];
   hm.getRow(1).font = { bold: true };
 
   const autoClosed = graded.filter(isAutoClosed).length;
   const HEADLINE = [
     ["Coverage", "Cases analyzed", summary.analyzed, ""],
-    ["Coverage", "Scoreable cases", summary.scoreableCount, `${pctStr(summary.scoreableShare)} of analyzed`],
+    ["Coverage", "Scoreable cases (customer wrote something)", summary.scoreableCount, `${pctStr(summary.scoreableShare)} of analyzed`],
     ["Coverage", "Phone / silent (no written customer voice)", summary.silent, ""],
     ["Coverage", "Auto-closed (closed, no customer message)", autoClosed, ""],
+    ["Early warning", "Escalation events in open cases", summary.escalatedOpen, (summary.escalatedOpenCases || []).join(", ")],
+    ["Early warning", "High escalation risk (≥50, not yet escalated)", summary.highRisk, (summary.highRiskCases || []).join(", ")],
+    ["Early warning", "Elevated escalation risk (30–49)", summary.elevatedRisk, ""],
+    ["Early warning", "Customer messages awaiting a reply", summary.unansweredTotal, "trailing unanswered, open cases"],
+    ["Solution proposed", "Awaiting customer confirmation", summary.spTotal, ""],
+    ["Solution proposed", "Pushback (says it isn't fixed)", summary.spPushback, "reopen risk — respond first"],
+    ["Solution proposed", "Verifying (holding case open to test)", summary.spConditional, ""],
+    ["Solution proposed", "No confirmation (silent)", summary.spSilent, ""],
+    ["Solution proposed", "Confirmed fixed", summary.spConfirmed, ""],
     ["Sentiment", "Average valence", round2(summary.avgValence), "scale -5..+5"],
     ["Sentiment", "Normalized score", summary.normalized100, "0..100"],
     ["Sentiment", "Positive", summary.pos, pctStr(summary.posShare)],
     ["Sentiment", "Neutral", summary.neu, ""],
     ["Sentiment", "Negative", summary.neg, pctStr(summary.negShare)],
-    ["Trajectory", "Opened frustrated", summary.openedFrustrated, ""],
-    ["Trajectory", "Recovered (frustrated → positive)", summary.recovered, ""],
-    ["Trajectory", "Still negative at close", summary.stillNegative, (summary.stillNegativeCases || []).join(", ")],
-    ["Trajectory", "Calm → negative", summary.calmToNegative, ""],
+    ["Closed review", "Closed with written dialogue", summary.closedScoreable, `of ${summary.closedTotal} closed`],
+    ["Closed review", "Ended negative", summary.closedNegative, ""],
+    ["Closed review", "Recovered (frustrated → positive)", summary.recovered, ""],
+    ["Closed review", "Declined (tone worsened)", summary.declined, ""],
+    ["Closed review", "Customer confirmed fix before close", summary.confirmedClose, pctStr(summary.confirmedCloseShare)],
     ["Responsiveness", "Median first reply (h)", summary.medianFrtH == null ? "" : round2(summary.medianFrtH), ""],
     ["Responsiveness", "Within 1 hour", pctStr(summary.within1hShare), ""],
     ["Hygiene", "Duplicate double-posts", summary.duplicatePosts, ""],
@@ -108,29 +119,37 @@ export async function buildSentimentWorkbook(rows) {
       txt(g.account),
       txt(r.contact),
       txt(g.priority),
+      txt(g.lifecycle),
       txt(r.status ?? r.state),
       dateCell(r._created),
       dateCell(r._closed),
-      txt(r.product_line),
+      g.escalated ? "Yes" : "",
+      txt(g.escReason),
+      g.risk == null ? "" : num(g.risk),
+      txt(g.riskFactors),
+      txt(g.confirmState),
+      num(g.chases),
+      num(g.unanswered),
+      g.waitDays == null ? "" : num(g.waitDays),
       num(g.myMsgs),
       num(g.custMsgs),
       frtH == null ? "" : round2(frtH),
-      num(g.valence),
+      g.valence == null ? "" : num(g.valence),
       txt(g.sentiment),
-      num(g.start),
+      g.start == null ? "" : num(g.start),
       g.end == null ? "" : num(g.end),
       txt(g.arc),
-      txt(g.emotions),
-      txt(g.frustrationTarget),
+      txt(g.signals),
       txt(g.quote),
+      txt(g.lastQuote),
       txt(g.coachingNote),
       isAutoClosed(g) ? "Yes" : "",
     ]);
   }
   // Typed number formats: Created/Closed as dates, First reply as 1-decimal hours.
-  pc.getColumn(6).numFmt = "yyyy-mm-dd hh:mm";
   pc.getColumn(7).numFmt = "yyyy-mm-dd hh:mm";
-  pc.getColumn(11).numFmt = "0.0";
+  pc.getColumn(8).numFmt = "yyyy-mm-dd hh:mm";
+  pc.getColumn(19).numFmt = "0.0";
 
   return wb;
 }
@@ -149,7 +168,7 @@ export async function exportSentimentWorkbook(rows, opts = {}) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = opts.filename || `sentiment-grades-${csvTimestamp()}.xlsx`;
+  a.download = opts.filename || `sentiment-early-warning-${csvTimestamp()}.xlsx`;
   a.click();
   URL.revokeObjectURL(url);
 }

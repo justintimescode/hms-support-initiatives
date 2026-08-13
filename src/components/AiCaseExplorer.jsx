@@ -28,6 +28,7 @@ const SORTS = [
   { value: "age-asc", label: "Newest first" },
   { value: "priority", label: "Priority" },
   { value: "assignee", label: "Assignee" },
+  { value: "manager", label: "Manager" },
   { value: "account", label: "Account" },
 ];
 
@@ -46,7 +47,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
     const q = query.trim().toLowerCase();
     if (!q) return picked;
     return picked.filter((r) =>
-      [r.number, r.short_description, r.account, r.assigned_to, r.state, r.status, r.tags]
+      [r.number, r.short_description, r.account, r.assigned_to, r.manager, r.state, r.status, r.tags]
         .some((v) => String(v ?? "").toLowerCase().includes(q)),
     );
   }, [list, active, query]);
@@ -68,7 +69,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
   const exportCsv = () => {
     const headers = [
       "Number", "Tags", "Outcome", "Priority", "State", "Status",
-      "Assigned to", "Account", "Created", "Age (days)", "Short description",
+      "Assigned to", "Manager", "Account", "Created", "Age (days)", "Short description",
     ];
     const data = sorted.map((r) => {
       const outcome = rowOutcome(r);
@@ -81,6 +82,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
         r.state ?? "",
         r.status ?? "",
         r.assigned_to ?? "",
+        r.manager ?? "",
         r.account ?? "",
         r._created ? fmtDate(r._created) : "",
         age == null ? "" : age,
@@ -181,6 +183,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
                 <th style={th}>State</th>
                 <th style={th}>Status</th>
                 <th style={th}>Assignee</th>
+                <th style={th}>Manager</th>
                 <th style={th}>Account</th>
                 <th style={th}>Created</th>
                 <th style={th}>Age</th>
@@ -218,6 +221,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
                     <td style={{ ...td, whiteSpace: "nowrap", color: T.ink }}>{r.state || "—"}</td>
                     <td style={{ ...td, whiteSpace: "nowrap", color: T.sub }}>{r.status || "—"}</td>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>{r.assigned_to || "Unassigned"}</td>
+                    <td style={{ ...td, whiteSpace: "nowrap", color: T.sub }}>{r.manager || "No manager"}</td>
                     <td style={{ ...td, whiteSpace: "nowrap" }}>{r.account || "—"}</td>
                     <td className="mono" style={{ ...td, whiteSpace: "nowrap", color: T.sub }}>{fmtDate(r._created)}</td>
                     <td className="mono" style={{ ...td, whiteSpace: "nowrap", color: age != null && age > 30 ? T.danger : T.sub }}>
@@ -252,6 +256,15 @@ function sortRows(rows, mode) {
     case "assignee":
       return copy.sort(
         (a, b) =>
+          String(a.assigned_to || "Unassigned").localeCompare(String(b.assigned_to || "Unassigned")) ||
+          created(a) - created(b),
+      );
+    case "manager":
+      // Manager, then assignee within the team, then age — reads as a
+      // team-by-team roster so a manager can eyeball their block in one place.
+      return copy.sort(
+        (a, b) =>
+          String(a.manager || "No manager").localeCompare(String(b.manager || "No manager")) ||
           String(a.assigned_to || "Unassigned").localeCompare(String(b.assigned_to || "Unassigned")) ||
           created(a) - created(b),
       );

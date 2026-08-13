@@ -12,7 +12,7 @@ export default function TeamPage() {
   const ctx = useOutletContext()
   const { rows } = ctx
   const {
-    analyst,
+    analyst, manager,
     teamMembers, teamMembersAll, compareTeamKpis, compareWindow,
     dateRange, kpis, priorityData, categoryData, accountData, productData,
     enriched, enrichedAnalyst,
@@ -26,6 +26,7 @@ export default function TeamPage() {
       <TeamView
         page="team"
         printMode={null}
+        manager={manager}
         members={teamMembers}
         allMembers={teamMembersAll}
         compareTotals={compareTeamKpis}

@@ -66,13 +66,22 @@ const CASES_COLUMNS = `
     sentiment_start         BIGINT,
     sentiment_end           BIGINT,
     sentiment_arc           VARCHAR,
-    sentiment_emotions      VARCHAR,
-    sentiment_target        VARCHAR,
+    sentiment_signals       VARCHAR,
     sentiment_quote         VARCHAR,
     sentiment_coaching      VARCHAR,
     sentiment_pii           BOOLEAN,
     sentiment_dup           BOOLEAN,
-    resolved_at_ms          BIGINT
+    sentiment_risk          BIGINT,
+    sentiment_risk_factors  VARCHAR,
+    sentiment_escalated     BOOLEAN,
+    sentiment_esc_reason    VARCHAR,
+    sentiment_confirm       VARCHAR,
+    sentiment_chases        BIGINT,
+    sentiment_unanswered    BIGINT,
+    sentiment_wait_days     BIGINT,
+    sentiment_last_quote    VARCHAR,
+    resolved_at_ms          BIGINT,
+    manager                 VARCHAR
 `
 const EMPTY_TABLE = 'cases_empty'
 const CREATE_INDEX_SQL = `
@@ -369,6 +378,7 @@ function legacyMigrateIfNeeded() {
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS sla_due_sop TIMESTAMP`) } catch { /* ignore */ }
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS lifecycle VARCHAR`) } catch { /* ignore */ }
   try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS resolved_at_ms BIGINT`) } catch { /* ignore */ }
+  try { conn.query(`ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS manager VARCHAR`) } catch { /* ignore */ }
   conn.query('DROP TABLE cases')
   try { conn.query('DROP TABLE IF EXISTS meta') } catch { /* ignore */ }
   upsertIndexRow({

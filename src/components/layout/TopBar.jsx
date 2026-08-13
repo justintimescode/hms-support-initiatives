@@ -1,4 +1,4 @@
-import { User, ListFilter, Printer } from "lucide-react"
+import { User, Users, ListFilter, Printer } from "lucide-react"
 import { T } from "../../lib/theme.js"
 import { FilterBar } from "../FilterBar.jsx"
 import { FreshnessIndicator } from "./FreshnessIndicator.jsx"
@@ -11,6 +11,7 @@ export function TopBar({ ctx }) {
   const {
     rows,
     analyst, setAnalyst, analysts,
+    manager, setManager, managers,
     dateRange, setDateRange,
     compareOn, setCompareOn,
     compareWindow,
@@ -36,6 +37,11 @@ export function TopBar({ ctx }) {
     ? (teamMembers || []).reduce((s, m) => s + m.kpis.total, 0)
     : (kpis?.total ?? 0)
 
+  // Only offer the Manager filter when the export actually carries manager
+  // data — an import without the column would render a lone "No manager"
+  // option that filters nothing.
+  const hasManagerData = (managers || []).some(([name]) => name !== "No manager")
+
   return (
     <div
       className="no-print"
@@ -60,6 +66,38 @@ export function TopBar({ ctx }) {
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
+        {hasManagerData && (
+          <div style={{ position: "relative" }}>
+            <Users size={14} style={{ position: "absolute", left: 12, top: 11, color: T.muted }} />
+            <select
+              value={manager}
+              onChange={(e) => setManager(e.target.value)}
+              title="Scope every tab to one manager's team"
+              style={{
+                appearance: "none",
+                padding: "8px 34px 8px 34px",
+                background: T.surface,
+                border: `1px solid ${manager !== "__all__" ? T.accent : T.border}`,
+                borderRadius: 8,
+                fontFamily: "Geist, DM Sans, sans-serif",
+                fontSize: 13,
+                fontWeight: 500,
+                color: T.ink,
+                cursor: "pointer",
+                minWidth: 200,
+                boxShadow: T.shadowSm,
+                transition: "border-color 0.15s ease",
+              }}
+            >
+              <option value="__all__">All managers ({(managers || []).reduce((s, [, c]) => s + c, 0)})</option>
+              {(managers || []).map(([name, count]) => (
+                <option key={name} value={name}>{name} ({count})</option>
+              ))}
+            </select>
+            <ListFilter size={14} style={{ position: "absolute", right: 12, top: 11, color: T.muted, pointerEvents: "none" }} />
+          </div>
+        )}
+
         <div style={{ position: "relative" }}>
           <User size={14} style={{ position: "absolute", left: 12, top: 11, color: T.muted }} />
           <select

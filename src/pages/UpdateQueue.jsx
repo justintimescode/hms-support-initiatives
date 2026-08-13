@@ -78,11 +78,11 @@ const TITLE = "Update Queue";
 const SUBTITLE =
   "Open cases overdue for an Infor-authored customer-facing update, plus initial-response misses. SOP-driven, computed against the data-as-of snapshot below.";
 
-export function UpdateQueue({ analyst, snapshotMs, dbReady }) {
+export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
   const enabled = !!(dbReady && snapshotMs);
   const { data, loading, error } = useQuery(
-    () => getUpdateQueue({ analyst, snapshotMs }),
-    [analyst, snapshotMs],
+    () => getUpdateQueue({ analyst, manager, snapshotMs }),
+    [analyst, manager, snapshotMs],
     { enabled }
   );
   const [selected, setSelected] = useState(null);

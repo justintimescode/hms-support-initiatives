@@ -15,19 +15,38 @@ import {
 
 /* ---------- WHERE-clause builder ---------- */
 
+// The "No manager" bucket the UI offers for blank manager cells. Blank means
+// NULL (XLSX empty cell) or '' (CSV empty field), so the SQL condition matches
+// both. The v12 `manager` column is required — pre-v12 imports error here until
+// rebuilt (the file manager shows the "Rebuild needed" badge for them).
+const NO_MANAGER = 'No manager'
+const SQL_NO_MANAGER = `(manager IS NULL OR manager = '')`
+
+function pushManagerCond(conds, params, manager) {
+  if (!manager || manager === '__all__') return
+  if (manager === NO_MANAGER) {
+    conds.push(SQL_NO_MANAGER)
+  } else {
+    conds.push('manager = ?')
+    params.push(manager)
+  }
+}
+
 /**
  * @param {object} args
  * @param {string|null} [args.analyst]
+ * @param {string|null} [args.manager]  '__all__', 'No manager', or an exact manager
  * @param {{from:number|null,to:number|null,field:string}|null} [args.dateRange]
  * @returns {{ sql: string, params: any[] }}
  */
-export function buildWhere({ analyst, dateRange } = {}) {
+export function buildWhere({ analyst, manager, dateRange } = {}) {
   const conds = []
   const params = []
   if (analyst && analyst !== '__all__') {
     conds.push('assigned_to = ?')
     params.push(analyst)
   }
+  pushManagerCond(conds, params, manager)
   const dr = dateRange || {}
   if (dr.from != null || dr.to != null) {
     const field = dr.field === '_closed' ? 'closed_at' : 'created_at'
@@ -65,8 +84,8 @@ const SQL_OPEN = `lower(trim(state)) NOT IN ('closed', 'resolved')`
  * `atRisk` / `breached` are scalar counts here — full case lists for
  * those are returned by `getAtRiskCases` (to be added in the next batch).
  */
-export async function getKpis({ analyst, dateRange } = {}) {
-  const { sql: where, params } = buildWhere({ analyst, dateRange })
+export async function getKpis({ analyst, manager, dateRange } = {}) {
+  const { sql: where, params } = buildWhere({ analyst, manager, dateRange })
   const rows = await dbClient.query(
     `
     SELECT
@@ -106,9 +125,9 @@ export async function getKpis({ analyst, dateRange } = {}) {
 }
 
 /** getKpis over the comparison window. Returns null when there's no window. */
-export async function getCompareKpis({ analyst, compareWindow, field } = {}) {
+export async function getCompareKpis({ analyst, manager, compareWindow, field } = {}) {
   if (!compareWindow || compareWindow.from == null || compareWindow.to == null) return null
-  return getKpis({ analyst, dateRange: { from: compareWindow.from, to: compareWindow.to, field } })
+  return getKpis({ analyst, manager, dateRange: { from: compareWindow.from, to: compareWindow.to, field } })
 }
 
 /**
@@ -119,8 +138,8 @@ export async function getCompareKpis({ analyst, compareWindow, field } = {}) {
  * resolution average is over rows with a resolved_ms (created+closed), not
  * gated on is_closed, matching `_resolvedMs`. Ordered by priority rank.
  */
-export async function getPriorityData({ analyst, dateRange } = {}) {
-  const { sql: where, params } = buildWhere({ analyst, dateRange })
+export async function getPriorityData({ analyst, manager, dateRange } = {}) {
+  const { sql: where, params } = buildWhere({ analyst, manager, dateRange })
   const rows = await dbClient.query(
     `
     SELECT
@@ -162,8 +181,8 @@ export async function getPriorityData({ analyst, dateRange } = {}) {
 }
 
 /** GROUP BY category → `{ name, count }[]` desc. Mirrors `categoryData`. */
-export async function getCategoryData({ analyst, dateRange } = {}) {
-  const { sql: where, params } = buildWhere({ analyst, dateRange })
+export async function getCategoryData({ analyst, manager, dateRange } = {}) {
+  const { sql: where, params } = buildWhere({ analyst, manager, dateRange })
   const rows = await dbClient.query(
     `SELECT category AS name, COUNT(*)::BIGINT AS count
      FROM cases ${where}
@@ -175,8 +194,8 @@ export async function getCategoryData({ analyst, dateRange } = {}) {
 }
 
 /** GROUP BY account → top 30 `{ name, count }[]` desc. Mirrors `accountData`. */
-export async function getAccountData({ analyst, dateRange } = {}) {
-  const { sql: where, params } = buildWhere({ analyst, dateRange })
+export async function getAccountData({ analyst, manager, dateRange } = {}) {
+  const { sql: where, params } = buildWhere({ analyst, manager, dateRange })
   const rows = await dbClient.query(
     `SELECT CASE WHEN account IS NULL OR account = '' THEN 'Unknown' ELSE account END AS name,
             COUNT(*)::BIGINT AS count
@@ -190,8 +209,8 @@ export async function getAccountData({ analyst, dateRange } = {}) {
 }
 
 /** GROUP BY product_line → `{ name, count }[]` desc. Mirrors `productData`. */
-export async function getProductData({ analyst, dateRange } = {}) {
-  const { sql: where, params } = buildWhere({ analyst, dateRange })
+export async function getProductData({ analyst, manager, dateRange } = {}) {
+  const { sql: where, params } = buildWhere({ analyst, manager, dateRange })
   const rows = await dbClient.query(
     `SELECT CASE WHEN product_line IS NULL OR product_line = '' THEN 'Unknown' ELSE product_line END AS name,
             COUNT(*)::BIGINT AS count
@@ -228,7 +247,7 @@ export async function getProductData({ analyst, dateRange } = {}) {
  *   summary: { overdue: number, dueSoon: number, initialMisses: number },
  * }>}
  */
-export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
+export async function getUpdateQueue({ analyst, manager, snapshotMs } = {}) {
   if (snapshotMs == null) {
     return {
       snapshotMs: null,
@@ -255,6 +274,7 @@ export async function getUpdateQueue({ analyst, snapshotMs } = {}) {
     filterConds.push('assigned_to = ?')
     filterParams.push(analyst)
   }
+  pushManagerCond(filterConds, filterParams, manager)
   const whereClause = `WHERE ${filterConds.join(' AND ')}`
 
   // Bucket SQL — fed snapshotMs (as TIMESTAMP) plus WARN_FRACTION and
@@ -413,7 +433,7 @@ function normalizeIrRow(r) {
  *   summary: { total:number, within7:number, within30:number, past:number, unknown:number },
  * }>}
  */
-export async function getSolutionProposedAutoClose({ analyst, snapshotMs } = {}) {
+export async function getSolutionProposedAutoClose({ analyst, manager, snapshotMs } = {}) {
   const empty = { total: 0, within7: 0, within30: 0, past: 0, unknown: 0 }
   if (snapshotMs == null) {
     return { snapshotMs: null, rows: [], summary: empty }
@@ -425,6 +445,7 @@ export async function getSolutionProposedAutoClose({ analyst, snapshotMs } = {})
     conds.push('assigned_to = ?')
     params.push(analyst)
   }
+  pushManagerCond(conds, params, manager)
   const where = `WHERE ${conds.join(' AND ')}`
 
   // The clock starts at last activity (or creation when the journal is empty).

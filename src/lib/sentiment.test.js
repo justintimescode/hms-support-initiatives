@@ -1,341 +1,358 @@
-// Unit tests for the deterministic sentiment engine. Runs on Node's built-in
-// runner: `node --test` (zero deps). The engine is framework-free, so these
-// import it directly with no JSDOM / Vite shim.
+// Engine tests for the v11 sentiment / escalation-early-warning rewrite.
+// Every behavior asserted here was grounded in the corpus study of two real
+// exports (see sentiment.js header): [code]-wrapped HTML customer messages,
+// phatic gratitude, signature/disclaimer poisoning, "Reply From:" relays,
+// structured escalation workflow notes, chase messages, and the
+// solution-proposed confirm/pushback/conditional/silent split.
+// Runs under `node --test`.
 import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  cleanBody,
+  stripQuoted,
+  parseJournal,
   parseInteractionStream,
+  scoreMessage,
   scoreText,
-  detectEmotions,
-  detectFrustrationTarget,
+  analyzeJournal,
   gradeCase,
+  gradeFromRow,
   summarizeSentiment,
+  RISK_HIGH,
+  RISK_ELEVATED,
 } from "./sentiment.js";
 
-/* --------------------------- small helpers ---------------------------- */
+const J = (entries) => entries.map((e) => `${e.ts} - ${e.author}\n${e.body}`).join("\n\n");
+const CUST = "Guest Contact (Additional comments)";
+const ANALYST = "Agent Name (Infor) (Additional comments)";
+const SYS = "System (Additional comments)";
+const DAY = 86400000;
+const T0 = "2026-06-01 09:00:00";
+const T0_MS = new Date("2026-06-01T09:00:00").getTime();
 
-// Build a journal blob in the exact ServiceNow header shape enrich.js parses.
-// entries: [{ ts, author, body }]
-const journal = (entries) =>
-  entries.map((e) => `${e.ts} - ${e.author}\n${e.body}`).join("\n\n");
+/* ========================= cleaning ========================= */
 
-const CUST = "John Guest";
-const ANALYST = "Jane Doe (Infor) (Additional comments)";
-
-// The engine's line-level label, mirroring sentimentLabel(round(valence)).
-const lineLabel = (t) => {
-  const v = Math.round(scoreText(t).valence);
-  return v >= 1 ? "Positive" : v <= -1 ? "Negative" : "Neutral";
-};
-
-/* ============================== attribution ============================ */
-
-test("attribution: (Infor) → analyst, bare name → customer, relayed voice → customer", () => {
-  const blob = journal([
-    { ts: "2026-05-31 10:00:00", author: ANALYST, body: "Looking into it now." },
-    { ts: "2026-05-31 11:00:00", author: CUST, body: "Still seeing the error." },
-    { ts: "2026-05-31 12:00:00", author: "Support Portal Relay", body: "Customer says it is fixed." },
-  ]);
-  const stream = parseInteractionStream(blob);
-  assert.equal(stream.length, 3);
-  assert.equal(stream[0].isCustomer, false); // (Infor) → analyst
-  assert.equal(stream[1].isCustomer, true); // bare customer name
-  assert.equal(stream[2].isCustomer, true); // relayed voice, no (Infor) → customer
+test("cleanBody UNWRAPS [code] blocks — the customer's words survive (v9 deleted them)", () => {
+  const raw = "[code]<p>Hi</p>\n<p>The night audit is still failing.&nbsp;</p>[/code]";
+  const out = cleanBody(raw);
+  assert.match(out, /night audit is still failing/);
+  assert.doesNotMatch(out, /\[code\]|<p>|&nbsp;/);
 });
 
-test("parsing: header-less blob is one customer block; newest-first sorts oldest-first", () => {
-  const headerless = parseInteractionStream("just a free-text note with no header at all");
-  assert.equal(headerless.length, 1);
-  assert.equal(headerless[0].isCustomer, true);
-  assert.equal(headerless[0].ts, null);
-
-  // Provided newest-first; engine sorts ascending when every ts is present.
-  const blob = journal([
-    { ts: "2026-05-31 15:00:00", author: CUST, body: "Second in time." },
-    { ts: "2026-05-31 09:00:00", author: CUST, body: "First in time." },
-  ]);
-  const stream = parseInteractionStream(blob);
-  assert.equal(stream[0].body, "First in time.");
-  assert.equal(stream[1].body, "Second in time.");
+test("cleanBody strips URLs and cid refs before punctuation features (urldefense '!!' must not read as shouting)", () => {
+  const out = cleanBody("see https://urldefense.com/v3/__http:/x__;!!PoGYGYb4!jC_EZ [cid:abc-123] done");
+  assert.doesNotMatch(out, /urldefense|!!|cid:/);
+  const { features } = scoreMessage(out);
+  assert.equal(features.bangRuns, 0);
 });
 
-test("parsing: strips [code] blocks and stray HTML from bodies", () => {
-  const blob = journal([
-    { ts: "2026-05-31 10:00:00", author: CUST, body: "before [code]<script>x</script>raw[/code] <b>after</b>" },
+test("stripQuoted cuts reply chains, signatures and legal disclaimers", () => {
+  const msg = [
+    "The report is still broken.",
+    "",
+    "Best regards,",
+    "Milja",
+    "Milja Perkovic|Director of Revenue Management",
+    "T: 646 277 3207 | F: 212 721 3521",
+    "IMPORTANT DISCLOSURE: This message may contain confidential information. If received in error notify the sender immediately.",
+  ].join("\n");
+  const out = stripQuoted(msg);
+  assert.match(out, /still broken/);
+  assert.doesNotMatch(out, /Revenue Management|646|DISCLOSURE|immediately/);
+});
+
+test("stripQuoted cuts a signature even when the sign-off IS the whole message", () => {
+  const out = stripQuoted("Thank you!\n\nRossanne Cruz\n\nFront Office Supervisor\n\nCampus Tower Suite Hotel");
+  assert.equal(out, "Thank you!");
+});
+
+test("stripQuoted keeps real content after a mid-message thanks line", () => {
+  const out = stripQuoted("Thanks!\nAlso, the export is still empty — can you check again?");
+  assert.match(out, /still empty/);
+});
+
+test("stripQuoted cuts quoted email history (From:/wrote:)", () => {
+  const out = stripQuoted("It works now, thanks.\nFrom: support@infor.com\nSent: Monday\nEarlier text that is not the customer's.");
+  assert.equal(out, "It works now, thanks.");
+});
+
+/* ==================== attribution & events ==================== */
+
+test("parseJournal: Infor authors are analysts, System is system, everyone else is the customer", () => {
+  const blob = J([
+    { ts: T0, author: ANALYST, body: "We are looking into it." },
+    { ts: "2026-06-01 10:00:00", author: CUST, body: "Any update on this?" },
+    { ts: "2026-06-01 11:00:00", author: "System  Automatic Reminders (Infor) (Work notes)", body: "ServiceNow has automatically sent the reminder." },
   ]);
+  const [a, c, s] = parseJournal(blob);
+  assert.equal(a.who, "analyst");
+  assert.equal(c.who, "customer");
+  assert.equal(s.who, "system"); // "System … (Infor)" is the automated actor, not an analyst
+});
+
+test("parseJournal: 'Reply From: email' System notes are re-attributed as CUSTOMER voice", () => {
+  const blob = J([{ ts: T0, author: SYS, body: "Reply From: guest@hotel.com\n\nThank you, it works now. You can close the case." }]);
+  const [m] = parseJournal(blob);
+  assert.equal(m.who, "customer");
+  assert.match(m.text, /works now/);
+  assert.doesNotMatch(m.text, /Reply From/);
+});
+
+test("parseJournal: work-notes-typed entries are never customer voice (internal staff without the tag)", () => {
+  const blob = J([{ ts: T0, author: "Katie White (Work notes)", body: "internal note about the defect" }]);
+  const [m] = parseJournal(blob);
+  assert.equal(m.who, "internal");
+});
+
+test("parseJournal detects structured workflow events (escalation request, customer priority raise)", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "Escalation has been requested by customer Escalation Reason: Inactivity Escalation Justification: Not solved" },
+    { ts: "2026-06-01 10:00:00", author: CUST, body: "Anon Popradit has changed the priority of the case to 1-Critical . The reason for the change is: the customer is being significantly impacted." },
+  ]);
+  const [esc, pri] = parseJournal(blob);
+  assert.equal(esc.event, "escalation_request");
+  assert.equal(pri.event, "priority_change");
+  assert.equal(pri.eventMatch[1], "1");
+});
+
+test("parseInteractionStream keeps the v9 consumer shape (ts/author/isCustomer/body)", () => {
+  const blob = J([{ ts: T0, author: CUST, body: "hello" }]);
   const [m] = parseInteractionStream(blob);
-  assert.ok(!m.body.includes("[code]"));
-  assert.ok(!m.body.includes("<b>"));
-  assert.ok(!m.body.includes("<script>"));
-  assert.ok(m.body.includes("before"));
-  assert.ok(m.body.includes("after"));
+  assert.equal(m.isCustomer, true);
+  assert.equal(typeof m.ts, "number");
+  assert.equal(m.body, "hello");
 });
 
-/* ============================ scoreable gating ========================= */
+/* ======================= message scoring ======================= */
 
-test("gating: zero customer messages → not scoreable, null grade, phone/silent coaching", () => {
-  const g = gradeCase({
-    number: "C-SILENT",
-    work_notes: journal([{ ts: "2026-05-31 10:00:00", author: ANALYST, body: "Resolved via phone." }]),
-  });
-  assert.equal(g.scoreable, false);
-  assert.equal(g.valence, null);
-  assert.equal(g.sentiment, null);
-  assert.equal(g.arc, null);
-  assert.equal(g.coachingNote, "No written customer dialogue to score — handled by phone or silent close.");
+test("gratitude is phatic: 'thanks' scores positive alone but ZERO when trouble is present", () => {
+  assert.ok(scoreMessage("Thank you so much!").valence > 0);
+  const polite = scoreMessage("Thanks, but the interface is still not working again today.");
+  assert.ok(polite.valence < 0, `polite frustration must stay negative, got ${polite.valence}`);
 });
 
-test("gating: empty journal → not scoreable, empty-journal coaching", () => {
-  const g = gradeCase({ number: "C-EMPTY", work_notes: "" });
-  assert.equal(g.scoreable, false);
-  assert.equal(g.custMsgs, 0);
-  assert.equal(g.myMsgs, 0);
-  assert.equal(g.coachingNote, "No customer or analyst text in the journal.");
+test("confirmation & satisfaction drive positive; scoreText alias agrees", () => {
+  const v = scoreMessage("Perfect, it works now — you can close the case.").valence;
+  assert.ok(v >= 3);
+  assert.equal(scoreText("Perfect, it works now — you can close the case.").valence, v);
 });
 
-test("gating: falls back from work_notes to additional_comments", () => {
-  const g = gradeCase({
-    number: "C-FALLBACK",
-    work_notes: null,
-    additional_comments: journal([{ ts: "2026-05-31 10:00:00", author: CUST, body: "Perfect, thank you!" }]),
-  });
+test("urgency/impact are amplifiers, not standalone negatives (neutral workflow requests stay ~neutral)", () => {
+  const neutral = scoreMessage("Could you map the payment tender coupon to transaction code COUPON today?");
+  assert.ok(Math.abs(neutral.valence) < 1, `neutral request drifted to ${neutral.valence}`);
+  const amplified = scoreMessage("Guests are waiting at the front desk and check-in is still failing — this is urgent!");
+  assert.ok(amplified.valence < -2);
+});
+
+test("chase detection: short prod-for-response messages flag isChase", () => {
+  assert.equal(scoreMessage("Hi team, any update please?").features.isChase, true);
+  assert.equal(scoreMessage("Please find attached the full log export you asked for; steps to reproduce are below." + " detail".repeat(60)).features.isChase, false);
+});
+
+test("scoring is deterministic and negative piles compress into the -5..+5 band", () => {
+  const rant = "Still broken, still failing, crashes every day, nobody responded, this is unacceptable!!";
+  const a = scoreMessage(rant), b = scoreMessage(rant);
+  assert.deepStrictEqual(a, b);
+  assert.ok(a.valence >= -5 && a.valence <= -3);
+});
+
+/* ==================== case-level: early warning ==================== */
+
+test("unanswered chases + waiting time raise escalation risk with named factors", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "The interface is failing again, same issue as last week." },
+    { ts: "2026-06-02 09:00:00", author: ANALYST, body: "We are checking." },
+    { ts: "2026-06-03 09:00:00", author: CUST, body: "Any update please?" },
+    { ts: "2026-06-05 09:00:00", author: CUST, body: "Still waiting for a response, this is urgent." },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "open", snapshotMs: T0_MS + 8 * DAY });
+  assert.ok(a.risk >= RISK_ELEVATED, `risk ${a.risk} should be at least elevated`);
+  assert.equal(a.trailingUnanswered, 2);
+  assert.ok(a.chases >= 1);
+  assert.ok(a.factors.some((f) => /awaiting a reply/.test(f)));
+  assert.ok(a.factors.some((f) => /chase/.test(f)));
+});
+
+test("a calm answered thread scores low risk", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "Could you add a new rate code for us?" },
+    { ts: "2026-06-01 10:00:00", author: ANALYST, body: "Done — please verify." },
+    { ts: "2026-06-01 11:00:00", author: CUST, body: "Confirmed working, thank you. You can close the case." },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "open", snapshotMs: T0_MS + 1 * DAY });
+  assert.ok(a.risk < 15, `calm thread got risk ${a.risk}`);
+});
+
+test("an escalation workflow note sets escalated + reason and is EXCLUDED from tone", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "Escalation has been requested by customer Escalation Reason: Lack of Progress Escalation Justification: three weeks with no fix" },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "open", snapshotMs: T0_MS + DAY });
+  assert.equal(a.escalated, true);
+  assert.match(a.escReason, /Lack of Progress/);
+  assert.match(a.escReason, /three weeks/);
+  assert.equal(a.scoreable, false); // the workflow note is an event, not a message
+});
+
+test("a customer priority raise to 1/2 counts as an escalation event; a lower to 3/4 does not", () => {
+  const raise = analyzeJournal(J([{ ts: T0, author: CUST, body: "X has changed the priority of the case to 1-Critical . The reason for the change is: cannot use the system" }]), { lifecycle: "open" });
+  assert.equal(raise.escalated, true);
+  const lower = analyzeJournal(J([{ ts: T0, author: CUST, body: "X has changed the priority of the case to 4-Standard . The reason for the change is: less pressing now" }]), { lifecycle: "open" });
+  assert.equal(lower.escalated, false);
+});
+
+test("INITIAL DESCRIPTION echoes and data-access notes never count as conversation", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "INITIAL DESCRIPTION: The system is broken and nothing works at all." },
+    { ts: "2026-06-01 10:00:00", author: CUST, body: "The Data Access fields updated by Miguel Rivera on 2026-06-01" },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "open" });
+  assert.equal(a.scoreable, false);
+  assert.equal(a.nCustomer, 0);
+});
+
+/* ==================== case-level: solution proposed ==================== */
+
+const RESOLUTION = { ts: "2026-06-03 09:00:00", author: ANALYST, body: "[code]<b>Resolution notes</b>[/code] Fix applied as described." };
+
+test("solution proposed: pushback after the resolution event → high reopen risk", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "The export is failing." },
+    RESOLUTION,
+    { ts: "2026-06-04 09:00:00", author: CUST, body: "This does not address the issue — I am still seeing the same error." },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "solution_proposed", snapshotMs: T0_MS + 5 * DAY });
+  assert.equal(a.confirmState, "pushback");
+  assert.ok(a.risk >= 80);
+});
+
+test("solution proposed: conditional hold ('keep it open until we test') → medium reopen risk", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "The export is failing." },
+    RESOLUTION,
+    { ts: "2026-06-04 09:00:00", author: CUST, body: "Thanks — please keep this case open until we test after the next night audit." },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "solution_proposed", snapshotMs: T0_MS + 5 * DAY });
+  assert.equal(a.confirmState, "conditional");
+});
+
+test("solution proposed: written confirmation → low reopen risk; silence → unconfirmed middle", () => {
+  const confirmed = analyzeJournal(J([
+    { ts: T0, author: CUST, body: "The export is failing." },
+    RESOLUTION,
+    { ts: "2026-06-04 09:00:00", author: CUST, body: "Confirmed fixed, works fine now. You can close the case." },
+  ]), { lifecycle: "solution_proposed", snapshotMs: T0_MS + 5 * DAY });
+  assert.equal(confirmed.confirmState, "confirmed");
+  assert.ok(confirmed.risk <= 15);
+
+  const silent = analyzeJournal(J([
+    { ts: T0, author: CUST, body: "The export is failing." },
+    RESOLUTION,
+  ]), { lifecycle: "solution_proposed", snapshotMs: T0_MS + 5 * DAY });
+  assert.equal(silent.confirmState, "silent");
+  assert.ok(silent.risk > confirmed.risk && silent.risk < 80);
+});
+
+/* ==================== case-level: closed retrospective ==================== */
+
+test("closed: recovery arc + written confirmation are both captured", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "This is broken and not working, very frustrating." },
+    { ts: "2026-06-01 12:00:00", author: ANALYST, body: "Fix deployed." },
+    { ts: "2026-06-01 16:00:00", author: CUST, body: "Resolved now, works fine — thank you!" },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "closed" });
+  assert.equal(a.arc, "recovered");
+  assert.equal(a.confirmState, "confirmed");
+  assert.equal(a.risk, null); // closed cases carry no forward-looking risk
+});
+
+/* ==================== hygiene (carried over from v9) ==================== */
+
+test("hygiene: pasted credentials and analyst double-posts still flag", () => {
+  const blob = J([
+    { ts: T0, author: CUST, body: "password: hunter2 — use anydesk to connect" },
+    { ts: "2026-06-01 10:00:00", author: ANALYST, body: "Same reply." },
+    { ts: "2026-06-01 10:00:30", author: ANALYST, body: "Same reply." },
+  ]);
+  const a = analyzeJournal(blob, { lifecycle: "open" });
+  assert.equal(a.pii, true);
+  assert.equal(a.dup, true);
+});
+
+/* ==================== gradeCase / gradeFromRow / summary ==================== */
+
+test("gradeCase reads additional_comments first and mirrors analyzeJournal", () => {
+  const blob = J([{ ts: T0, author: CUST, body: "Still waiting for any update, this is urgent!" }]);
+  const g = gradeCase({ number: "C-1", account: "Acme", state: "Open", additional_comments: blob, _snapshotMs: T0_MS + 4 * DAY });
   assert.equal(g.scoreable, true);
-  assert.equal(g.sentiment, "Positive");
+  assert.equal(g.lifecycle, "open");
+  assert.ok(g.risk > 0);
+  assert.ok(g.lastQuote.includes("Still waiting"));
 });
 
-/* ============================== determinism ============================ */
+test("gradeFromRow emits the full v11 snake_case column set with no undefined values", () => {
+  const blob = J([{ ts: T0, author: CUST, body: "Any update?" }]);
+  const out = gradeFromRow({ number: "C-2", state: "Open", additional_comments: blob }, null, T0_MS + DAY, null);
+  const KEYS = [
+    "sentiment_scoreable", "sentiment_valence", "sentiment_label", "sentiment_start", "sentiment_end",
+    "sentiment_arc", "sentiment_signals", "sentiment_quote", "sentiment_coaching", "sentiment_pii",
+    "sentiment_dup", "sentiment_risk", "sentiment_risk_factors", "sentiment_escalated",
+    "sentiment_esc_reason", "sentiment_confirm", "sentiment_chases", "sentiment_unanswered",
+    "sentiment_wait_days", "sentiment_last_quote",
+  ];
+  assert.deepStrictEqual(Object.keys(out).sort(), [...KEYS].sort());
+  for (const k of KEYS) assert.notEqual(typeof out[k], "undefined", `${k} is undefined`);
+});
 
-test("determinism: same row in → deep-equal grade out", () => {
-  const row = {
-    number: "C-DET",
-    account: "Acme Hotels",
-    priority: "2 - Major",
-    work_notes: journal([
-      { ts: "2026-05-31 10:00:00", author: CUST, body: "This is broken and not working, very frustrating." },
-      { ts: "2026-05-31 16:00:00", author: CUST, body: "Perfect, that resolved it. Thank you!" },
+test("summarizeSentiment segments by lifecycle and surfaces the early-warning counts", () => {
+  const openHot = {
+    number: "O-1", state: "Open",
+    additional_comments: J([
+      { ts: T0, author: CUST, body: "Still broken, same issue again — urgent, guests are waiting at check-in!" },
+      { ts: "2026-06-02 09:00:00", author: CUST, body: "Any update??" },
+      { ts: "2026-06-04 09:00:00", author: CUST, body: "Still waiting. Please escalate this to your manager." },
     ]),
+    _snapshotMs: T0_MS + 10 * DAY,
   };
-  assert.deepStrictEqual(gradeCase(row), gradeCase(row));
-});
-
-test("determinism: summarizeSentiment is stable across calls", () => {
-  const rows = [
-    { number: "A", work_notes: journal([{ ts: "2026-05-31 10:00:00", author: CUST, body: "Thanks, all set." }]) },
-    { number: "B", work_notes: journal([{ ts: "2026-05-31 10:00:00", author: CUST, body: "Still broken and failing." }]) },
-  ];
-  assert.deepStrictEqual(summarizeSentiment(rows), summarizeSentiment(rows));
-});
-
-/* ============================ valence sign ============================= */
-
-// Frozen fixture (seed lines + representative support lines). Context-only tone
-// is held out as non-strict (the lexicon is expected to miss sarcasm and
-// impact-without-explicit-negativity). Strict lines must clear ≥60% agreement.
-const STRICT = [
-  ["We have resolved the issue. Thank you.", "Positive"],
-  ["Thank you very much. Highly appreciated.", "Positive"],
-  ["Perfect, thank you", "Positive"],
-  ["That worked perfectly, all set now.", "Positive"],
-  ["Great, that resolved it. Thanks!", "Positive"],
-  ["I'm still having a problem downloading a couple of night audit reports", "Negative"],
-  ["This explanation was irrelevant and the problem keeps getting kicked down the road", "Negative"],
-  ["The system is completely broken and crashing every time.", "Negative"],
-  ["This is unacceptable, we are still waiting and the report is wrong.", "Negative"],
-  ["We are unable to access the system, this is urgent.", "Negative"],
-  ["This can be closed - duplicate case", "Neutral"],
-  ["Please find the attached log file for review.", "Neutral"],
-  ["Can you confirm the maintenance window for next week?", "Neutral"],
-];
-
-// Context-only — exercised for determinism / no-NaN, NOT asserted for sign.
-const CONTEXT = [
-  "DOD Res Center is receiving calls from guests stating they have not received their confirmation e-mails",
-  "is statistics report discrepancy fixed by now ?",
-];
-
-test("valence: sign agreement on strict fixture ≥ 60%", () => {
-  const hits = STRICT.filter(([t, want]) => lineLabel(t) === want).length;
-  const agreement = hits / STRICT.length;
-  assert.ok(agreement >= 0.6, `sign agreement ${(agreement * 100).toFixed(0)}% < 60%`);
-});
-
-test("valence: high-confidence individual signs", () => {
-  assert.equal(lineLabel("Perfect, thank you"), "Positive");
-  assert.equal(lineLabel("We have resolved the issue. Thank you."), "Positive");
-  assert.equal(lineLabel("I'm still having a problem downloading a couple of night audit reports"), "Negative");
-  assert.equal(lineLabel("This explanation was irrelevant and the problem keeps getting kicked down the road"), "Negative");
-  assert.equal(lineLabel("This can be closed - duplicate case"), "Neutral");
-});
-
-test("valence: context-only lines stay finite (no NaN), determinism holds", () => {
-  for (const t of CONTEXT) {
-    const s = scoreText(t);
-    assert.ok(Number.isFinite(s.valence));
-    assert.deepStrictEqual(scoreText(t), scoreText(t));
-  }
-});
-
-/* ====================== diminishing-returns cap ======================== */
-
-test("cap: after 3 distinct same-polarity hits, extras weigh 0.5×", () => {
-  // broken(-2) frozen(-1.8) crashing(-2.2) | failing(-2)→-1 stuck(-1.5)→-0.75
-  const s = scoreText("broken frozen crashing failing stuck");
-  assert.equal(s.neg.length, 5); // five distinct negative hits recorded
-  const uncapped = -2 - 1.8 - 2.2 - 2 - 1.5; // -9.5
-  const capped = -2 - 1.8 - 2.2 - 1 - 0.75; // -7.75
-  assert.ok(Math.abs(s.raw - capped) < 1e-9, `raw ${s.raw} != ${capped}`);
-  assert.ok(s.raw > uncapped); // cap pulled it back toward zero
-  assert.ok(s.valence < 0); // still negative overall
-});
-
-test("cap: distinct keys only — a repeated term is not extra signal", () => {
-  const once = scoreText("broken");
-  const thrice = scoreText("broken broken broken");
-  assert.equal(once.raw, thrice.raw);
-});
-
-/* ================================ arc ================================== */
-
-const twoTouch = (b1, b2) =>
-  gradeCase({
-    number: "ARC",
-    work_notes: journal([
-      { ts: "2026-05-31 09:00:00", author: CUST, body: b1 },
-      { ts: "2026-05-31 17:00:00", author: CUST, body: b2 },
+  const spPush = {
+    number: "SP-1", state: "Resolved",
+    additional_comments: J([
+      { ts: T0, author: CUST, body: "Export failing." },
+      RESOLUTION,
+      { ts: "2026-06-04 09:00:00", author: CUST, body: "Still failing — this does not fix the issue." },
     ]),
-  });
-
-test("arc: negative open → positive close = improved (recovery)", () => {
-  const g = twoTouch("This is broken and not working, very frustrating.", "Perfect, that resolved it. Thank you!");
-  assert.ok(g.start < 0);
-  assert.ok(g.end > 0);
-  assert.equal(g.arc, "improved (recovery)");
+    _snapshotMs: T0_MS + 10 * DAY,
+  };
+  const closedGood = {
+    number: "CL-1", state: "Closed",
+    additional_comments: J([{ ts: T0, author: CUST, body: "Works perfectly now, thanks — you can close the case." }]),
+  };
+  const { summary, open, proposed, closed } = summarizeSentiment([openHot, spPush, closedGood]);
+  assert.equal(open.length, 1);
+  assert.equal(proposed.length, 1);
+  assert.equal(closed.length, 1);
+  assert.equal(summary.spPushback, 1);
+  assert.ok(open[0].risk >= RISK_HIGH, `hot open case got risk ${open[0].risk}`);
+  assert.equal(summary.highRisk, 1);
+  assert.equal(summary.confirmedClose, 1);
 });
 
-test("arc: positive open → negative close = declined", () => {
-  const g = twoTouch("Great, thanks, that works.", "Actually it's broken again and still failing.");
-  assert.equal(g.arc, "declined");
-});
-
-test("arc: flat tone = stable", () => {
-  const g = twoTouch("Please see the attached export.", "Any update on the ticket reference?");
-  assert.equal(g.arc, "stable");
-});
-
-test("arc: single customer message = single touchpoint, end null", () => {
-  const g = gradeCase({
-    number: "ARC-1",
-    work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "Thanks, that works." }]),
-  });
-  assert.equal(g.arc, "single touchpoint");
-  assert.equal(g.end, null);
-});
-
-/* ============================== hygiene ================================ */
-
-test("hygiene: identical analyst body twice within 60s → dup flag", () => {
-  const g = gradeCase({
-    number: "DUP",
-    work_notes: journal([
-      { ts: "2026-05-31 09:00:00", author: ANALYST, body: "We are looking into this now." },
-      { ts: "2026-05-31 09:00:30", author: ANALYST, body: "We are looking into this now." },
-    ]),
-  });
-  assert.equal(g.dup, true);
-});
-
-test("hygiene: AnyDesk / password: in the stream → pii flag", () => {
-  const anydesk = gradeCase({
-    number: "PII1",
-    work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "You can connect with AnyDesk if needed." }]),
-  });
-  assert.equal(anydesk.pii, true);
-
-  const pwd = gradeCase({
-    number: "PII2",
-    work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "The password: hunter2 should work." }]),
-  });
-  assert.equal(pwd.pii, true);
-
-  const clean = gradeCase({
-    number: "PII3",
-    work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "Thanks, all good now." }]),
-  });
-  assert.equal(clean.pii, false);
-});
-
-/* =========================== emotions / target ========================= */
-
-test("emotions: controlled vocabulary, defaults to neutral/transactional", () => {
-  assert.deepEqual(detectEmotions("thank you so much"), ["grateful"]);
-  assert.deepEqual(detectEmotions("this is still not working and frustrating"), detectEmotions("this is still not working and frustrating"));
-  assert.deepEqual(detectEmotions(""), ["neutral/transactional"]);
-});
-
-test("frustration target: product vs service vs none", () => {
-  assert.equal(detectFrustrationTarget("the report is broken and the screen crashes", -2), "product");
-  assert.equal(detectFrustrationTarget("no response for days, kicked down the road", -2), "service");
-  assert.equal(detectFrustrationTarget("thanks, all set", 3), "none");
-});
-
-/* ============================= summary math ============================ */
-
-test("summary: coverage, distribution, recovery, responsiveness on a known batch", () => {
-  const rows = [
-    // r1 — positive, single touchpoint, FRT 0.5h
-    {
-      number: "R1",
-      _frtMs: 0.5 * 3.6e6,
-      work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "Perfect, thank you so much!" }]),
-    },
-    // r2 — frustrated open → positive close (recovery), FRT 2h
-    {
-      number: "R2",
-      _frtMs: 2 * 3.6e6,
-      work_notes: journal([
-        { ts: "2026-05-31 09:00:00", author: CUST, body: "This is broken and failing." },
-        { ts: "2026-05-31 16:00:00", author: CUST, body: "Resolved now, thank you!" },
-      ]),
-    },
-    // r3 — silent (analyst only), FRT 0.25h
-    {
-      number: "R3",
-      _frtMs: 0.25 * 3.6e6,
-      work_notes: journal([{ ts: "2026-05-31 09:00:00", author: ANALYST, body: "Closed via phone." }]),
-    },
-    // r4 — negative single touchpoint, FRT 5h
-    {
-      number: "R4",
-      _frtMs: 5 * 3.6e6,
-      work_notes: journal([{ ts: "2026-05-31 09:00:00", author: CUST, body: "Still broken, still failing, unacceptable." }]),
-    },
-  ];
-
-  const { summary } = summarizeSentiment(rows);
-  assert.equal(summary.analyzed, 4);
-  assert.equal(summary.scoreableCount, 3);
-  assert.equal(summary.silent, 1);
-  assert.equal(summary.scoreableShare, 0.75);
-
-  // distribution: R1 + R2 positive, R4 negative, none neutral
-  assert.equal(summary.pos, 2);
-  assert.equal(summary.neu, 0);
-  assert.equal(summary.neg, 1);
-  assert.ok(summary.avgValence > 0);
-  assert.ok(summary.normalized100 > 50 && summary.normalized100 < 65);
-
-  // trajectory: R2 and R4 opened frustrated; only R2 closed positive
-  assert.equal(summary.openedFrustrated, 2);
-  assert.equal(summary.recovered, 1);
-  assert.equal(summary.stillNegative, 0);
-  assert.equal(summary.calmToNegative, 0);
-
-  // responsiveness from FRT (hours): [0.25, 0.5, 2, 5] → median 1.25, 2/4 ≤ 1h
-  assert.equal(summary.medianFrtH, 1.25);
-  assert.equal(summary.within1hShare, 0.5);
-
-  // hygiene: nothing flagged in this batch
-  assert.equal(summary.duplicatePosts, 0);
-  assert.equal(summary.piiExposure, 0);
+test("summarizeSentiment prefers baked v11 columns and never re-parses them", () => {
+  const baked = {
+    number: "B-1", state: "Open", _lifecycle: "open",
+    sentiment_scoreable: true, sentiment_valence: -3, sentiment_label: "Negative",
+    sentiment_start: -3, sentiment_end: null, sentiment_arc: "single touchpoint",
+    sentiment_signals: "neglect", sentiment_quote: "q", sentiment_coaching: "c",
+    sentiment_pii: false, sentiment_dup: false, sentiment_risk: 62,
+    sentiment_risk_factors: "3 customer messages awaiting a reply (+24)",
+    sentiment_escalated: false, sentiment_esc_reason: null, sentiment_confirm: null,
+    sentiment_chases: 2, sentiment_unanswered: 3, sentiment_wait_days: 5,
+    sentiment_last_quote: "still waiting",
+    // journal deliberately ABSENT — resolveGrade must not need it
+  };
+  const { open, summary } = summarizeSentiment([baked]);
+  assert.equal(open[0].risk, 62);
+  assert.equal(summary.highRisk, 1);
 });

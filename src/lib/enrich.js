@@ -76,7 +76,31 @@ import { gradeFromRow } from './sentiment.js'
 // and interaction turns (parseInteractions) — they were wrongly counted as analyst
 // activity because of the "(Infor)" tag, skewing cadence + turn counts on ~141
 // auto-resolved cases. Older imports show "Rebuild needed" and re-grade on rebuild.
-export const SCHEMA_VERSION = '10'
+// v11: Sentiment engine rebuilt as an escalation early-warning system, tuned on
+// a corpus study of two real exports (see sentiment.js header). Journal source
+// is now `additional_comments` (customer-visible) falling back to `work_notes`;
+// [code]-wrapped HTML customer messages are UNWRAPPED (v9 deleted them — most of
+// the customer voice was never scored); System "Reply From:" relays count as
+// customer voice; work-notes-typed entries never do; email signatures/disclaimers
+// are stripped before scoring. Structured workflow notes (escalation requests,
+// customer priority raises) are detected as EVENTS. Replaces `sentiment_emotions`/
+// `sentiment_target` with `sentiment_signals` (dominant trouble clusters) and adds:
+// `sentiment_risk` (0-100 escalation risk for open cases / reopen risk for
+// Solution Proposed, NULL for closed), `sentiment_risk_factors`,
+// `sentiment_escalated` + `sentiment_esc_reason` (explicit escalation/priority-
+// raise events), `sentiment_confirm` ('confirmed'|'conditional'|'pushback'|
+// 'silent' — resolution-confirmation state), `sentiment_chases`,
+// `sentiment_unanswered`, `sentiment_wait_days`, `sentiment_last_quote`.
+// XLSX layouts with a single merged "Comments and Work notes" column now map it
+// into the journal fields (was: dropped entirely — those exports had NO journal).
+// v12: adds the `manager` column (the assignee's manager, dot-walked by the
+// ServiceNow export) so every surface can filter/sort/aggregate cases by the
+// manager whose team owns them. Baked into SQL (buildWhere gains `manager = ?`)
+// AND carried on the in-memory row; blank cells read as "No manager". Older
+// imports show "Rebuild needed" — until rebuilt, selecting a manager on the
+// SQL-backed pages errors on the missing column (in-memory pages still work,
+// since they re-parse the source blob with current code).
+export const SCHEMA_VERSION = '12'
 
 // Topical case categories for the HMS hospitality-PMS domain. Keywords are
 // matched as lowercase substrings. Ordered roughly specific → generic: on a
@@ -230,9 +254,18 @@ export function normalizeXlsxRow(r) {
     contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,
+    // The assignee's manager (dot-walked by the export). CSV exports carry the
+    // system field name (`manager` / `assigned_to.manager`) so this XLSX label
+    // mapping is only needed for the recommended XLSX path. Baked into SQL (v12)
+    // so the global Manager filter reaches the DuckDB-backed pages too.
+    manager:             r['Manager']             ?? null,
     close_notes:         r['Resolution notes']    ?? null,
-    additional_comments: r['Additional comments'] ?? null,
-    work_notes:          r['Additional comments'] ?? r['Work notes'] ?? null,
+    // Some report layouts export ONE merged "Comments and Work notes" journal
+    // instead of separate columns. Map it as the fallback so those exports get
+    // journal-derived metrics at all (entry headers carry the type — e.g.
+    // "(Work notes)" — so type-aware consumers can still tell them apart).
+    additional_comments: r['Additional comments'] ?? r['Comments and Work notes'] ?? null,
+    work_notes:          r['Additional comments'] ?? r['Work notes'] ?? r['Comments and Work notes'] ?? null,
     system_log:          r['Work notes']           ?? null,
     cause:               r['Cause']                ?? r['Caused by'] ?? null,
     case_action_summary: r['Case Action Summary'] ?? null,
@@ -243,6 +276,13 @@ export function normalizeXlsxRow(r) {
     sla_due:             r['SLA due']             ?? null,
   }
 }
+
+/** The assignee's manager for a raw row. XLSX rows carry `manager` (mapped from
+ *  the "Manager" label above); CSV exports use the system field name, which is
+ *  either `manager` or the dot-walked `assigned_to.manager` depending on how the
+ *  report column was added. Null when the export has no manager column or the
+ *  cell is blank ("" from CSV) — consumers label that "No manager". */
+export const managerOf = (r) => r.manager ?? r['assigned_to.manager'] ?? null
 
 const WORK_NOTE_HEADER = /^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-\s*(.+)/gm
 const ANALYST_AUTHOR = /\(Infor\)/i
@@ -648,6 +688,9 @@ export const enrichRow = (r, snapshotMs) => {
     : null
   return {
     ...r,
+    // Normalized manager (CSV may carry it as `assigned_to.manager` — see
+    // managerOf). Overwrites the spread so every consumer reads one key.
+    manager: managerOf(r),
     _created: created,
     _closed: closed,
     _slaDue: slaDue,
@@ -687,11 +730,13 @@ export const enrichRow = (r, snapshotMs) => {
     _jiraActiveTickets: jira.activeTickets,
     _jiraFirstLinked: jira.firstLinkedAt,
     _jiraDaysSinceLinked: jiraDaysSinceLinked,
-    // Customer sentiment (v9). Emitted under the SAME snake_case keys as
+    // Customer sentiment (v11). Emitted under the SAME snake_case keys as
     // enrichForSql (not the `_camelCase` SLA convention) so the parity test can
     // deep-equal the two and the UI reads one key regardless of source. One
-    // parse per row; `frtMs` is shared so the coaching note is identical.
-    ...gradeFromRow(r, frtMs),
+    // parse per row; frtMs/snapshotMs/resolvedAtMs are shared so both pipelines
+    // bake identical values (snapshotMs anchors the wait/staleness risk factors;
+    // when absent they are skipped, never wall-clocked).
+    ...gradeFromRow(r, frtMs, snapshotMs ?? null, resolvedAtMs),
   }
 }
 
@@ -793,16 +838,20 @@ export const enrichForSql = (r, snapshotMs) => {
     jira_keys: jira.tickets.map((t) => t.id).join("|"),
     jira_active_keys: jira.activeTickets.join("|"),
     jira_first_linked: jira.firstLinkedAt,         // Date | null
-    // Customer sentiment (v9). Identical values to enrichRow (same row, same
-    // frtMs). Plain Number | string | boolean | null — never undefined — so the
-    // worker's Arrow column build (buildArrowTable) types them cleanly.
-    ...gradeFromRow(r, frtMs),
+    // Customer sentiment (v11). Identical values to enrichRow (same row, same
+    // frtMs/snapshotMs/resolvedAtMs). Plain Number | string | boolean | null —
+    // never undefined — so the worker's Arrow column build types them cleanly.
+    ...gradeFromRow(r, frtMs, snapshotMs ?? null, resolvedAtMs),
     // Resolution-notes-saved time in ms (v10) — the START of the Solution-Proposed
     // 90-day auto-close countdown (the /solution-proposed page derives auto_close_at
     // = anchor + 90d against the snapshot, where the anchor coalesces this → last
     // Infor update → created). Marker-only; null when no resolution notes are saved.
     // BigInt to match the BIGINT DDL + the other `*_ms` columns.
     resolved_at_ms: resolvedAtMs == null ? null : BigInt(resolvedAtMs),
+    // The assignee's manager (v12) — same normalization as enrichRow so the
+    // parity between the two pipelines holds. Blank CSV cells stay "" here;
+    // buildWhere's "No manager" sentinel matches NULL and '' alike.
+    manager: managerOf(r),
   }
 }
 
@@ -849,21 +898,32 @@ export const SQL_COLUMNS = [
   "sla_due_sop",
   // Case lifecycle (v8). Appended for the same positional-alignment reason.
   "lifecycle",
-  // Customer sentiment (v9). Appended (positional alignment with CASES_COLUMNS
+  // Customer sentiment (v11). Appended (positional alignment with CASES_COLUMNS
   // in db.worker.js). Produced by gradeFromRow; null/false for silent cases.
-  "sentiment_scoreable", // BOOLEAN
-  "sentiment_valence",   // BIGINT  (plain Number | null, like priority_rank)
-  "sentiment_label",     // VARCHAR
-  "sentiment_start",     // BIGINT  (opening valence | null)
-  "sentiment_end",       // BIGINT  (closing valence | null)
-  "sentiment_arc",       // VARCHAR
-  "sentiment_emotions",  // VARCHAR
-  "sentiment_target",    // VARCHAR
-  "sentiment_quote",     // VARCHAR
-  "sentiment_coaching",  // VARCHAR
-  "sentiment_pii",       // BOOLEAN
-  "sentiment_dup",       // BOOLEAN
+  "sentiment_scoreable",    // BOOLEAN
+  "sentiment_valence",      // BIGINT  (plain Number | null, like priority_rank)
+  "sentiment_label",        // VARCHAR
+  "sentiment_start",        // BIGINT  (opening valence | null)
+  "sentiment_end",          // BIGINT  (closing valence | null)
+  "sentiment_arc",          // VARCHAR
+  "sentiment_signals",      // VARCHAR (dominant trouble clusters, comma-joined)
+  "sentiment_quote",        // VARCHAR
+  "sentiment_coaching",     // VARCHAR
+  "sentiment_pii",          // BOOLEAN
+  "sentiment_dup",          // BOOLEAN
+  "sentiment_risk",         // BIGINT  (0-100: escalation risk open / reopen risk SP; null closed)
+  "sentiment_risk_factors", // VARCHAR ("; "-joined factor explanations)
+  "sentiment_escalated",    // BOOLEAN (explicit escalation / customer priority-raise event)
+  "sentiment_esc_reason",   // VARCHAR (reason — justification, customer's words)
+  "sentiment_confirm",      // VARCHAR ('confirmed'|'conditional'|'pushback'|'silent'|null)
+  "sentiment_chases",       // BIGINT  (customer follow-up chase messages)
+  "sentiment_unanswered",   // BIGINT  (trailing customer messages with no analyst reply)
+  "sentiment_wait_days",    // BIGINT  (days the customer has been waiting | null)
+  "sentiment_last_quote",   // VARCHAR (last customer line, for triage lists)
   // Resolution-notes-saved time (v10) — auto-close countdown anchor. Appended
   // (positional alignment with CASES_COLUMNS in db.worker.js). BigInt | null.
   "resolved_at_ms",      // BIGINT
+  // The assignee's manager (v12) — drives the global Manager filter. Appended
+  // (positional alignment with CASES_COLUMNS in db.worker.js).
+  "manager",             // VARCHAR
 ]

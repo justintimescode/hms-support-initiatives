@@ -92,11 +92,11 @@ function exportCsv(rows, snapshotMs) {
  * reuse of the Update Queue (Solution Proposed cases no longer owe cadence
  * updates — see enrich.js v10). */
 export default function SolutionProposedQueuePage() {
-  const { analyst, snapshotMs, dbReady } = useOutletContext()
+  const { analyst, manager, snapshotMs, dbReady } = useOutletContext()
   const enabled = !!(dbReady && snapshotMs)
   const { data, loading, error } = useQuery(
-    () => getSolutionProposedAutoClose({ analyst, snapshotMs }),
-    [analyst, snapshotMs],
+    () => getSolutionProposedAutoClose({ analyst, manager, snapshotMs }),
+    [analyst, manager, snapshotMs],
     { enabled },
   )
   const [sort, setSort] = useState({ key: "remaining", dir: "asc" })

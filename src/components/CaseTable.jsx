@@ -17,7 +17,7 @@ export function CaseTable({ rows }) {
     let out = rows;
     if (q) {
       out = out.filter((r) =>
-        [r.number, r.short_description, r.account, r.priority, r.state, r._category]
+        [r.number, r.short_description, r.account, r.priority, r.state, r._category, r.assigned_to, r.manager]
           .some((v) => String(v || "").toLowerCase().includes(q))
       );
     }
@@ -30,6 +30,11 @@ export function CaseTable({ rows }) {
       }
       if (k === "priority") {
         av = priorityRank(av); bv = priorityRank(bv);
+      }
+      if (k === "assigned_to" || k === "manager") {
+        // Case-insensitive name sort; blanks fall to the "== null" branch below.
+        av = av ? String(av).toLowerCase() : null;
+        bv = bv ? String(bv).toLowerCase() : null;
       }
       if (av == null) return 1;
       if (bv == null) return -1;
@@ -50,6 +55,8 @@ export function CaseTable({ rows }) {
     { key: "state", label: "State" },
     { key: "_category", label: "Category" },
     { key: "account", label: "Account" },
+    { key: "assigned_to", label: "Assignee" },
+    { key: "manager", label: "Manager" },
     { key: "short_description", label: "Short description" },
     { key: "sys_created_on", label: "Created" },
     { key: "_slaBreached", label: "SLA" },
@@ -59,7 +66,7 @@ export function CaseTable({ rows }) {
     <Card style={{ padding: 0 }}>
       <div style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.borderSoft}` }}>
         <input
-          placeholder="Search case, account, description…"
+          placeholder="Search case, account, assignee, manager…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={{
@@ -111,6 +118,8 @@ export function CaseTable({ rows }) {
                 <td style={tdStyle}>{r.state}</td>
                 <td style={tdStyle}>{r._category}</td>
                 <td style={{ ...tdStyle, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account}</td>
+                <td style={{ ...tdStyle, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.assigned_to || "Unassigned"}</td>
+                <td style={{ ...tdStyle, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.manager || "No manager"}>{r.manager || "No manager"}</td>
                 <td style={{ ...tdStyle, maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.short_description}</td>
                 <td className="mono" style={{ ...tdStyle, color: T.sub }}>{r._created ? r._created.toISOString().slice(0, 10) : "—"}</td>
                 <td

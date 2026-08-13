@@ -8,11 +8,11 @@ import { DevCompare } from "../components/dev/DevCompare.jsx"
 import { flattenByKey } from "../components/dev/devCompareUtils.js"
 
 export default function CategoriesPage() {
-  const { rows, view, categoryData, analyst, dateRange } = useOutletContext()
+  const { rows, view, categoryData, analyst, manager, dateRange } = useOutletContext()
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const sql = useQuery(
-    () => getCategoryData({ analyst, dateRange: dr }),
-    [analyst, dr.from, dr.to, dr.field],
+    () => getCategoryData({ analyst, manager, dateRange: dr }),
+    [analyst, manager, dr.from, dr.to, dr.field],
     { enabled: !!rows },
   )
   if (!rows) return <Section title="Case Categorization"><EmptyState /></Section>

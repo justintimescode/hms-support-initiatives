@@ -8,12 +8,12 @@ import { DevCompare } from "../components/dev/DevCompare.jsx"
 import { flattenByKey } from "../components/dev/devCompareUtils.js"
 
 export default function PriorityPage() {
-  const { rows: loadedRows, view, priorityData, enriched, teamMembers, analyst, dateRange } = useOutletContext()
+  const { rows: loadedRows, view, priorityData, enriched, teamMembers, analyst, manager, dateRange } = useOutletContext()
   // Phase 1 validation: SQL getPriorityData vs in-memory priorityData.
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const sql = useQuery(
-    () => getPriorityData({ analyst, dateRange: dr }),
-    [analyst, dr.from, dr.to, dr.field],
+    () => getPriorityData({ analyst, manager, dateRange: dr }),
+    [analyst, manager, dr.from, dr.to, dr.field],
     { enabled: !!loadedRows },
   )
   if (!loadedRows) return <Section title="Priority Analysis"><EmptyState /></Section>

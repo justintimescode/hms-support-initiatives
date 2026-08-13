@@ -65,7 +65,7 @@ export function SentimentDeepRead({ scoreable, rows }) {
       const byNumber = new Map((rows || []).map((r) => [r.number, r]));
       const cases = negatives.map((g, i) => {
         const r = byNumber.get(g.number);
-        const stream = r ? parseInteractionStream(r.work_notes || r.additional_comments || "") : [];
+        const stream = r ? parseInteractionStream(r.additional_comments || r.work_notes || "") : [];
         const comments = stream.filter((m) => m.isCustomer).map((m) => m.body).join("  ·  ");
         // `ref` is a non-PII index so the response maps back without unmasking.
         return {
@@ -76,7 +76,9 @@ export function SentimentDeepRead({ scoreable, rows }) {
           valence: g.valence,
           sentiment: g.sentiment,
           arc: g.arc,
-          emotions: g.emotions,
+          signals: g.signals,
+          risk: g.risk,
+          escalated: g.escalated,
           quote: g.quote,
           comments,
         };

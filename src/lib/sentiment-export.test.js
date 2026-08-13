@@ -23,13 +23,15 @@ const RAW = [
   { number: "S-1", account: "Gamma", contact: "Lee Guest", priority: "3 - Standard", state: "Closed", status: "Closed", product_line: "HMS", sys_created_on: "2026-05-30 09:00:00", closed_at: "2026-05-31 09:00:00", work_notes: SILENT_J },
 ];
 
-// The exact column order from the brief / review spreadsheet (hardcoded so the
+// The exact column order of the v11 early-warning workbook (hardcoded so the
 // test validates against the SPEC, not just the module's own constant).
 const EXPECTED_COLUMNS = [
-  "Case", "Account", "Contact", "Priority", "Status", "Created", "Closed",
-  "Product", "My msgs", "Cust msgs", "First reply (h)", "Valence (-5..+5)",
-  "Sentiment", "Start", "End", "Arc", "Emotions", "Frustration target",
-  "Representative customer quote", "Coaching note", "Auto-closed",
+  "Case", "Account", "Contact", "Priority", "Lifecycle", "Status", "Created", "Closed",
+  "Escalated", "Escalation reason", "Risk (0-100)", "Risk factors",
+  "Customer response", "Chases", "Unanswered", "Waiting (d)",
+  "My msgs", "Cust msgs", "First reply (h)",
+  "Valence (-5..+5)", "Sentiment", "Start", "End", "Arc", "Signals",
+  "Representative customer quote", "Last customer message", "Notes", "Auto-closed",
 ];
 
 async function reload(rows) {
@@ -59,9 +61,17 @@ test("workbook has both sheets, exact per-case column order, and round-trips cle
   const p1 = pc.getRow(2).values.slice(1); // graded order mirrors rows order
   assert.equal(p1[idx("Case")], "P-1");
   assert.equal(p1[idx("Contact")], "Pat Guest");
+  assert.equal(p1[idx("Lifecycle")], "closed");
   assert.equal(p1[idx("Sentiment")], "Positive");
+  assert.equal(p1[idx("Customer response")], "confirmed");
   assert.ok(p1[idx("Valence (-5..+5)")] > 0);
   assert.equal(p1[idx("Auto-closed")], ""); // closed but had a customer message
+
+  const n1 = pc.getRow(3).values.slice(1);
+  assert.equal(n1[idx("Case")], "N-1");
+  assert.equal(n1[idx("Lifecycle")], "open");
+  assert.ok(typeof n1[idx("Risk (0-100)")] === "number" && n1[idx("Risk (0-100)")] > 0);
+  assert.ok(String(n1[idx("Risk factors")]).length > 0);
 
   const s1 = pc.getRow(4).values.slice(1);
   assert.equal(s1[idx("Case")], "S-1");
@@ -69,7 +79,7 @@ test("workbook has both sheets, exact per-case column order, and round-trips cle
   assert.equal(s1[idx("Auto-closed")], "Yes"); // closed with no customer message
 });
 
-test("headline metrics sheet carries the coverage / distribution numbers", async () => {
+test("headline metrics sheet carries the coverage / early-warning numbers", async () => {
   const rows = RAW.map((r) => enrichRow(r, SNAP));
   const wb = await reload(rows);
   const hm = wb.getWorksheet("Headline Metrics");
@@ -83,11 +93,13 @@ test("headline metrics sheet carries the coverage / distribution numbers", async
     metrics[v[1]] = v[2];
   });
   assert.equal(metrics["Cases analyzed"], 3);
-  assert.equal(metrics["Scoreable cases"], 2);
+  assert.equal(metrics["Scoreable cases (customer wrote something)"], 2);
   assert.equal(metrics["Phone / silent (no written customer voice)"], 1);
   assert.equal(metrics["Auto-closed (closed, no customer message)"], 1);
   assert.equal(metrics["Positive"], 1);
   assert.equal(metrics["Negative"], 1);
+  assert.ok("Escalation events in open cases" in metrics);
+  assert.ok("Pushback (says it isn't fixed)" in metrics);
 });
 
 test("auto-closed keys off the body-based signal, not the header count", async () => {

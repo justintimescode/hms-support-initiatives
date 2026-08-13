@@ -1,42 +1,144 @@
-// Case Sentiment Grader — deterministic, client-side, no LLM, no network.
+// Customer Sentiment & Escalation Early-Warning engine — deterministic,
+// client-side, no LLM, no network.
 //
-// WHY THIS EXISTS
-// The "Customer Sentiment Review" spreadsheet was produced by reading every
-// customer message through an LLM. That is accurate but slow and costly to run
-// across an entire export. This module reproduces the *structured* columns of
-// that review — valence, sentiment label, start/end, arc, emotions, frustration
-// target, a representative quote, and a templated coaching note — with a pure
-// lexicon-and-heuristic engine that runs over the parsed journal in the browser.
+// WHY THIS SHAPE (v11 rewrite)
+// The engine was rebuilt from a corpus study of two real exports (3,173 cases,
+// 6,376 customer messages). What the data showed, and what this module now
+// encodes:
 //
-// It is a sibling of enrich.js in spirit: a single source of truth, pure of
-// wall-clock and randomness, so the same row always grades to the same result.
-// It deliberately does NOT call the AI proxy. The LLM stays available for an
-// optional "deep read" of a handful of cases (see SentimentBlock), not the
-// whole queue.
+//  1. CUSTOMER TEXT IS HTML INSIDE [code] BLOCKS. ~64% of customer messages
+//     arrive as `[code]<p>…</p>[/code]`. The v9 engine DELETED those blocks as
+//     chrome, erasing most of the customer voice before scoring. cleanBody now
+//     unwraps them (strip tags, decode entities, keep the words).
+//  2. POLITENESS IS PHATIC. "thank you" appears in ~1,600 messages — hotel
+//     staff are professionally courteous while frustrated. Gratitude counts
+//     positive ONLY when a message carries no trouble signal; real positives
+//     are resolution CONFIRMATION ("works now", "you can close") and explicit
+//     satisfaction.
+//  3. ESCALATIONS ARE ABOUT SILENCE, NOT TONE. Journals carry literal
+//     "Escalation has been requested by customer" workflow notes with
+//     "Escalation Reason: Inactivity | Lack of Progress". Customers escalate
+//     when they feel ignored — so unanswered messages, chase messages ("any
+//     update?"), analyst staleness, and issue persistence are the top-weighted
+//     factors in the escalation-risk model, ahead of raw negativity.
+//  4. STRUCTURED EVENT NOTES ride the journal under customer authorship
+//     (escalation requests, priority changes, "Data Access fields updated",
+//     "INITIAL DESCRIPTION:" echoes). They are detected, surfaced as events,
+//     and EXCLUDED from free-text tone scoring.
+//  5. "Reply From: guest@hotel.com …" System notes are relayed CUSTOMER email —
+//     re-attributed to the customer (1,616 such notes in the corpus).
+//  6. EMAIL SIGNATURES POISON LEXICONS. Job titles ("Director of Revenue
+//     Management", "Front Office Supervisor"), phone blocks and legal footers
+//     ("received this message in error … notify the sender immediately") all
+//     hit sentiment vocabulary, so stripQuoted cuts sign-off tails, contact
+//     lines and disclaimers before any scoring.
+//  7. SOLUTION-PROPOSED CASES NEED A REOPEN READ, NOT A TONE READ. After a
+//     resolution event the question is: did the customer CONFIRM the fix, PUSH
+//     BACK ("this does not address the issue", "keep this case open"), attach a
+//     CONDITION ("will test after night audit"), or go SILENT? That
+//     classification (sentiment_confirm) + reopen risk replaces plain valence
+//     as the actionable signal there.
 //
-// HONEST LIMITS (measured against the LLM review's representative quotes):
-//   - Valence direction agrees with the LLM ~2/3 of the time on a single line,
-//     and better across a full message stream where start/end/arc are visible.
-//   - The free-text coaching prose and the parenthetical qualifiers the LLM
-//     adds ("product (UTC display confusion)") are NOT reproduced — this engine
-//     emits the base category plus a templated note. Context-only tone
-//     (sarcasm, "is it fixed by now?") is the main miss.
+// VALIDATION (against the corpus): risk scored on text strictly BEFORE an
+// escalation event separates escalated from never-escalated cases (mean 27 vs
+// 16; a ≥40 threshold catches 24% of future escalations while flagging 6% of
+// the rest). Directional, not oracular — the point is triage order, and the
+// explicit event badges catch the rest.
 //
-// SECURITY: operates only on text already in the browser; emits no identifiers
-// it was not given. Nothing here leaves the device.
+// Sibling of enrich.js in spirit: pure of wall-clock (callers pass snapshotMs)
+// and randomness, so the same row grades identically in the in-memory pipeline
+// and the DuckDB worker. SECURITY: operates only on text already in the
+// browser; nothing leaves the device.
 
 /* ------------------------------------------------------------------ *
- * 1. Journal parsing — ordered, attributed message stream            *
+ * 1. Text cleaning                                                    *
  * ------------------------------------------------------------------ */
 
-// Matches a ServiceNow journal entry header:
-//   "2026-05-31 10:30:29 - Jane Doe (Infor) (Additional comments)"
-// Capture 1 = timestamp, capture 2 = the rest of the header line (author + type).
-// Mirrors WORK_NOTE_HEADER in enrich.js so attribution stays consistent.
+const ENTITIES = {
+  "&nbsp;": " ", "&ensp;": " ", "&emsp;": " ", "&thinsp;": " ",
+  "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'", "&apos;": "'",
+  "&ldquo;": '"', "&rdquo;": '"', "&lsquo;": "'", "&rsquo;": "'",
+  "&ndash;": "-", "&mdash;": "-", "&bull;": " ", "&middot;": " ", "&hellip;": "...",
+};
+const decodeEntities = (s) =>
+  String(s).replace(/&[a-z]+;|&#\d+;/gi, (m) => {
+    const known = ENTITIES[m.toLowerCase()];
+    if (known != null) return known;
+    const n = m.match(/^&#(\d+);$/);
+    if (n) { const c = +n[1]; return c >= 32 && c < 65536 ? String.fromCharCode(c) : " "; }
+    return " ";
+  });
+
+/** Unwrap [code] blocks (contents KEPT — the v9 bug was deleting them), strip
+ *  HTML with block tags → newline (line structure feeds reply stripping),
+ *  decode entities, drop URLs and inline-image cid refs. */
+export function cleanBody(raw) {
+  let s = String(raw || "");
+  s = s.replace(/\[code\]|\[\/code\]/gi, " ");
+  s = s.replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\s*\/?\s*>/gi, "\n");
+  s = s.replace(/<[^>]+>/g, " ");
+  s = decodeEntities(s);
+  s = s.replace(/https?:\/\/\S+|www\.\S+/gi, " ");
+  s = s.replace(/\[cid:[^\]]*\]/gi, " ");
+  return s;
+}
+
+const SIGNOFF_LINE = /^\s*(best regards|kind regards|warm regards|warmest regards|regards|many thanks|thanks|thank you|thanks again|sincerely|respectfully|cheers|mahalo|aloha|v\/r|br|cordialement|mit freundlichen gr|saludos|much appreciated)\s*[,.!]*(\s+\w+){0,3}\s*$/i;
+// Legal footers carry lexicon poison ("received this message in error",
+// "notify the sender immediately") — cut them even without a sign-off.
+const DISCLAIMER_LINE = /^\s*(important\s+)?(disclosure|disclaimer|confidentiality notice|legal notice)|this (message|email|e-mail).{0,40}(confidential|proprietary|privileged)/i;
+const CONTACT_LINE = /^\s*(\+?\d[\d ()/.-]{7,}|\S+@\S+\.\S+.{0,20}|(t|f|tel|mobile|phone|office|direct|fax|cell|ext|reservations)\s*[:.]\s.*|-{2,}.*|={3,}.*|\*{3,}.*)\s*$/i;
+// A line that reads as the signature itself: a bare name ("Rossanne Cruz"), a
+// job-title line ("Milja Perkovic|Director of Revenue Management"), or chrome.
+const NAME_LINE = /^\s*[A-Z][\w'.-]{0,24}([ .|-][A-Z][\w'.-]{0,24}){0,4}\s*$/;
+const TITLE_LINE = /^.{0,80}(director|manager|supervisor|officer|coordinator|accountant|controller|administrator|analyst|specialist|assistant|executive|president|owner|revenue|front office|guest service|reservation|sales|finance|hotel|resort|suites?|inn)\b.{0,40}$/i;
+const isSigTail = (ln) => NAME_LINE.test(ln) || TITLE_LINE.test(ln) || CONTACT_LINE.test(ln);
+
+function stripSignature(text) {
+  const lines = text.split(/\r?\n/);
+  let cut = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (DISCLAIMER_LINE.test(lines[i])) { cut = i - 1; break; }
+    if (!SIGNOFF_LINE.test(lines[i])) continue;
+    // A sign-off ends the message only when what FOLLOWS looks like a signature
+    // block — a mid-message "Thanks!" followed by real content survives.
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j++;
+    if (j >= lines.length) break; // sign-off is the last line — nothing to cut
+    if (isSigTail(lines[j])) { cut = i; break; }
+  }
+  let kept = cut >= 0 ? lines.slice(0, cut + 1) : lines;
+  kept = kept.filter((ln) => !CONTACT_LINE.test(ln));
+  return kept.join("\n");
+}
+
+/** Cut quoted reply chains, mail chrome, signatures and disclaimers — keep only
+ *  the words this author actually wrote in this message. */
+export function stripQuoted(text) {
+  const lines = String(text).split(/\r?\n/);
+  const out = [];
+  for (const ln of lines) {
+    if (/^\s*(from|sent|to|cc|subject|date)\s*:/i.test(ln)) break;
+    if (/^\s*on .{5,120} wrote:\s*$/i.test(ln)) break;
+    if (/^-{3,}\s*original message\s*-{3,}/i.test(ln)) break;
+    if (/^_{10,}\s*$/.test(ln)) break;
+    if (/^\s*>/.test(ln)) continue;
+    out.push(ln);
+  }
+  return stripSignature(out.join("\n")).replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Journal parsing, attribution & structured events                 *
+ * ------------------------------------------------------------------ */
+
 const ENTRY_HEADER = /^(\d{4}-\d{2}-\d{2}[T ]?\d{2}:\d{2}:\d{2})\s*-\s*(.+)$/gm;
-// An entry whose author line contains "(Infor)" is analyst-authored; otherwise
-// it is the customer (or a relayed customer voice).
 const ANALYST_AUTHOR = /\(Infor\)/i;
+// "System  Automatic Reminders (Infor)" is the automated actor, not an analyst —
+// same convention as enrich.js's isInforAnalyst.
+const SYSTEM_AUTHOR = /^\s*System\b/i;
+const TYPE_SUFFIX = /\((Additional comments|Work notes|Comments)\)\s*$/i;
+const REPLY_FROM = /^\s*Reply From:\s*\S+@\S+\s*/i;
 
 const parseTs = (s) => {
   if (!s) return null;
@@ -44,397 +146,497 @@ const parseTs = (s) => {
   return isNaN(d.getTime()) ? null : d.getTime();
 };
 
-const stripEntryChrome = (s) =>
-  String(s || "")
-    .replace(/\[code\][\s\S]*?\[\/code\]/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\((Additional comments|Work notes|Comments)\)\s*$/i, "")
-    .trim();
+// Structured workflow notes observed in the corpus. First match wins.
+const EVENT_DEFS = [
+  ["escalation_request", /escalation has been requested/i],
+  ["priority_change", /has changed the priority of the case to\s*(\d)/i],
+  ["urgency_change", /has changed the urgency of the case/i],
+  ["escalation_update", /escalation\s+ESC\d+\s+(has been approved|phase has changed|has been rejected|has been closed)/i],
+  ["data_access", /the data access fields updated by/i],
+  ["auto_resolved", /case automatically resolved due to/i],
+  ["reminder_email", /servicenow has automatically sent/i],
+  ["resolution_notes", /\bresolution notes\b/i],
+  ["jira_link", /jira reference id\s+[A-Z]+-\d+/i],
+];
+
+function detectEvent(cleaned) {
+  for (const [name, re] of EVENT_DEFS) {
+    const m = cleaned.match(re);
+    if (m) return { name, match: m };
+  }
+  return null;
+}
 
 /**
- * Split a journal blob into an ordered list of attributed messages.
- * Each entry's body is the text between its header and the next header.
+ * Parse a journal blob into ts-sorted, attributed, cleaned messages.
+ * `who`: 'customer' | 'analyst' | 'system' | 'internal'. Work-notes-typed
+ * entries are internal-only in ServiceNow — a non-Infor name there is staff
+ * without the "(Infor)" tag, never the customer. System "Reply From:" notes
+ * are re-attributed to the customer.
  *
- * @param {string} text  the work_notes / additional_comments journal
- * @returns {Array<{ts:number|null, author:string, isCustomer:boolean, body:string}>}
- *          in chronological order as written (journals export newest-first or
- *          oldest-first depending on the instance; we sort by timestamp when we
- *          have them, else preserve file order).
+ * @returns {Array<{ts:number|null, author:string, type:string|null,
+ *   who:string, event:string|null, eventMatch:RegExpMatchArray|null,
+ *   isInitialDesc:boolean, text:string}>}
  */
-export function parseInteractionStream(text) {
+export function parseJournal(text) {
   if (!text) return [];
   const raw = String(text);
   const heads = [...raw.matchAll(ENTRY_HEADER)];
-  if (heads.length === 0) {
-    // No recognizable headers — treat the whole blob as one untyped block.
-    const body = stripEntryChrome(raw);
-    return body ? [{ ts: null, author: "", isCustomer: true, body }] : [];
-  }
-  const out = [];
-  for (let i = 0; i < heads.length; i++) {
-    const m = heads[i];
-    const start = m.index + m[0].length;
-    const end = i + 1 < heads.length ? heads[i + 1].index : raw.length;
-    const body = stripEntryChrome(raw.slice(start, end));
-    const authorLine = m[2] || "";
-    out.push({
-      ts: parseTs(m[1]),
-      author: authorLine.replace(/\((Additional comments|Work notes|Comments)\)\s*$/i, "").trim(),
-      isCustomer: !ANALYST_AUTHOR.test(authorLine),
-      body,
+  const entries = [];
+  const push = (ts, authorLine, body) => {
+    const type = (authorLine.match(TYPE_SUFFIX)?.[1] || "").toLowerCase();
+    const author = authorLine.replace(TYPE_SUFFIX, "").trim();
+    let who = ANALYST_AUTHOR.test(author) && !SYSTEM_AUTHOR.test(author)
+      ? "analyst" : SYSTEM_AUTHOR.test(author) ? "system" : "customer";
+    let cleaned = cleanBody(body);
+    if (who === "system" && REPLY_FROM.test(cleaned)) {
+      who = "customer";
+      cleaned = cleaned.replace(REPLY_FROM, "");
+    }
+    if (who === "customer" && /work notes/.test(type)) who = "internal";
+    const event = detectEvent(cleaned);
+    entries.push({
+      ts, author, type: type || null, who,
+      event: event ? event.name : null,
+      eventMatch: event ? event.match : null,
+      isInitialDesc: /^\s*initial description\s*:/i.test(cleaned),
+      text: stripQuoted(cleaned),
     });
+  };
+  if (heads.length === 0) {
+    const c = cleanBody(raw);
+    if (c.trim()) push(null, "", raw);
+  } else {
+    for (let i = 0; i < heads.length; i++) {
+      const m = heads[i];
+      const start = m.index + m[0].length;
+      const end = i + 1 < heads.length ? heads[i + 1].index : raw.length;
+      push(parseTs(m[1]), m[2] || "", raw.slice(start, end));
+    }
   }
-  // Sort chronologically when every entry has a timestamp; otherwise keep order.
-  if (out.every((e) => e.ts != null)) out.sort((a, b) => a.ts - b.ts);
-  return out;
+  if (entries.every((e) => e.ts != null)) entries.sort((a, b) => a.ts - b.ts);
+  return entries;
+}
+
+/** Back-compat adapter for consumers of the v9 stream shape (SentimentDeepRead):
+ *  ordered messages as {ts, author, isCustomer, body}. */
+export function parseInteractionStream(text) {
+  return parseJournal(text).map((e) => ({
+    ts: e.ts,
+    author: e.author,
+    isCustomer: e.who === "customer",
+    body: e.text,
+  }));
 }
 
 /* ------------------------------------------------------------------ *
- * 2. Lexicon — tuned to support / hospitality-PMS vocabulary          *
+ * 3. Signal clusters (data-derived) & message scoring                 *
  * ------------------------------------------------------------------ */
 
-// Weights are on a roughly -3..+3 per-term scale; a message's raw sum is
-// clamped to -5..+5. Tuned from the vocabulary the LLM reacted to in the
-// review (gratitude & closure read positive; persistence & breakage read
-// negative; business-impact language reads anxious-negative).
-const POS = {
-  thank: 2, thanks: 2, "thank you": 2.5, appreciate: 2, appreciated: 2, appreciation: 2,
-  resolved: 2, resolve: 1.5, works: 2, working: 1.5, worked: 2, fixed: 1.8, fix: 1,
-  perfect: 3, excellent: 3, awesome: 3, great: 2, wonderful: 2.5, fantastic: 3,
-  helpful: 2, "good to go": 2.5, "all set": 2.5, sorted: 2, success: 2, successful: 2,
-  successfully: 2, confirmed: 1, confirm: 0.8, glad: 1.5, happy: 2, pleased: 2,
-  smoothly: 1.5, smooth: 1.5, "no issues": 1.5, "no longer": 1, finalise: 1, finalize: 1,
+// Vocabulary mined from the corpus (phrase census + log-odds vs escalation
+// ground truth). Counted as DISTINCT matches per message (repetition within a
+// message is not extra signal).
+const RX = {
+  breakage: /\b(not work(s|ing)?|(doesn'?t|does not|won'?t|will not|stopped|isn'?t|is not) work(s|ing)?|broken|error(s)?|fail(s|ed|ing|ure)?|crash(es|ed|ing)?|(is|are|system('s)?|server) down|freez(e|es|ing)|frozen|stuck|unable to|can'?t \w+|cannot \w+|not able to|kicked out|logged out|missing|incorrect(ly)?|wrong(ly)?|discrepanc|mismatch|not receiv(ed|ing)|no data|blank|empty report)\b/gi,
+  persistence: /\b(still (not|no|isn'?t|doesn'?t|having|see(ing)?|show(s|ing)?|happen(s|ing)?|occur(s|ring)?|getting|waiting|broken|wrong|the same|an? issue|unable)|again|once again|yet again|same (issue|problem|error|thing)|keeps? (happening|crashing|failing|freezing|occurring|coming back)|happen(s|ing|ed)? (again|every)|every (day|night|time|morning)|everyday|recurring|reoccur|not (yet )?(been )?(fixed|resolved|solved|addressed)|no resolution|unresolved|persist(s|ing|ent)?)\b/gi,
+  neglect: /\b(any update(s)?|any news|an update|no update(s)?|no response|no reply|not heard (back|anything)|haven'?t heard|no one (has )?(responded|replied|contacted|called|reached)|nobody (has )?(responded|replied|contacted)|still waiting|waiting (for|on|since|over)|been waiting|follow(ing)? up|chas(e|ing)|remind(er)?|left hanging|ignored|without (a )?(response|reply|update)|(days|weeks|a week|a month|months) (with)?out|it('s| has) been (\d+|a|two|three|several) (day|week|month)|take(s|n)? (so|too|this) long|taking (so|too|forever)|how (much )?long(er)?|dragging|drag(s|ged) on|slow (response|progress)|lack of (progress|response|communication)|status of (this|the|my))\b/gi,
+  dissatisfaction: /\b(frustrat(ed|ing|ion)|disappoint(ed|ing|ment)|unacceptable|not acceptable|ridiculous|terrible|horrible|awful|worst|useless|pointless|annoy(ed|ing)|unhappy|not happy|dissatisf|fed up|sick of|tired of|had enough|poor (service|support|communication)|bad (service|support|experience)|complain(t|ts|ing)?|this is (not|no) (good|acceptable|ok)|not impressed|losing (faith|confidence|patience)|serious(ly)? concern|major concern|escalat(e|ing|ion)|(speak|talk|meeting) (to|with) (a |your |the |my )?(manager|supervisor|management)|manager (contact )?(has been |is )?(requested|informed|involved|aware|asking|chasing|pressing|upset)|my (manager|boss|gm|general manager|director) (is|has|wants|needs|asked|keeps)|management (is|are) (asking|pressing|involved|aware|upset|not happy)|under (significant |a lot of )?pressure|cancel (the |our |this )?(contract|subscription|service)|switch(ing)? (to another|provider|vendor|system))\b/gi,
+  urgency: /\b(urgent(ly)?|asap|as soon as possible|immediately|right away|straight away|critical|emergency|time.?sensitive|high priority|top priority|prompt(ly)?|without (further )?delay|today|by (end of|tomorrow|monday|tuesday|wednesday|thursday|friday)|deadline|cut.?off|no later than|running out of time)\b/gi,
+  impact: /\b(guest(s)? (are|is|was|were|waiting|cannot|can'?t|complain|standing|checking|in front)|in front of (a |the )?guest|front desk|check.?in(s)?|check.?out(s)?|checkout|night audit|audit(ors)?|revenue|month.?end|year.?end|go.?live|went live|live (site|system|environment|property|hotel)|production|operational(ly)?|(entire|whole|all) (hotel|propert\w*|team|staff)|propert(y|ies) (are|is) (affected|impacted|down)|affect(s|ing|ed)|impact(s|ing|ed)|losing (money|revenue|bookings|business)|cannot (check|process|post|run|bill|invoice|charge|close the day)|blocking|blocked|stopping us|at a standstill)\b/gi,
+  confirmation: /\b(works? (now|fine|great|well|perfectly|as expected)|working (now|fine|great|well|correctly|as expected)|(is|are|has been|it'?s|its|issue( is)?|this is) (now )?(fixed|resolved|sorted|solved|corrected|working)|(that|this|which) (resolved|fixed|sorted|solved) (it|this|the)|(resolved|fixed|solved|sorted) (it|the (issue|problem|error))|no longer (an issue|happening|occurring|a problem)|(you|u) (can|may) close|(please |go ahead and )?close (this|the|my|it)( case| ticket)?|(case|ticket|this) can be closed|ok(ay)? to close|good to close|all (good|set|sorted|fine|working)|looks good|look(s)? correct|problem solved|issue (is )?(gone|cleared)|back (up|online|to normal)|confirm(ed)? (it|this|that|the fix|resolved|working|fixed)|tested (and|ok|successfully)|verif(y|ied) (it )?(works|working|fixed))\b/gi,
+  satisfaction: /\b(perfect|excellent|awesome|fantastic|wonderful|amazing|brilliant|great (job|work|help|support|service)|really help(ed|ful)|very help(ed|ful)|much appreciated|life.?saver|you('re| are) the best|superb|outstanding|well done)\b/gi,
+  gratitude: /\b(thank(s| you)?|thankyou|appreciat(e|ed|ion)|grateful|mahalo|cheers)\b/gi,
+  conditionalOpen: /\b(keep (this |the |it |case )*open|remain(s)? open|leave (this |the |it |case )*open|(don'?t|do not|please don'?t) close|not (be )?closed? (yet|until)|hold (off|the case)|until (we|i|they|it)('ve| have| has)? (test|confirm|verif|check|hear)|(will|need to|have to|going to|want to) (test|check|verify|confirm|monitor|observe)|wait(ing)? (for|until|to see)|monitor(ing)? (it|this|the)|observe|next (audit|month.?end|night)|once (we|i|they|the)|after (we|i|they|the) (test|check|run|confirm))\b/gi,
+  pushback: /\b(does(n'?t| not) (address|fix|solve|resolve|answer|help)|not (the |an? )?(answer|solution|fix)|didn'?t (fix|solve|resolve|address|work)|not what (i|we) (asked|meant|need)|misunderst(ood|anding)|you (misunderstood|didn'?t understand)|(re-?open|reopen)(ed|ing)?( the| this)?( case| ticket)?|why (is|are|was|does|did|has|have|can'?t|won'?t|isn'?t)|makes no sense|doesn'?t make sense)\b/gi,
 };
-const NEG = {
-  still: -1.5, again: -1, "once again": -1.5, problem: -1.5, problems: -1.5, issue: -1,
-  issues: -1, error: -1.5, errors: -1.5, unable: -2, "can't": -1.5, cannot: -1.5,
-  "won't": -1.2, broken: -2, break: -1.5, breaking: -1.8, fail: -2, failed: -2,
-  failing: -2, failure: -2, down: -1.5, outage: -2.5, crash: -2, crashed: -2,
-  crashing: -2.2, frozen: -1.8, stuck: -1.5, slow: -1.5, lag: -1.2, hang: -1.5,
-  urgent: -1.5, asap: -1.2, critical: -1.5, wrong: -1.5, missing: -1.5, "not working": -2.2,
-  "doesn't work": -2.2, "not able": -1.8, frustrated: -2.5, frustrating: -2.5,
-  disappointed: -2, disappointing: -2, unacceptable: -3, ridiculous: -3,
-  irrelevant: -2.5, "kicked down": -3, delay: -1.5, delayed: -1.5, waiting: -1,
-  concerned: -1.5, worried: -1.5, complaint: -2, escalate: -1.5, escalated: -1.2,
-  "no update": -2, "no response": -2.2, "no substantive": -2,
-};
-// Business-impact terms: mildly negative AND flag the "anxious" emotion.
-const IMPACT = ["guests", "guest", "front desk", "check in", "check-in", "checkout",
-  "affecting", "impact", "impacting", "calls", "callers", "live", "production",
-  "go live", "go-live", "month end", "month-end", "night audit"];
-const INTENS = { very: 1.4, really: 1.3, extremely: 1.6, "so": 1.2, terribly: 1.5, totally: 1.4 };
-const NEGATORS = new Set(["not", "no", "don't", "didn't", "never", "without", "isn't", "wasn't"]);
 
-const normalize = (s) =>
-  String(s || "").toLowerCase().replace(/[\u2019']/g, "'").replace(/[^a-z0-9' -]/g, " ").replace(/\s+/g, " ").trim();
+// A chase: a short message that adds no new information and exists to prod for
+// a response — the observed precursor to "Escalation Reason: Inactivity".
+const CHASE_RE = /\b(any update(s)?|any news|any progress|any word|an update|update please|please update|status\??|checking in|just (checking|following)|follow(ing)? up|bump(ing)?|gentle reminder|remind(er)?|still waiting|hello\?+|are you there|did you (get|see|receive)|have you (had|seen|looked)|when (will|can) (i|we) (expect|hear|get)|eta\??|any eta|time ?frame|how('s| is) (it|this) (going|coming))\b/i;
 
-// Build a combined phrase+word matcher. Multi-word keys are checked as
-// substrings; single words are matched on token boundaries with negation +
-// intensifier handling. Returns hits deduped BY KEY (a term repeated within one
-// message counts once — repetition is not extra signal) in scan order: phrases
-// first, then single words left-to-right. That order is what scoreText()'s
-// diminishing-returns cap consumes as "the first 3".
-//
-// Dedup is by key, NOT by character span: a phrase ("not working") and a
-// constituent word it negates ("working") are different keys and BOTH contribute
-// on the same span. That reinforcement is intentional and bounded by the tanh
-// compression — valence MAGNITUDE is directional only (see HONEST LIMITS), and
-// both pipelines double-count identically so parity/determinism are unaffected.
-function lexHits(text, table) {
-  const t = ` ${normalize(text)} `;
-  const seen = new Set();
-  const hits = []; // [{ key, value }]
-  for (const key of Object.keys(table)) {
-    if (!key.includes(" ")) continue;
-    if (t.includes(` ${key} `) || t.includes(`${key} `) || t.includes(` ${key}`)) {
-      if (!seen.has(key)) { seen.add(key); hits.push({ key, value: table[key] }); }
-    }
+// Domain acronyms that are NOT shouting.
+const KNOWN_ACRONYMS = new Set(["HMS", "PMS", "POS", "CRS", "OTA", "API", "SSO", "VPN", "URL", "PDF", "CSV", "XML", "BEO", "IRD", "GDS", "IBE", "EMV", "FYI", "EOD", "EOM", "ETA", "ASAP", "HTTP", "HTTPS", "HTML", "SFTP", "FTP", "AWS", "UAT", "QA", "MOHG", "IHG", "VAT", "GST", "USA", "NYC"]);
+
+/** Distinct-match feature counts + emphasis features for one message. */
+export function textFeatures(text) {
+  const t = String(text || "");
+  const counts = {};
+  for (const k of Object.keys(RX)) {
+    const m = t.match(RX[k]);
+    counts[k] = m ? new Set(m.map((x) => x.toLowerCase())).size : 0;
   }
-  const words = t.trim().split(" ");
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i];
-    if (!(w in table) || seen.has(w)) continue;
-    let v = table[w];
-    const prev = words[i - 1];
-    if (prev && INTENS[prev]) v *= INTENS[prev];
-    if (prev && NEGATORS.has(prev)) v = -0.5 * v; // negation flips & damps
-    seen.add(w);
-    hits.push({ key: w, value: v });
-  }
-  return hits;
+  const bangRuns = (t.match(/!{2,}/g) || []).length;
+  const qRuns = (t.match(/\?{2,}/g) || []).length;
+  const capsWords = (t.match(/\b[A-Z]{3,}\b/g) || []).filter((w) => !KNOWN_ACRONYMS.has(w)).length;
+  const isChase = CHASE_RE.test(t) && t.replace(/\s+/g, " ").length < 320;
+  return { ...counts, bangRuns, qRuns, capsWords, isChase };
 }
-
-// Soft compression. Raw lexicon sums stack quickly (an effusive "perfect,
-// thank you so much!" can clear +6), but the review's human-graded valences sat
-// mostly in -2..+3. tanh maps the unbounded raw sum onto [-5,+5] while keeping
-// typical gratitude/single-complaint lines around ±2 — matching the LLM band.
-// K tuned against the review's representative quotes (see tune step).
-const COMPRESS_K = 8;
-const compress = (raw) => 5 * Math.tanh(raw / COMPRESS_K);
 
 /**
- * Score a single message body to a valence in [-5, +5].
- * @returns {{valence:number, raw:number, pos:string[], neg:string[], impact:boolean}}
- *          `raw` is the pre-compression lexicon sum; `pos`/`neg` are the matched
- *          lexicon keys grouped by final (post-negation) polarity.
+ * Score one customer message to a valence in [-5, +5].
+ * Gratitude is phatic (see header): counts only when no trouble signal is
+ * present. Urgency/impact are AMPLIFIERS — they add weight only when real
+ * trouble (breakage/persistence/neglect/dissatisfaction/pushback) exists, so a
+ * neutral workflow request ("please map this payment code") stays neutral.
  */
+export function scoreMessage(text) {
+  const f = textFeatures(text);
+  const trouble = f.breakage + f.persistence + f.neglect + f.dissatisfaction + f.pushback;
+  const negUnits =
+    1.6 * f.breakage + 2.0 * f.persistence + 2.2 * f.neglect + 2.6 * f.dissatisfaction +
+    2.0 * f.pushback +
+    (trouble > 0 ? 1.0 * f.urgency + 0.7 * Math.min(f.impact, 3) : 0) +
+    0.8 * f.bangRuns + 0.8 * f.qRuns + 0.4 * Math.min(f.capsWords, 5);
+  const posUnits =
+    2.6 * f.confirmation + 2.2 * f.satisfaction +
+    (trouble === 0 ? 1.0 * Math.min(f.gratitude, 2) : 0);
+  const raw = posUnits - negUnits;
+  return { valence: 5 * Math.tanh(raw / 6), raw, features: f };
+}
+
+/** v9-compat alias used by older tests/tools: {valence} for a text snippet. */
 export function scoreText(text) {
-  if (!text || !text.trim()) return { valence: 0, raw: 0, pos: [], neg: [], impact: false };
-  // Gather distinct lexicon hits, then apply a diminishing-returns cap: within a
-  // single message, once 3 distinct hits of one polarity have landed at full
-  // weight, every further same-polarity hit counts at 0.5×. Without this a
-  // multi-cue rant ("broken, frozen, crashing, failing, stuck…") stacks well
-  // past the band the LLM review stayed in (~±2–3 on a line); the cap keeps the
-  // dominant cues but damps the pile-on. Polarity is the SIGN of each
-  // contribution AFTER negation, so a negated positive ("not working") counts
-  // as negative.
-  const hits = [...lexHits(text, POS), ...lexHits(text, NEG)];
-  let posN = 0, negN = 0, sum = 0;
-  const pos = [], neg = [];
-  for (const { key, value } of hits) {
-    if (value > 0) {
-      posN += 1;
-      sum += posN > 3 ? value * 0.5 : value;
-      pos.push(key);
-    } else if (value < 0) {
-      negN += 1;
-      sum += negN > 3 ? value * 0.5 : value;
-      neg.push(key);
+  return scoreMessage(text);
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Case-level analysis                                              *
+ * ------------------------------------------------------------------ */
+
+const DAY = 86400000;
+
+// Escalation-risk factor weights. Ordered to mirror the observed escalation
+// reasons: Inactivity (unanswered/waiting/staleness) and Lack of Progress
+// (chases/persistence) dominate; tone and urgency modulate.
+function escalationRisk({ trailingUnanswered, waitDays, chases, persistenceMsgs, recentTone, agg, staleDays, scoredCount }) {
+  const factors = [];
+  let risk = 0;
+  if (trailingUnanswered >= 1) {
+    const pts = Math.min(24, trailingUnanswered * 12);
+    risk += pts;
+    factors.push(`${trailingUnanswered} customer message${trailingUnanswered > 1 ? "s" : ""} awaiting a reply (+${pts})`);
+  }
+  if (waitDays != null && waitDays >= 3) {
+    const pts = waitDays >= 7 ? 11 : 6;
+    risk += pts;
+    factors.push(`waiting ${Math.floor(waitDays)}d since last customer message (+${pts})`);
+  }
+  if (chases) {
+    const pts = Math.min(20, chases * 7);
+    risk += pts;
+    factors.push(`${chases} follow-up chase${chases > 1 ? "s" : ""} (+${pts})`);
+  }
+  if (persistenceMsgs >= 1) {
+    const pts = Math.min(15, persistenceMsgs * 6);
+    risk += pts;
+    factors.push(`issue recurring/unresolved in ${persistenceMsgs} message${persistenceMsgs > 1 ? "s" : ""} (+${pts})`);
+  }
+  if (recentTone != null && recentTone < 0) {
+    const pts = recentTone <= -2 ? 15 : recentTone <= -1 ? 10 : 5;
+    risk += pts;
+    factors.push(`recent tone negative (${recentTone.toFixed(1)}) (+${pts})`);
+  }
+  if (agg.urgency) { risk += 5; factors.push("urgency language (+5)"); }
+  if (agg.impact >= 2) { risk += 5; factors.push("business impact cited (+5)"); }
+  if (agg.dissatisfaction) {
+    const pts = Math.min(15, 8 + (agg.dissatisfaction - 1) * 4);
+    risk += pts;
+    factors.push(`explicit dissatisfaction / escalation language (+${pts})`);
+  }
+  if (scoredCount && staleDays != null && staleDays >= 10) {
+    const pts = staleDays >= 21 ? 10 : 6;
+    risk += pts;
+    factors.push(`no analyst reply in ${Math.floor(staleDays)}d (+${pts})`);
+  }
+  return { risk: Math.min(100, Math.round(risk)), factors };
+}
+
+// AnyDesk / password exposure in the stream (hygiene, unchanged from v9).
+const PII_RE = /\b(anydesk|teamviewer)\b|\bpass(word|wd)\b\s*[:=]/i;
+
+// Analyst double-post: same analyst body twice within 60s (hygiene, v9).
+function hasDuplicatePost(entries) {
+  for (let i = 1; i < entries.length; i++) {
+    const a = entries[i - 1], b = entries[i];
+    if (a.who === "analyst" && b.who === "analyst" && a.text && a.text === b.text) {
+      if (a.ts == null || b.ts == null || Math.abs(b.ts - a.ts) <= 60_000) return true;
     }
   }
-  const tt = normalize(text);
-  const impact = IMPACT.some((k) => tt.includes(k));
-  const raw = sum + (impact ? -0.6 : 0);
-  return { valence: compress(raw), raw, pos, neg, impact };
+  return false;
 }
 
-/* ------------------------------------------------------------------ *
- * 3. Emotions & frustration target — controlled vocabularies          *
- * ------------------------------------------------------------------ */
-
-// Controlled emotion labels, mirroring the review's vocabulary. First matches
-// win; defaults to neutral/transactional. Returns up to two labels.
-const EMOTION_RULES = [
-  ["angry/hostile", ["unacceptable", "ridiculous", "kicked down", "irrelevant", "fed up"]],
-  ["frustrated", ["frustrat", "still not", "again", "still having", "yet again", "third time"]],
-  ["confused", ["confused", "not sure", "don't understand", "unclear", "how do i", "how can i", "what does"]],
-  ["disappointed", ["disappointed", "expected better", "let down"]],
-  ["anxious (business impact)", IMPACT],
-  ["grateful", ["thank", "appreciate", "appreciated"]],
-  ["relieved", ["resolved", "fixed", "works now", "working now", "all set", "good to go", "no longer"]],
-  ["satisfied", ["great", "perfect", "excellent", "works", "smoothly", "pleased"]],
-  ["reassured", ["understood", "makes sense", "got it", "noted", "good to know", "that helps"]],
-];
-
-export function detectEmotions(text) {
-  const t = normalize(text);
-  if (!t) return ["neutral/transactional"];
-  const hits = [];
-  for (const [label, kws] of EMOTION_RULES) {
-    if (kws.some((k) => t.includes(k))) hits.push(label);
-    if (hits.length === 2) break;
-  }
-  return hits.length ? hits : ["neutral/transactional"];
-}
-
-// Base frustration-target category. The review adds parenthetical color
-// ("product (UTC display confusion)"); this engine emits the base bucket only.
-const TARGET_RULES = [
-  ["third-party", ["shift4", "liaison", "vault", "vendor", "duetto", "synxis", "profitsword", "channel manager"]],
-  ["service", ["no update", "no response", "no substantive", "kicked down", "irrelevant", "still waiting",
-    "callback", "called back", "response time", "days with no", "ignored"]],
-  ["product", ["bug", "defect", "error", "not working", "doesn't work", "broken", "crash", "slow",
-    "report", "screen", "feature", "system", "interface", "freeze", "frozen", "outage"]],
-];
-
-export function detectFrustrationTarget(text, valence) {
-  const t = normalize(text);
-  if (!t) return null;
-  if (valence >= 1) {
-    // Positive overall: only flag a target if a clear negative cue survives.
-    for (const [label, kws] of TARGET_RULES) if (kws.some((k) => t.includes(k))) return label;
-    return "none";
-  }
-  for (const [label, kws] of TARGET_RULES) if (kws.some((k) => t.includes(k))) return label;
-  return valence < 0 ? "product" : "n/a";
-}
-
-/* ------------------------------------------------------------------ *
- * 4. Representative quote & arc                                       *
- * ------------------------------------------------------------------ */
-
-const QUOTE_MAX = 140;
-
-// Split a body into candidate sentences for quoting.
-const sentences = (body) =>
+const QUOTE_MAX = 160;
+const sentencesOf = (body) =>
   String(body || "")
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.trim())
-    .filter((s) => s.length >= 8 && s.length <= 220);
+    .filter((s) => s.length >= 8 && s.length <= 240);
 
-// Pick the most characteristic customer line. Negative-overall cases surface
-// the most-negative line (most actionable); positive cases surface the warmest
-// closure line; neutral cases take the strongest-magnitude line.
+// The most characteristic customer line: most-negative for negative cases (the
+// actionable line), warmest for positive, strongest-magnitude for neutral.
 function representativeQuote(customerMsgs, overall) {
-  let best = null;
-  let bestScore = -Infinity;
+  let best = null, bestScore = -Infinity;
   for (const m of customerMsgs) {
-    for (const s of sentences(m.body)) {
-      const v = scoreText(s).valence;
+    for (const s of sentencesOf(m.text)) {
+      const v = scoreMessage(s).valence;
       const score = overall < 0 ? -v : overall > 0 ? v : Math.abs(v);
-      if (score > bestScore) {
-        bestScore = score;
-        best = s;
-      }
+      if (score > bestScore) { bestScore = score; best = s; }
     }
   }
   if (!best) return null;
   return best.length > QUOTE_MAX ? best.slice(0, QUOTE_MAX - 1).trimEnd() + "…" : best;
 }
 
-// Base arc from first vs last customer-message valence.
-function arc(start, end, customerCount) {
-  if (customerCount <= 1) return "single touchpoint";
-  if (end == null || start == null) return "stable";
-  const delta = end - start;
-  if (delta >= 1) return start < 0 && end > 0 ? "improved (recovery)" : "improved";
-  if (delta <= -1) return "declined";
-  return "stable";
-}
-
-/* ------------------------------------------------------------------ *
- * 5. Per-case grade                                                   *
- * ------------------------------------------------------------------ */
-
-const roundInt = (x) => Math.round(x);
-const sentimentLabel = (v) => (v >= 1 ? "Positive" : v <= -1 ? "Negative" : "Neutral");
-
 /**
- * Grade one enriched case row. Reads the comment stream from `work_notes`
- * (falling back to `additional_comments`) — the same field enrich.js uses to
- * count customer vs analyst turns.
+ * Analyze one case journal end-to-end. The single source of truth both
+ * pipelines bake from and the UI reads through.
  *
- * @param {object} row  an enriched case row from the app's pipeline
- * @returns {object} sentiment grade, scoreable flag, and the columns that
- *          mirror the review spreadsheet's Per-Case Detail sheet.
+ * @param {string} journal       additional_comments (falling back to work_notes)
+ * @param {object} opts
+ * @param {'open'|'solution_proposed'|'closed'} opts.lifecycle
+ * @param {number|null} opts.snapshotMs   data-as-of anchor (wait/staleness)
+ * @param {number|null} opts.resolvedAtMs resolution-notes save time (reopen anchor)
  */
-export function gradeCase(row) {
-  const journal = row.work_notes || row.additional_comments || "";
-  const stream = parseInteractionStream(journal);
-  const customer = stream.filter((m) => m.isCustomer && m.body && m.body.trim());
-  const analyst = stream.filter((m) => !m.isCustomer && m.body && m.body.trim());
+export function analyzeJournal(journal, { lifecycle = "open", snapshotMs = null, resolvedAtMs = null } = {}) {
+  const entries = parseJournal(journal);
 
-  // Hygiene is structural and exact — derive it for EVERY case (scoreable or
-  // not) from the same parsed stream, so the bake carries it and the portfolio
-  // summary never re-parses the journal. A silent case can still hide an analyst
-  // double-post or a pasted credential, so this must run before the gate below.
-  const streamText = stream.map((m) => m.body).join("\n");
-  const pii = PII_RE.test(streamText);
-  const dup = hasDuplicatePost(stream);
+  // Hygiene runs over the whole stream, scoreable or not (v9 behavior).
+  const pii = PII_RE.test(entries.map((e) => e.text).join("\n"));
+  const dup = hasDuplicatePost(entries);
 
-  const base = {
-    number: row.number,
-    account: row.account,
-    priority: row.priority || null,
-    myMsgs: analyst.length,
-    custMsgs: customer.length,
+  // Structured events.
+  const escalationRequests = entries.filter((e) => e.event === "escalation_request");
+  const priorityRaises = entries.filter((e) => e.event === "priority_change" && e.eventMatch && +e.eventMatch[1] <= 2);
+  const escalated = escalationRequests.length > 0 || priorityRaises.length > 0;
+  let escReason = null;
+  for (const e of [...escalationRequests, ...priorityRaises]) {
+    const r = e.text.match(/Escalation Reason:\s*([^:]{2,60}?)(?=\s*Escalation Justification|\s*$)/i);
+    const j = e.text.match(/Escalation Justification:\s*([\s\S]{2,240})/i) ||
+      e.text.match(/The reason for the change is:\s*([\s\S]{2,240})/i);
+    if (!escReason && (r || j)) {
+      escReason = [r ? r[1].trim() : null, j ? j[1].trim() : null].filter(Boolean).join(" — ").slice(0, 240);
+    }
+  }
+
+  // Conversation stream: structural noise out, humans in.
+  const NOISE = new Set(["data_access", "reminder_email", "jira_link", "urgency_change", "escalation_update"]);
+  const conv = entries.filter((e) => !NOISE.has(e.event) && (e.who === "customer" || e.who === "analyst") && e.text);
+  const customerMsgs = conv.filter((e) => e.who === "customer" && !e.event && !e.isInitialDesc);
+  const analystMsgs = conv.filter((e) => e.who === "analyst" && e.event !== "auto_resolved" && e.event !== "resolution_notes");
+
+  const scored = customerMsgs.map((e) => ({ e, s: scoreMessage(e.text) }));
+
+  // Inactivity signals.
+  const chases = scored.filter(({ s }) => s.features.isChase).length;
+  let trailingUnanswered = 0;
+  for (let i = conv.length - 1; i >= 0; i--) {
+    const e = conv[i];
+    if (e.who === "analyst") break;
+    if (e.who === "customer" && !e.isInitialDesc && !e.event) trailingUnanswered++;
+  }
+  const lastAnalyst = [...conv].reverse().find((e) => e.who === "analyst");
+  const lastCustomer = customerMsgs[customerMsgs.length - 1] || null;
+  const waitingSince =
+    lastCustomer && (!lastAnalyst || (lastCustomer.ts ?? 0) > (lastAnalyst.ts ?? 0)) ? lastCustomer.ts : null;
+  const waitDays = waitingSince != null && snapshotMs != null ? Math.max(0, (snapshotMs - waitingSince) / DAY) : null;
+  const staleDays = lastAnalyst && lastAnalyst.ts != null && snapshotMs != null
+    ? (snapshotMs - lastAnalyst.ts) / DAY : null;
+
+  // Tone aggregates.
+  const vals = scored.map(({ s }) => s.valence);
+  const mean = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  const last = vals.length ? vals[vals.length - 1] : null;
+  const overall = vals.length ? 0.55 * mean + 0.45 * last : null;
+  const lastTwo = vals.slice(-2);
+  const recentTone = lastTwo.length ? lastTwo.reduce((a, b) => a + b, 0) / lastTwo.length : null;
+
+  const agg = { breakage: 0, persistence: 0, neglect: 0, dissatisfaction: 0, urgency: 0, impact: 0, pushback: 0, confirmation: 0, conditionalOpen: 0 };
+  let persistenceMsgs = 0;
+  for (const { s } of scored) {
+    for (const k of Object.keys(agg)) agg[k] += s.features[k] || 0;
+    if (s.features.persistence) persistenceMsgs++;
+  }
+  // Dominant signal clusters (for the baked `sentiment_signals` column).
+  const signals = Object.entries(agg)
+    .filter(([k, v]) => v > 0 && k !== "confirmation" && k !== "conditionalOpen")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k]) => k);
+
+  // Escalation risk — meaningful for open work; still computed for solution
+  // proposed (as context) but the reopen classifier is the headline there.
+  const { risk, factors } = escalationRisk({
+    trailingUnanswered, waitDays, chases, persistenceMsgs, recentTone, agg, staleDays,
+    scoredCount: scored.length,
+  });
+
+  // Reopen classification (solution proposed; also summarizes closed closure).
+  // Anchor: the journal's own resolution event, else caller's resolvedAtMs,
+  // else the last analyst note.
+  const resEvent = entries.find((e) => e.event === "resolution_notes" || e.event === "auto_resolved");
+  const anchor = (resEvent && resEvent.ts) ?? resolvedAtMs ?? (lastAnalyst ? lastAnalyst.ts : null);
+  const postScored = anchor != null ? scored.filter(({ e }) => e.ts != null && e.ts > anchor) : [];
+  // Recency wins: walk the pool newest-first and return on the first decisive
+  // message — a confirmation AFTER earlier frustration is a confirmed fix, and
+  // a fresh complaint AFTER an earlier thanks is a pushback.
+  const classify = (pool) => {
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const { s } = pool[i];
+      if (s.features.confirmation && s.valence >= 0) return "confirmed";
+      if (s.features.pushback || s.features.persistence || s.features.breakage || s.valence <= -1) return "pushback";
+      if (s.features.conditionalOpen) return "conditional";
+    }
+    return "silent";
+  };
+  let confirmState = null, reopenRisk = null;
+  if (lifecycle === "solution_proposed") {
+    confirmState = classify(postScored);
+    reopenRisk =
+      confirmState === "pushback" ? 85 :
+      confirmState === "conditional" ? 55 :
+      confirmState === "confirmed" ? 10 :
+      recentTone != null && recentTone <= -2 ? 50 : 35;
+  } else if (lifecycle === "closed" && scored.length) {
+    // For the retrospective: did the customer sign off on the fix?
+    confirmState = classify(scored.slice(-2));
+  }
+
+  // Arc.
+  const start = vals.length ? vals[0] : null;
+  const end = vals.length > 1 ? last : null;
+  const arc = !vals.length ? null :
+    vals.length === 1 ? "single touchpoint" :
+    end - start >= 1 ? (start < 0 && end > 0 ? "recovered" : "improved") :
+    end - start <= -1 ? "declined" : "stable";
+
+  const lastQuoteRaw = lastCustomer ? lastCustomer.text.replace(/\s+/g, " ").trim() : null;
+
+  return {
+    scoreable: scored.length > 0,
+    nCustomer: customerMsgs.length,
+    nAnalyst: analystMsgs.length,
+    valence: overall != null ? Math.round(overall) : null,
+    start: start != null ? Math.round(start) : null,
+    end: end != null ? Math.round(end) : null,
+    arc,
+    signals,
+    risk: lifecycle === "closed" ? null : lifecycle === "solution_proposed" ? reopenRisk : risk,
+    factors: lifecycle === "open" ? factors : lifecycle === "solution_proposed" ? factors : [],
+    escalated,
+    escReason,
+    confirmState,
+    chases,
+    trailingUnanswered,
+    waitDays: waitDays != null ? Math.floor(waitDays) : null,
+    quote: representativeQuote(customerMsgs, overall ?? 0),
+    lastQuote: lastQuoteRaw ? (lastQuoteRaw.length > 200 ? lastQuoteRaw.slice(0, 199) + "…" : lastQuoteRaw) : null,
     pii,
     dup,
   };
-
-  // Not scoreable: customer never wrote anything (phone-resolved / silent).
-  if (customer.length === 0) {
-    return {
-      ...base,
-      scoreable: false,
-      valence: null,
-      sentiment: null,
-      start: null,
-      end: null,
-      arc: null,
-      emotions: null,
-      frustrationTarget: null,
-      quote: null,
-      coachingNote: analyst.length
-        ? "No written customer dialogue to score — handled by phone or silent close."
-        : "No customer or analyst text in the journal.",
-    };
-  }
-
-  const perMsg = customer.map((m) => scoreText(m.body).valence);
-  // Overall valence = mean of customer messages, weighted slightly toward the
-  // last message (closure tone carries the most signal for a support case).
-  const mean = perMsg.reduce((a, b) => a + b, 0) / perMsg.length;
-  const last = perMsg[perMsg.length - 1];
-  const overallRaw = perMsg.length > 1 ? 0.6 * mean + 0.4 * last : mean;
-  const valence = roundInt(overallRaw);
-
-  const start = roundInt(perMsg[0]);
-  const end = perMsg.length > 1 ? roundInt(last) : null;
-  // Compute the arc once and reuse it for both the column and the coaching note.
-  const caseArc = arc(start, end ?? start, customer.length);
-  const allCustomerText = customer.map((m) => m.body).join("\n");
-
-  return {
-    ...base,
-    scoreable: true,
-    valence,
-    sentiment: sentimentLabel(valence),
-    start,
-    end,
-    arc: caseArc,
-    emotions: detectEmotions(allCustomerText).join(", "),
-    frustrationTarget: detectFrustrationTarget(allCustomerText, valence),
-    quote: representativeQuote(customer, overallRaw),
-    coachingNote: buildCoachingNote(row, { valence, start, end, arc: caseArc, analyst: analyst.length }),
-  };
-}
-
-// Templated coaching note from structural signals. NOT the LLM's prose — it
-// states the facts the LLM would open with (responsiveness, arc, closure) so
-// the column is useful at a glance; deep prose is the optional LLM read.
-function buildCoachingNote(row, g) {
-  const bits = [];
-  const frtH = row._frtMs != null ? row._frtMs / 3.6e6 : (row.first_response_time ?? null);
-  if (typeof frtH === "number" && isFinite(frtH)) {
-    bits.push(frtH <= 1 ? `Fast first reply (${frtH.toFixed(1)}h)` : `First reply ${frtH.toFixed(1)}h`);
-  }
-  if (g.arc === "improved (recovery)") bits.push("recovered a frustrated opening to a positive close");
-  else if (g.arc === "improved") bits.push("tone improved over the case");
-  else if (g.arc === "declined") bits.push("tone declined — review the close-out");
-  else if (g.arc === "single touchpoint") bits.push("single customer touchpoint");
-  if (g.end != null && g.end < 0) bits.push("still negative at close");
-  if (g.analyst === 0) bits.push("no written analyst reply in the journal");
-  return bits.length ? bits.join("; ") + "." : "Transactional exchange, neutral throughout.";
 }
 
 /* ------------------------------------------------------------------ *
- * 5b. Bake adapter — the snake_case columns enrich.js persists        *
+ * 5. Row adapters — gradeCase / gradeFromRow (baked columns)          *
  * ------------------------------------------------------------------ */
 
+const lifecycleOfState = (state) => {
+  const s = String(state || "").toLowerCase();
+  return s === "closed" ? "closed" : s === "resolved" ? "solution_proposed" : "open";
+};
+const sentimentLabel = (v) => (v == null ? null : v >= 1 ? "Positive" : v <= -1 ? "Negative" : "Neutral");
+
 /**
- * Map a raw case row to the flat, snake_case sentiment columns baked by BOTH
- * enrichRow and enrichForSql (one parse per row, via gradeCase). The two
- * pipelines call this with identical inputs, so the returned values are
- * identical — that equality is exactly what the enrich parity test asserts.
+ * Grade one case row. Reads the customer-visible journal
+ * (`additional_comments`, falling back to `work_notes` — merged-layout exports
+ * carry entry types in the headers, so internal notes are filtered either way).
  *
- * `frtMs` is the already-parsed first-response time in ms; both pipelines
- * compute it the same way (parseFirstResponse) and pass it here so the coaching
- * note can report responsiveness deterministically (the raw `first_response_time`
- * is a non-numeric ServiceNow string, which the note would otherwise skip).
- *
- * Values are plain JS (number | string | boolean | null) to match the worker's
- * DDL column types: sentiment_valence / _start / _end → BIGINT (plain Number |
- * null, like priority_rank / interaction_count); sentiment_scoreable / _pii /
- * _dup → BOOLEAN; everything else → VARCHAR. Never `undefined` — a missing key
- * would reach the Arrow builder as undefined and muddle column type inference.
- *
- * @param {object} row          raw case row (work_notes / additional_comments…)
- * @param {number|null} [frtMs] parsed first-response time in ms
- * @returns {object} the 12 `sentiment_*` columns
+ * Optional row fields used when present: `_snapshotMs` (data-as-of),
+ * `_resolvedAtMs` (resolution-notes save time), `_frtMs` (first response, ms).
  */
-export function gradeFromRow(row, frtMs) {
-  const g = gradeCase(frtMs == null ? row : { ...row, _frtMs: frtMs });
+export function gradeCase(row) {
+  const r = row || {};
+  const journal = r.additional_comments || r.work_notes || "";
+  const lifecycle = lifecycleOfState(r.state);
+  const a = analyzeJournal(journal, {
+    lifecycle,
+    snapshotMs: r._snapshotMs ?? null,
+    resolvedAtMs: r._resolvedAtMs ?? null,
+  });
+  return {
+    number: r.number,
+    account: r.account,
+    priority: r.priority || null,
+    lifecycle,
+    myMsgs: a.nAnalyst,
+    custMsgs: a.nCustomer,
+    scoreable: a.scoreable,
+    valence: a.valence,
+    sentiment: sentimentLabel(a.valence),
+    start: a.start,
+    end: a.end,
+    arc: a.arc,
+    signals: a.signals.join(", ") || null,
+    risk: a.risk,
+    riskFactors: a.factors.join("; ") || null,
+    escalated: a.escalated,
+    escReason: a.escReason,
+    confirmState: a.confirmState,
+    chases: a.chases,
+    unanswered: a.trailingUnanswered,
+    waitDays: a.waitDays,
+    quote: a.quote,
+    lastQuote: a.lastQuote,
+    coachingNote: buildCoachingNote(r, a),
+    pii: a.pii,
+    dup: a.dup,
+  };
+}
+
+// Templated coaching note from structural facts (not model prose).
+function buildCoachingNote(row, a) {
+  const bits = [];
+  const frtH = row._frtMs != null ? row._frtMs / 3.6e6 : null;
+  if (typeof frtH === "number" && isFinite(frtH)) {
+    bits.push(frtH <= 1 ? `fast first reply (${frtH.toFixed(1)}h)` : `first reply ${frtH.toFixed(1)}h`);
+  }
+  if (!a.scoreable) {
+    bits.push(a.nAnalyst ? "no written customer dialogue — phone-handled or silent" : "no customer or analyst text in the journal");
+    return cap(bits);
+  }
+  if (a.escalated) bits.push(`customer escalated${a.escReason ? ` (${a.escReason.split(" — ")[0]})` : ""}`);
+  if (a.chases >= 2) bits.push(`customer chased ${a.chases}×`);
+  if (a.trailingUnanswered >= 1) bits.push(`${a.trailingUnanswered} message${a.trailingUnanswered > 1 ? "s" : ""} still unanswered`);
+  if (a.arc === "recovered") bits.push("recovered a frustrated opening to a positive close");
+  else if (a.arc === "declined") bits.push("tone declined — review the close-out");
+  if (a.confirmState === "confirmed") bits.push("customer confirmed the fix");
+  else if (a.confirmState === "pushback") bits.push("customer pushed back after the proposed solution");
+  else if (a.confirmState === "conditional") bits.push("customer holding the case open to verify");
+  else if (a.confirmState === "silent") bits.push("no customer confirmation");
+  if (a.end != null && a.end < 0) bits.push("still negative at last contact");
+  if (!a.nAnalyst) bits.push("no written analyst reply in the journal");
+  return cap(bits) || "Transactional exchange, neutral throughout.";
+}
+const cap = (bits) => (bits.length ? bits.join("; ").replace(/^./, (c) => c.toUpperCase()) + "." : "");
+
+/**
+ * Bake adapter: the flat snake_case sentiment columns persisted by BOTH
+ * enrichRow and enrichForSql. Identical inputs ⇒ identical values — that
+ * equality is what the enrich parity test asserts. Values are plain JS
+ * (number | string | boolean | null), never undefined, so the worker's Arrow
+ * column build types them cleanly.
+ *
+ * @param {object} row            raw case row
+ * @param {number|null} frtMs     parsed first-response ms (both pipelines share it)
+ * @param {number|null} snapshotMs data-as-of anchor (wait/staleness factors)
+ * @param {number|null} resolvedAtMs resolution-notes save time (reopen anchor)
+ */
+export function gradeFromRow(row, frtMs, snapshotMs = null, resolvedAtMs = null) {
+  const g = gradeCase({
+    ...row,
+    _frtMs: frtMs ?? null,
+    _snapshotMs: snapshotMs ?? null,
+    _resolvedAtMs: resolvedAtMs ?? null,
+  });
   return {
     sentiment_scoreable: g.scoreable,
     sentiment_valence: g.valence,
@@ -442,35 +644,25 @@ export function gradeFromRow(row, frtMs) {
     sentiment_start: g.start,
     sentiment_end: g.end,
     sentiment_arc: g.arc,
-    sentiment_emotions: g.emotions,
-    sentiment_target: g.frustrationTarget,
+    sentiment_signals: g.signals,
     sentiment_quote: g.quote,
     sentiment_coaching: g.coachingNote,
     sentiment_pii: g.pii,
     sentiment_dup: g.dup,
+    sentiment_risk: g.risk,
+    sentiment_risk_factors: g.riskFactors,
+    sentiment_escalated: g.escalated,
+    sentiment_esc_reason: g.escReason,
+    sentiment_confirm: g.confirmState,
+    sentiment_chases: g.chases,
+    sentiment_unanswered: g.unanswered,
+    sentiment_wait_days: g.waitDays,
+    sentiment_last_quote: g.lastQuote,
   };
 }
 
 /* ------------------------------------------------------------------ *
- * 6. Hygiene flags (structural — exact, no LLM)                       *
- * ------------------------------------------------------------------ */
-
-// Duplicate double-posts: same analyst body posted twice within 60s.
-function hasDuplicatePost(stream) {
-  for (let i = 1; i < stream.length; i++) {
-    const a = stream[i - 1], b = stream[i];
-    if (!a.isCustomer && !b.isCustomer && a.body && a.body === b.body) {
-      if (a.ts == null || b.ts == null || Math.abs(b.ts - a.ts) <= 60_000) return true;
-    }
-  }
-  return false;
-}
-
-// AnyDesk / password exposure in the customer-visible stream.
-const PII_RE = /\b(anydesk|teamviewer)\b|\bpass(word|wd)\b\s*[:=]/i;
-
-/* ------------------------------------------------------------------ *
- * 7. Portfolio summary — mirrors the review's Headline Metrics        *
+ * 6. Portfolio summary                                                *
  * ------------------------------------------------------------------ */
 
 const median = (xs) => {
@@ -481,66 +673,88 @@ const median = (xs) => {
 };
 const pct = (n, d) => (d ? n / d : 0);
 
-// Prefer the baked sentiment columns (enrich.js v9) over a live grade — that is
-// the whole point of baking: the UI must not re-parse every journal on every
-// filter change. Falls back to gradeCase for a row from a pre-v9 import that has
-// not been rebuilt yet (defensive — the in-memory pipeline always bakes). Always
-// returns the gradeCase shape so the summary + table are source-agnostic.
+// Risk bands (validated: ≥50 flags ~2% of never-escalated open cases, ≥30 ~15%).
+export const RISK_HIGH = 50;
+export const RISK_ELEVATED = 30;
+
+// Prefer the baked v11 columns; live-grade only rows from older imports (they
+// show "Rebuild needed" in the file manager).
 function resolveGrade(row) {
-  if (!row || row.sentiment_scoreable === undefined || row.sentiment_scoreable === null) {
+  if (!row || row.sentiment_scoreable == null || row.sentiment_risk === undefined) {
     return gradeCase(row || {});
   }
-  const num = (v) => (v == null ? null : Number(v)); // BIGINT may arrive as BigInt from SQL
+  const num = (v) => (v == null ? null : Number(v)); // BIGINT may arrive as BigInt
   return {
     number: row.number,
     account: row.account,
     priority: row.priority || null,
-    myMsgs: row._analystTurns ?? row.analyst_turns ?? null,
-    custMsgs: row._customerTurns ?? row.customer_turns ?? null,
-    pii: !!row.sentiment_pii,
-    dup: !!row.sentiment_dup,
+    lifecycle: row._lifecycle ?? row.lifecycle ?? lifecycleOfState(row.state),
+    myMsgs: row._analystTurns ?? (row.analyst_turns == null ? null : Number(row.analyst_turns)),
+    custMsgs: row._customerTurns ?? (row.customer_turns == null ? null : Number(row.customer_turns)),
     scoreable: !!row.sentiment_scoreable,
     valence: num(row.sentiment_valence),
     sentiment: row.sentiment_label ?? null,
     start: num(row.sentiment_start),
     end: num(row.sentiment_end),
     arc: row.sentiment_arc ?? null,
-    emotions: row.sentiment_emotions ?? null,
-    frustrationTarget: row.sentiment_target ?? null,
+    signals: row.sentiment_signals ?? null,
+    risk: num(row.sentiment_risk),
+    riskFactors: row.sentiment_risk_factors ?? null,
+    escalated: !!row.sentiment_escalated,
+    escReason: row.sentiment_esc_reason ?? null,
+    confirmState: row.sentiment_confirm ?? null,
+    chases: num(row.sentiment_chases) ?? 0,
+    unanswered: num(row.sentiment_unanswered) ?? 0,
+    waitDays: num(row.sentiment_wait_days),
     quote: row.sentiment_quote ?? null,
+    lastQuote: row.sentiment_last_quote ?? null,
     coachingNote: row.sentiment_coaching ?? null,
+    pii: !!row.sentiment_pii,
+    dup: !!row.sentiment_dup,
   };
 }
 
 /**
- * Grade a list of rows and roll up the headline metrics. Reads baked
- * `sentiment_*` columns when present (via resolveGrade); falls back to a live
- * grade per row only for rows missing them.
- * @param {object[]} rows  enriched case rows
- * @returns {{ graded:object[], scoreable:object[], summary:object }}
+ * Grade a list of enriched rows and roll up the tab's headline metrics,
+ * segmented by lifecycle (the three views of the Sentiment tab).
+ * @returns {{ graded:object[], open:object[], proposed:object[], closed:object[], summary:object }}
  */
 export function summarizeSentiment(rows) {
-  const graded = rows.map(resolveGrade);
+  const graded = (rows || []).map(resolveGrade);
+  const open = graded.filter((g) => g.lifecycle === "open");
+  const proposed = graded.filter((g) => g.lifecycle === "solution_proposed");
+  const closed = graded.filter((g) => g.lifecycle === "closed");
   const scoreable = graded.filter((g) => g.scoreable);
 
-  const valences = scoreable.map((g) => g.valence);
+  const valences = scoreable.map((g) => g.valence).filter((v) => v != null);
   const pos = scoreable.filter((g) => g.valence > 0).length;
   const neu = scoreable.filter((g) => g.valence === 0).length;
   const neg = scoreable.filter((g) => g.valence < 0).length;
 
-  const openedFrustrated = scoreable.filter((g) => g.start < 0);
-  const recovered = openedFrustrated.filter((g) => g.end != null && g.end > 0).length;
-  const stillNeg = openedFrustrated.filter((g) => g.end != null && g.end < 0);
-  const calmToNeg = scoreable.filter((g) => g.start >= 0 && g.end != null && g.end < 0).length;
+  // Early warning (open work).
+  const openScoreable = open.filter((g) => g.scoreable);
+  const escalatedOpen = open.filter((g) => g.escalated);
+  const highRisk = openScoreable.filter((g) => !g.escalated && (g.risk ?? 0) >= RISK_HIGH);
+  const elevatedRisk = openScoreable.filter((g) => !g.escalated && (g.risk ?? 0) >= RISK_ELEVATED && (g.risk ?? 0) < RISK_HIGH);
+  const unansweredTotal = open.reduce((a, g) => a + (g.unanswered || 0), 0);
 
-  // Responsiveness from the enriched FRT (hours).
-  const frtHours = rows
-    .map((r) => (r._frtMs != null ? r._frtMs / 3.6e6 : typeof r.first_response_time === "number" ? r.first_response_time : null))
+  // Solution proposed (reopen watch).
+  const spBy = { pushback: 0, conditional: 0, silent: 0, confirmed: 0 };
+  for (const g of proposed) if (g.confirmState) spBy[g.confirmState] = (spBy[g.confirmState] || 0) + 1;
+
+  // Closed retrospective.
+  const closedScoreable = closed.filter((g) => g.scoreable);
+  const closedNeg = closedScoreable.filter((g) => (g.end ?? g.valence) < 0).length;
+  const recovered = closedScoreable.filter((g) => g.arc === "recovered").length;
+  const declined = closedScoreable.filter((g) => g.arc === "declined").length;
+  const confirmedClose = closedScoreable.filter((g) => g.confirmState === "confirmed").length;
+
+  // Responsiveness (from the enriched FRT).
+  const frtHours = (rows || [])
+    .map((r) => (r._frtMs != null ? r._frtMs / 3.6e6 : r.frt_ms != null ? Number(r.frt_ms) / 3.6e6 : null))
     .filter((h) => typeof h === "number" && isFinite(h));
   const within1h = frtHours.filter((h) => h <= 1).length;
 
-  // Hygiene flags (structural) — read straight off the per-case grades so we
-  // never parse a journal twice. gradeCase derives `pii` / `dup` for every row.
   let dupPosts = 0, piiExposure = 0;
   const piiCases = [];
   for (const g of graded) {
@@ -550,25 +764,42 @@ export function summarizeSentiment(rows) {
 
   return {
     graded,
+    open,
+    proposed,
+    closed,
     scoreable,
     summary: {
-      analyzed: rows.length,
+      analyzed: graded.length,
       scoreableCount: scoreable.length,
-      scoreableShare: pct(scoreable.length, rows.length),
-      silent: rows.length - scoreable.length,
+      scoreableShare: pct(scoreable.length, graded.length),
+      silent: graded.length - scoreable.length,
       avgValence: valences.length ? valences.reduce((a, b) => a + b, 0) / valences.length : 0,
-      // 0..100 normalization of a -5..+5 mean, matching the review's "57/100" idea.
       normalized100: valences.length
         ? Math.round(((valences.reduce((a, b) => a + b, 0) / valences.length) + 5) / 10 * 100)
         : null,
       pos, neu, neg,
       posShare: pct(pos, scoreable.length),
       negShare: pct(neg, scoreable.length),
-      openedFrustrated: openedFrustrated.length,
+      openTotal: open.length,
+      openScoreable: openScoreable.length,
+      escalatedOpen: escalatedOpen.length,
+      escalatedOpenCases: escalatedOpen.map((g) => g.number),
+      highRisk: highRisk.length,
+      highRiskCases: highRisk.map((g) => g.number),
+      elevatedRisk: elevatedRisk.length,
+      unansweredTotal,
+      spTotal: proposed.length,
+      spPushback: spBy.pushback,
+      spConditional: spBy.conditional,
+      spSilent: spBy.silent,
+      spConfirmed: spBy.confirmed,
+      closedTotal: closed.length,
+      closedScoreable: closedScoreable.length,
+      closedNegative: closedNeg,
       recovered,
-      stillNegative: stillNeg.length,
-      stillNegativeCases: stillNeg.map((g) => g.number),
-      calmToNegative: calmToNeg,
+      declined,
+      confirmedClose,
+      confirmedCloseShare: pct(confirmedClose, closedScoreable.length),
       medianFrtH: median(frtHours),
       within1hShare: pct(within1h, frtHours.length),
       duplicatePosts: dupPosts,

@@ -6,7 +6,7 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import Papa from "papaparse"
-import { enrichRow, priorityRank, normalizeXlsxRow } from "./enrich.js"
+import { enrichRow, priorityRank, normalizeXlsxRow, managerOf } from "./enrich.js"
 import { safeRandomUUID } from "./uuid.js"
 import { dbClient } from "./db-client.js"
 import {
@@ -194,7 +194,9 @@ export function useAppData() {
   const filename = activeImport?.displayName || ""
   const snapshotMs = activeImport?.uploadedAt ?? null
 
-  // Stable name list for the opaque-token resolver in useFilters.
+  // Stable name lists for the opaque-token resolvers in useFilters. Both come
+  // from the FULL dataset (never the filtered slice) so an incoming URL token
+  // resolves to the same name regardless of which filters are active.
   const analystNames = useMemo(() => {
     if (!rows) return []
     const set = new Set()
@@ -202,8 +204,17 @@ export function useAppData() {
     return [...set]
   }, [rows])
 
-  const { analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch } =
-    useFilters({ analystNames })
+  const managerNames = useMemo(() => {
+    if (!rows) return []
+    const set = new Set()
+    for (const r of rows) set.add(managerOf(r) || "No manager")
+    return [...set]
+  }, [rows])
+
+  const {
+    analyst, setAnalyst, manager, setManager,
+    dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch,
+  } = useFilters({ analystNames, managerNames })
   const navigate = useNavigate()
 
   // team flavor when no analyst selected.
@@ -628,12 +639,13 @@ export function useAppData() {
   // Reset the analyst/date/AI working state — used whenever the active dataset
   // changes (upload or activation) so filters don't carry across datasets.
   const resetWorkingState = useCallback(() => {
+    setManager("__all__")
     setAnalyst("__all__")
     setDateRange({ from: null, to: null, field: "_created" })
     setCompareOn(false)
     setAiState({ loading: false, result: null, error: null })
     setMemberAi({})
-  }, [setAnalyst, setDateRange, setCompareOn])
+  }, [setManager, setAnalyst, setDateRange, setCompareOn])
 
   // New upload → a new persistent import, auto-activated. Atomic: on any failure
   // the OPFS blob is cleaned up and nothing half-created remains.
@@ -771,15 +783,33 @@ export function useAppData() {
   const reset = clearAllImports
 
   /* ---------- derived ---------- */
+  // Managers for the TopBar dropdown: [name, caseCount] sorted by count desc,
+  // from the FULL dataset (the manager filter itself must not narrow its own
+  // options). Blank cells group under "No manager".
+  const managers = useMemo(() => {
+    if (!rows) return []
+    const set = new Map()
+    for (const r of rows) {
+      const m = managerOf(r) || "No manager"
+      set.set(m, (set.get(m) || 0) + 1)
+    }
+    return [...set.entries()].sort((a, b) => b[1] - a[1])
+  }, [rows])
+
+  // Analysts for the TopBar dropdown, scoped to the selected manager's team so
+  // picking a manager narrows the analyst list to their reports. Token
+  // resolution stays on the unscoped `analystNames` above, so `?a=` URLs keep
+  // meaning the same person whatever the manager filter says.
   const analysts = useMemo(() => {
     if (!rows) return []
     const set = new Map()
     for (const r of rows) {
+      if (manager !== "__all__" && (managerOf(r) || "No manager") !== manager) continue
       const a = r.assigned_to || "Unassigned"
       set.set(a, (set.get(a) || 0) + 1)
     }
     return [...set.entries()].sort((a, b) => b[1] - a[1])
-  }, [rows])
+  }, [rows, manager])
 
   // Pass the active import's upload time as the SOP-SLA snapshot anchor so the
   // in-memory pipeline bakes the same cadence-breach verdict as the SQL worker.
@@ -799,10 +829,22 @@ export function useAppData() {
     [enrichedAll, jiraIssueMap],
   )
 
+  // Manager scope sits between the full joined set and the analyst filter:
+  // enrichedAllJoined → (manager) → enrichedManagerAll → (analyst) →
+  // enrichedAnalyst → (date) → enriched. Team-wide surfaces derive from
+  // teamMembersAll (below), which groups the manager-scoped set — so picking a
+  // manager turns every "team" view into that manager's team. Surfaces that
+  // deliberately ignore the analyst filter (Monthly Summary, Jira stats,
+  // account risk) read enrichedAllJoined and ignore the manager the same way.
+  const enrichedManagerAll = useMemo(() => {
+    if (manager === "__all__") return enrichedAllJoined
+    return enrichedAllJoined.filter((r) => (r.manager || "No manager") === manager)
+  }, [enrichedAllJoined, manager])
+
   const enrichedAnalyst = useMemo(() => {
-    if (analyst === "__all__") return enrichedAllJoined
-    return enrichedAllJoined.filter((r) => (r.assigned_to || "Unassigned") === analyst)
-  }, [enrichedAllJoined, analyst])
+    if (analyst === "__all__") return enrichedManagerAll
+    return enrichedManagerAll.filter((r) => (r.assigned_to || "Unassigned") === analyst)
+  }, [enrichedManagerAll, analyst])
 
   const enriched = useMemo(
     () => filterRowsByDate(enrichedAnalyst, dateRange.from, dateRange.to, dateRange.field),
@@ -827,7 +869,10 @@ export function useAppData() {
 
   const teamMembersAll = useMemo(() => {
     const groups = new Map()
-    for (const r of enrichedAllJoined) {
+    // Manager-scoped on purpose: every team view built from this ("team"
+    // flavors of Workload, Team, Backlog, AI Assisted, …) becomes the selected
+    // manager's team when the Manager filter is set.
+    for (const r of enrichedManagerAll) {
       const name = r.assigned_to || "Unassigned"
       if (!groups.has(name)) groups.set(name, [])
       groups.get(name).push(r)
@@ -837,7 +882,7 @@ export function useAppData() {
       out.push({ name, rows: list })
     }
     return out
-  }, [enrichedAllJoined])
+  }, [enrichedManagerAll])
 
   const teamMembers = useMemo(() => {
     const out = teamMembersAll.map((m) => {
@@ -1014,8 +1059,8 @@ export function useAppData() {
     restoringCount,
     activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
     // filters (URL-backed)
-    analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, view,
-    analystNames, analysts,
+    analyst, setAnalyst, manager, setManager, dateRange, setDateRange, compareOn, setCompareOn, view,
+    analystNames, analysts, managerNames, managers,
     // db / snapshot
     dbReady, snapshotMs, persistence,
     // print
@@ -1024,7 +1069,7 @@ export function useAppData() {
     jiraState, jiraAutoSyncing, syncJira, hydrateFromCache, jiraAutoSync, setJiraAutoSyncPref,
     jiraCreds, refreshJiraCreds, onJiraCredsChanged,
     // derived data
-    enriched, enrichedAnalyst, enrichedAll, enrichedAllJoined,
+    enriched, enrichedAnalyst, enrichedAll, enrichedAllJoined, enrichedManagerAll,
     compareWindow, compareEnriched,
     kpis, compareKpis,
     teamMembers, teamMembersAll, compareTeamKpis,

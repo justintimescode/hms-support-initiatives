@@ -14,54 +14,74 @@ import { TopBar } from "./TopBar.jsx";
 import { DataRetentionNotice } from "./DataRetentionNotice.jsx";
 import { ThemeToggle } from "../ThemeToggle.jsx";
 
+/* Groups follow a first-time user's journey top to bottom: land on the
+ * overview, work today's queues, read performance, look at the team,
+ * drill into slices of the caseload, then integrations and deeper
+ * analysis. Setup (Connections/Settings) anchors the bottom, the
+ * conventional spot for configuration. */
 const NAV_GROUPS = [
   {
     label: "Overview",
     items: [
-      { to: "/",             label: "Dashboard",    icon: LayoutDashboard },
-      { to: "/my-day",       label: "My Day",       icon: Sun },
-      { to: "/update-queue", label: "Update Queue", icon: ClipboardList },
+      { to: "/",       label: "Dashboard",       icon: LayoutDashboard },
+      { to: "/report", label: "Monthly Summary", icon: FileBarChart },
+    ],
+  },
+  {
+    label: "Queues",
+    items: [
+      { to: "/my-day",            label: "My Day",            icon: Sun },
+      { to: "/update-queue",      label: "Update Queue",      icon: ClipboardList },
       { to: "/solution-proposed", label: "Solution Proposed", icon: Timer },
-      { to: "/report",       label: "Monthly Summary", icon: FileBarChart },
     ],
   },
   {
     label: "Performance",
     items: [
-      { to: "/sla",        label: "SLA",          icon: Clock },
-      { to: "/backlog",    label: "Open Backlog", icon: Inbox },
-      { to: "/trends",     label: "Trends",       icon: TrendingUp },
-      { to: "/cadence",    label: "Cadence",      icon: CalendarClock },
-      { to: "/priority",   label: "Priority",     icon: CircleDot },
-      { to: "/categories", label: "Categories",   icon: Layers },
-      { to: "/accounts",   label: "Accounts",     icon: Building2 },
-      { to: "/dod",        label: "DoD",          icon: Shield },
+      { to: "/sla",     label: "SLA",          icon: Clock },
+      { to: "/cadence", label: "Cadence",      icon: CalendarClock },
+      { to: "/trends",  label: "Trends",       icon: TrendingUp },
+      { to: "/backlog", label: "Open Backlog", icon: Inbox },
     ],
   },
   {
     label: "Team",
     items: [
-      { to: "/workload",      label: "Workload",             icon: Scale },
-      { to: "/team",          label: "Team",                 icon: Users },
+      { to: "/team",     label: "Team",     icon: Users },
+      { to: "/workload", label: "Workload", icon: Scale },
+    ],
+  },
+  {
+    label: "Explore",
+    items: [
+      { to: "/cases",      label: "Cases",      icon: Table },
+      { to: "/priority",   label: "Priority",   icon: CircleDot },
+      { to: "/categories", label: "Categories", icon: Layers },
+      { to: "/accounts",   label: "Accounts",   icon: Building2 },
+      { to: "/dod",        label: "DoD",        icon: Shield },
     ],
   },
   {
     label: "Jira",
     items: [
       { to: "/jira",          label: "All HMS Jira's",         icon: ExternalLink },
-      { to: "/jira-stats",    label: "Statistics",             icon: BarChart3 },
       { to: "/jira-blockers", label: "Cases w/ Jira Blockers", icon: Ban },
+      { to: "/jira-stats",    label: "Statistics",             icon: BarChart3 },
     ],
   },
   {
-    label: "Tools",
+    label: "Analysis",
+    items: [
+      { to: "/insights",    label: "Insights",     icon: Sparkles },
+      { to: "/sentiment",   label: "Sentiment",    icon: Gauge },
+      { to: "/ai-assisted", label: "AI Assisted?", icon: Bot },
+      { to: "/surveys",     label: "Surveys",      icon: Mailbox },
+    ],
+  },
+  {
+    label: "Setup",
     items: [
       { to: "/connections", label: "Connections", icon: Plug },
-      { to: "/insights",    label: "Insights",    icon: Sparkles },
-      { to: "/sentiment",   label: "Sentiment",   icon: Gauge },
-      { to: "/ai-assisted", label: "AI Assisted?", icon: Bot },
-      { to: "/cases",       label: "Cases",       icon: Table },
-      { to: "/surveys",     label: "Surveys",     icon: Mailbox },
       { to: "/settings",    label: "Settings",    icon: Settings },
     ],
   },

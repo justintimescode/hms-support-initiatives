@@ -27,7 +27,7 @@ import { CaseTable } from "../components/CaseTable.jsx";
 import { UpdateQueue } from "./UpdateQueue.jsx";
 
 /* ================= Team View ================= */
-export function TeamView({ page, printMode, members, allMembers, compareTotals, highlightRange, kpis, priorityData, categoryData, accountData, productData, enriched, aiState, runAiAnalysis, memberAi, runMemberAi, drillIntoMember, dbReady, snapshotMs, jiraState, syncJira, hydrateFromCache }) {
+export function TeamView({ page, printMode, manager, members, allMembers, compareTotals, highlightRange, kpis, priorityData, categoryData, accountData, productData, enriched, aiState, runAiAnalysis, memberAi, runMemberAi, drillIntoMember, dbReady, snapshotMs, jiraState, syncJira, hydrateFromCache }) {
   const [sort, setSort] = useState({ key: "total", dir: "desc" });
   const [profileMember, setProfileMember] = useState(null);
 
@@ -120,7 +120,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
               )}
             </Card>
           </div>
-          <DevKpiCompare jsKpis={totals} analyst="__all__" dateRange={highlightRange} dbReady={dbReady} />
+          <DevKpiCompare jsKpis={totals} analyst="__all__" manager={manager} dateRange={highlightRange} dbReady={dbReady} />
         </Section>
         </div>
       )}
@@ -295,7 +295,7 @@ export function TeamView({ page, printMode, members, allMembers, compareTotals, 
       )}
 
       {page === "queue" && (
-        <UpdateQueue analyst="__all__" snapshotMs={snapshotMs} dbReady={dbReady} />
+        <UpdateQueue analyst="__all__" manager={manager} snapshotMs={snapshotMs} dbReady={dbReady} />
       )}
 
       {page === "cases" && (

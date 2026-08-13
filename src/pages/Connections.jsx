@@ -1,19 +1,20 @@
 import { useOutletContext } from "react-router-dom"
 import {
-  Plug, ExternalLink, Database, Heart, AlertTriangle,
+  Plug, ExternalLink, Database, Heart, AlertTriangle, Settings,
 } from "lucide-react"
 import { T } from "../lib/theme.js"
 import { fmtFullDateTime } from "../lib/format.js"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { Pill } from "../components/Pill.jsx"
+import { FilterLink } from "../components/FilterLink.jsx"
 import { ImportsCard } from "../components/connections/ImportsCard.jsx"
 
 /* All data sources in one place. ServiceNow imports (file manager) + Jira sync
  * are real; ServiceNow API + Gainsight are placeholders. */
 export default function Connections() {
   const ctx = useOutletContext()
-  const { jiraState, syncJira } = ctx
+  const { jiraState, syncJira, jiraCreds } = ctx
 
   return (
     <Section
@@ -22,7 +23,7 @@ export default function Connections() {
     >
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 12 }}>
         <ImportsCard {...ctx} />
-        <JiraCard jiraState={jiraState} onSync={syncJira} />
+        <JiraCard jiraState={jiraState} onSync={syncJira} jiraCreds={jiraCreds} />
         <PlaceholderCard
           title="ServiceNow API"
           icon={Database}
@@ -39,19 +40,22 @@ export default function Connections() {
 }
 
 
-function JiraCard({ jiraState, onSync }) {
+function JiraCard({ jiraState, onSync, jiraCreds }) {
   const status = jiraState?.status || "idle"
   const meta = jiraState?.meta
   const syncedAt = meta?.fetchedAt ? fmtFullDateTime(meta.fetchedAt) : null
   const syncing = status === "loading" || status === "hydrating"
+  // Jira is optional, so "no credentials" is a neutral state, not an error —
+  // only a genuine sync failure is styled as one.
+  const needsCreds = status === "unconfigured" || (jiraCreds && !jiraCreds.configured)
   const pillTone = status === "ready" ? T.ok
     : status === "loading" || status === "hydrating" ? T.warn
-    : status === "unconfigured" || status === "error" ? T.danger
+    : status === "error" ? T.danger
     : T.muted
   const pillLabel = status === "ready" ? "connected"
     : status === "loading" ? "syncing…"
     : status === "hydrating" ? "loading cache…"
-    : status === "unconfigured" ? "needs token"
+    : needsCreds ? "not connected"
     : status === "error" ? "error"
     : "idle"
 
@@ -65,7 +69,8 @@ function JiraCard({ jiraState, onSync }) {
         <Pill color={pillTone}>{pillLabel}</Pill>
       </div>
       <div style={{ fontSize: 13, color: T.sub }}>
-        Live engineering data for the HMS project. Used for blocker analysis on case rows and for the standalone Jira project lens.
+        Optional. Live engineering data for the HMS project — used for blocker analysis on case rows and
+        the standalone Jira project lens. Every other page works without it.
       </div>
       {status === "ready" && meta && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: T.sub }}>
@@ -81,9 +86,10 @@ function JiraCard({ jiraState, onSync }) {
           )}
         </div>
       )}
-      {status === "unconfigured" && (
-        <div style={{ fontSize: 12, color: T.sub }}>
-          Add JIRA_EMAIL and JIRA_API_TOKEN to <span className="mono">.env</span>, then restart <span className="mono">npm run dev</span>.
+      {needsCreds && status !== "ready" && (
+        <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.55 }}>
+          No Jira credentials yet. Add your Atlassian email and API token in Settings — takes a minute,
+          no restart needed.
         </div>
       )}
       {status === "error" && jiraState?.error && (
@@ -91,20 +97,30 @@ function JiraCard({ jiraState, onSync }) {
       )}
       {syncing && <JiraSyncProgress status={status} progress={jiraState?.progress} />}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button
-          onClick={() => onSync("recent")}
-          disabled={syncing}
-          style={btnSecondary(syncing)}
-        >
-          Sync recent
-        </button>
-        <button
-          onClick={() => onSync("full")}
-          disabled={syncing}
-          style={btnPrimary(syncing)}
-        >
-          {status === "ready" ? "Full re-sync" : "Sync Jira now"}
-        </button>
+        {needsCreds && status !== "ready" ? (
+          <FilterLink to="/settings" style={{ textDecoration: "none" }}>
+            <span style={{ ...btnPrimary(false), display: "inline-flex" }}>
+              <Settings size={13} /> Connect Jira in Settings
+            </span>
+          </FilterLink>
+        ) : (
+          <>
+            <button
+              onClick={() => onSync("recent")}
+              disabled={syncing}
+              style={btnSecondary(syncing)}
+            >
+              Sync recent
+            </button>
+            <button
+              onClick={() => onSync("full")}
+              disabled={syncing}
+              style={btnPrimary(syncing)}
+            >
+              {status === "ready" ? "Full re-sync" : "Sync Jira now"}
+            </button>
+          </>
+        )}
       </div>
     </Card>
   )

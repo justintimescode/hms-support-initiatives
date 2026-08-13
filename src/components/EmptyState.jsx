@@ -3,8 +3,10 @@ import { Database } from "lucide-react"
 import { T, alpha } from "../lib/theme.js"
 import { Card } from "./layout/Card.jsx"
 
-/* Shared "no data loaded" state used by every analytical page. */
-export function EmptyState({ title = "No data loaded yet", message, cta = "Go to Connections" }) {
+/* Shared "no data loaded" state used by every analytical page. `to` lets a page
+ * point somewhere other than Connections — the Jira pages send an unconnected
+ * user to Settings, where credentials are entered. */
+export function EmptyState({ title = "No data loaded yet", message, cta = "Go to Connections", to = "/connections" }) {
   return (
     <Card
       className="fade-in"
@@ -45,7 +47,7 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
           "Upload a ServiceNow case export to populate this page. Everything else flows from that one file."}
       </div>
       <FilterLink
-        to="/connections"
+        to={to}
         style={{
           marginTop: 12,
           padding: "10px 20px",

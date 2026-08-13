@@ -18,8 +18,9 @@ export const PROJECT_NAME = 'Hospitality Management Solution'
 export const PROJECT_KEY = 'HMS'
 
 // Small maps stay in localStorage (a few KB each). The big issues array + meta
-// moved to IndexedDB (see the caching section) — a 365-day pull is thousands of
-// issues with embedded changelogs and blows the ~5 MB localStorage budget.
+// moved to a disk file (see the caching section) — even a 90-day pull is
+// thousands of issues with embedded changelogs and blows the ~5 MB
+// localStorage budget.
 const FIELDMAP_KEY = 'jira:fieldmap:v1'
 const STATUSMAP_KEY = 'jira:statusmap:v1'
 const PROJECT_CACHE_KEY = 'jira:project:v1'
@@ -29,12 +30,26 @@ const LEGACY_CACHE_KEYS = ['jira:hms:v1', 'jira:hms:meta:v1', 'jira:hms:v2', 'ji
 const PAGE_SIZE = 100
 
 // A "full" sync pulls issues updated within this window rather than the
-// project's entire history. Raise this for a longer view.
-const FULL_SYNC_DAYS = 365 // ~1 year
+// project's entire history.
+//
+// 90 days, not a year: every analytic on the Jira surfaces reads a window of 90
+// days or less (the widest is created-vs-resolved at 12 weeks / 84 days), so a
+// 365-day pull cached ~10k issues with embedded changelogs that nothing ever
+// read — a multi-MB cache file, a slower sync, and a slower enrich pass on
+// every boot. Raising this back out means re-checking the consumers in
+// jira-stats.js / JiraStatsPage.jsx first.
+export const FULL_SYNC_DAYS = 90 // ~3 months
+
+// How long an issue may sit in the cache without being seen by a sync. Kept
+// equal to FULL_SYNC_DAYS so the cache converges on exactly what a full sync
+// would return: incremental syncs merge onto the cache (see mergeIssues), so
+// without a matching prune the cache would still creep back toward a year of
+// issues one delta at a time.
+export const RETENTION_DAYS = FULL_SYNC_DAYS
 
 // Hard ceiling on issues per sync, so a runaway query can't go unbounded.
-// A normal 365-day pull stays well under this; it's a safety net, not a trim.
-const MAX_ISSUES = 15000
+// A normal 90-day pull stays well under this; it's a safety net, not a trim.
+const MAX_ISSUES = 5000
 
 // Base fields requested for every issue. Story-point / sprint custom field IDs
 // are resolved at runtime (they vary per instance) and appended in fetch*().
@@ -324,7 +339,14 @@ export async function fetchHmsProject({ since, sinceExpr, onProgress } = {}) {
     expand: 'changelog',
     onPage: (_page, info) => onProgress?.(info),
   })
-  return { issues, fetchedAt: Date.now(), fieldMap, statusMap, project }
+  // Slim before anything else sees them — see the slimming section below.
+  return {
+    issues: slimIssues(issues).issues,
+    fetchedAt: Date.now(),
+    fieldMap,
+    statusMap,
+    project,
+  }
 }
 
 /**
@@ -344,7 +366,7 @@ export async function fetchIssuesByKeys(keys) {
     const chunk = unique.slice(i, i + 50)
     const jql = `issuekey in (${chunk.join(',')}) ORDER BY updated DESC`
     const issues = await searchIssues({ jql, fields: fieldsFor(fieldMap), expand: 'changelog' })
-    out.push(...issues)
+    out.push(...slimIssues(issues).issues)
   }
   return { issues: out, fetchedAt: Date.now(), fieldMap, statusMap }
 }
@@ -380,15 +402,44 @@ export async function fetchIssueDetail(key) {
 
 const CACHE_URL = '/api/cache/jira'
 
-/** @returns {Promise<{ issues: object[], meta: object } | null>} */
-export async function loadCache() {
+/**
+ * Read the cache, dropping anything outside the retention window and slimming
+ * any fat issues a previous build wrote.
+ *
+ * Normalising on read (not only on write) is what makes an existing oversized
+ * cache shrink on the next boot without a sync, and guarantees no caller can
+ * hand out-of-window issues to the enrich pass.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.compact=true] rewrite the file when normalising
+ *        changed something. Pass false when the caller is about to save anyway.
+ * @returns {Promise<{ issues: object[], meta: object } | null>}
+ */
+export async function loadCache({ compact = true } = {}) {
   try {
     const res = await fetch(CACHE_URL, { cache: 'no-store' })
     if (res.status === 404) return null
     if (!res.ok) throw new Error(`cache GET → ${res.status}`)
     const data = await res.json()
     if (!data?.issues?.length || !data?.meta) return null
-    return { issues: data.issues, meta: data.meta }
+
+    const pruned = pruneIssues(data.issues)
+    const dropped = data.issues.length - pruned.length
+    const { issues, changed: slimmed } = slimIssues(pruned)
+    if (!issues.length) return null
+
+    const stale = dropped > 0 || slimmed
+    const meta = stale ? { ...data.meta, count: issues.length } : data.meta
+    if (stale) {
+      console.info(
+        `[jira] cache normalised · dropped ${dropped} issue(s) older than ${RETENTION_DAYS}d` +
+          `${slimmed ? ' · slimmed changelogs' : ''} · ${issues.length} kept`,
+      )
+      // Fire-and-forget: shrinking the file is an optimisation, and a failed
+      // write just means we normalise again on the next read.
+      if (compact) void saveCache(issues, meta)
+    }
+    return { issues, meta }
   } catch (err) {
     console.warn('[jira] cache read failed —', err?.message || err)
     return null
@@ -438,11 +489,106 @@ export function mergeIssues(existing, incoming) {
   return [...byKey.values()]
 }
 
+/* ------------------------- cache-shape slimming -------------------------- */
+// `expand=changelog` returns EVERY field change on an issue — description edits,
+// comment counts, custom-field churn, each with author objects and both the id
+// and display form of the old/new value. On a real HMS pull that was 355 MB of a
+// 386 MB cache file, and the enrich layer reads exactly one thing from it:
+// history.created plus items where field === 'status' (fromString/toString).
+// See parseStatusHistory() in jira-enrich.js — nothing outside that function
+// touches `changelog`.
+//
+// So we keep only what's read. Slimming happens at fetch time (fat objects
+// never reach the cache) and again on read (a cache written by an older build
+// shrinks on the next boot). Same 90-day pull: 205 MB → 18.5 MB.
+//
+// The kept top-level shape is { key, fields, changelog } — the only three
+// properties enrichIssue()/mergeIssues()/pruneIssues() read. Anything a future
+// consumer needs (issue.id, issue.self) has to be added here AND re-synced,
+// since it won't be in an already-slimmed cache.
+
+/** True if `items` is already in slim form — used to skip pointless rewrites. */
+function isSlimItem(item) {
+  const keys = Object.keys(item)
+  return keys.length === 3 && 'field' in item && 'fromString' in item && 'toString' in item
+}
+
+/**
+ * Reduce one raw issue to the cacheable subset.
+ * @returns {{ issue: object, changed: boolean }} `changed` is false when the
+ *   input was already slim, so callers can skip a redundant cache write.
+ */
+function slimIssue(issue) {
+  let changed = Object.keys(issue).some((k) => k !== 'key' && k !== 'fields' && k !== 'changelog')
+  const histories = []
+  for (const h of issue.changelog?.histories || []) {
+    if (Object.keys(h).some((k) => k !== 'created' && k !== 'items')) changed = true
+    const items = []
+    for (const item of h.items || []) {
+      if (item.field !== 'status') { changed = true; continue }
+      if (!isSlimItem(item)) changed = true
+      items.push({
+        field: 'status',
+        fromString: item.fromString ?? null,
+        toString: item.toString ?? null,
+      })
+    }
+    // A history with no status change carries nothing we read.
+    if (items.length) histories.push({ created: h.created, items })
+    else changed = true
+  }
+  return {
+    issue: { key: issue.key, fields: issue.fields, changelog: { histories } },
+    changed,
+  }
+}
+
+/** Slim a batch. @returns {{ issues: object[], changed: boolean }} */
+export function slimIssues(issues) {
+  let changed = false
+  const out = (issues || []).map((it) => {
+    const r = slimIssue(it)
+    if (r.changed) changed = true
+    return r.issue
+  })
+  return { issues: out, changed }
+}
+
+/** `updated` timestamp (ms) of a raw or enriched issue, or null if unreadable. */
+function updatedMs(issue) {
+  const raw = issue?.fields?.updated ?? issue?.updated
+  if (!raw) return null
+  const t = raw instanceof Date ? raw.getTime() : Date.parse(raw)
+  return Number.isFinite(t) ? t : null
+}
+
+/**
+ * Drop issues that fall outside the retention window, matching the `updated >=`
+ * bound a full sync uses. This is what keeps the cache bounded: incremental
+ * merges only ever add.
+ *
+ * Issues with an unreadable `updated` are KEPT — a parse quirk shouldn't
+ * silently delete data. Sorted newest-first so the on-disk file stays readable.
+ *
+ * @param {object[]} issues
+ * @param {number} [days=RETENTION_DAYS]
+ */
+export function pruneIssues(issues, days = RETENTION_DAYS) {
+  const cutoff = Date.now() - days * 86_400_000
+  return (issues || [])
+    .filter((it) => {
+      const t = updatedMs(it)
+      return t == null || t >= cutoff
+    })
+    .sort((a, b) => (updatedMs(b) ?? 0) - (updatedMs(a) ?? 0))
+}
+
 // Expose to window in dev for manual smoke testing (mirrors db-client.js).
 if (typeof window !== 'undefined' && import.meta.env?.DEV) {
   window.__jira = {
     pingJira, resolveProject, getFieldMap, getStatusMap, searchIssues,
     fetchHmsProject, fetchIssuesByKeys, fetchIssueDetail, loadCache, saveCache,
-    clearCache, mergeIssues, PROJECT_KEY, PROJECT_NAME,
+    clearCache, mergeIssues, pruneIssues, slimIssues, PROJECT_KEY, PROJECT_NAME,
+    FULL_SYNC_DAYS, RETENTION_DAYS,
   }
 }

@@ -8,7 +8,7 @@ import { fmtWeekLabel, fmtFullDate } from "../../lib/format.js";
 import { DOD_PARENT_ACCOUNTS, weeklyDodParentVolume, cumulativeDodParentVolume } from "../../lib/dod.js";
 import { Card } from "../layout/Card.jsx";
 
-/* ============== DoD Parent Accounts over time (Trends tab) ==============
+/* ============== DoD Parent Accounts over time (DoD tab) ==============
  * Weekly case intake and cumulative book of cases per DoD branch parent account.
  * Only the four branches are plotted; other / no parent-account cases are
  * excluded by design. Week grid is anchored to the data snapshot so it lines up

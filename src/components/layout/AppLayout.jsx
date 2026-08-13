@@ -3,7 +3,7 @@ import { FilterNavLink } from "../FilterLink.jsx";
 import {
   LayoutDashboard, Sun, ClipboardList, Timer, FileBarChart,
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
-  Scale, Users, Ban,
+  Scale, Users, Ban, Shield,
   ExternalLink, BarChart3,
   Plug, Sparkles, Gauge, Table, Mailbox, Settings,
 } from "lucide-react";
@@ -35,6 +35,7 @@ const NAV_GROUPS = [
       { to: "/priority",   label: "Priority",     icon: CircleDot },
       { to: "/categories", label: "Categories",   icon: Layers },
       { to: "/accounts",   label: "Accounts",     icon: Building2 },
+      { to: "/dod",        label: "DoD",          icon: Shield },
     ],
   },
   {

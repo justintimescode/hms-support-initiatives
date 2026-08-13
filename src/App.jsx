@@ -10,6 +10,7 @@ import CadencePage from "./pages/CadencePage.jsx";
 import PriorityPage from "./pages/PriorityPage.jsx";
 import CategoriesPage from "./pages/CategoriesPage.jsx";
 import AccountsPage from "./pages/AccountsPage.jsx";
+import DodPage from "./pages/DodPage.jsx";
 import WorkloadPage from "./pages/WorkloadPage.jsx";
 import TeamPage from "./pages/TeamPage.jsx";
 import JiraPage from "./pages/JiraPage.jsx";
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/priority" element={<PriorityPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/accounts" element={<AccountsPage />} />
+          <Route path="/dod" element={<DodPage />} />
           <Route path="/workload" element={<WorkloadPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/jira" element={<JiraPage />} />

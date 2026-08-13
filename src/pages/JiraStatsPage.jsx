@@ -28,7 +28,7 @@ import { CopyableNumber } from "../components/CopyableNumber.jsx"
 const COMPOSITION_WINDOW_DAYS = 14
 
 export default function JiraStatsPage() {
-  const { jiraState, syncJira, rows, enrichedAllJoined } = useOutletContext()
+  const { jiraState, syncJira, rows, enrichedAllJoined, jiraCreds } = useOutletContext()
   const issues = useMemo(() => jiraState?.issues || [], [jiraState?.issues])
   const ready = jiraState?.status === "ready" && issues.length > 0
   const jiraIssueMap = useMemo(() => {
@@ -44,12 +44,25 @@ export default function JiraStatsPage() {
   )
 
   if (!ready) {
+    // Two different dead ends: no credentials (go connect) vs connected but
+    // never synced (go sync). Sending an unconnected user to Connections is a
+    // detour — Jira credentials are entered in Settings.
+    const needsCreds = jiraCreds && !jiraCreds.configured
     return (
       <Section title="Jira Statistics">
-        <EmptyState
-          title="No Jira data yet"
-          message="Sync the HMS project from Connections to see project statistics, volume trends, and which Jira tickets are driving the most open ServiceNow cases."
-        />
+        {needsCreds ? (
+          <EmptyState
+            title="Jira isn't connected"
+            message="This page needs live Jira data. Add your Atlassian email and API token in Settings to see project statistics, volume trends, and which Jira tickets are driving the most open ServiceNow cases. Jira is optional — every other page works without it."
+            cta="Connect Jira in Settings"
+            to="/settings"
+          />
+        ) : (
+          <EmptyState
+            title="No Jira data yet"
+            message="Sync the HMS project from Connections to see project statistics, volume trends, and which Jira tickets are driving the most open ServiceNow cases."
+          />
+        )}
       </Section>
     )
   }

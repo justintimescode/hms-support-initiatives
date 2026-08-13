@@ -2,9 +2,11 @@
 //
 // Boot sequence:
 //   1. Start the local server (server.cjs) on a random loopback port.
-//   2. Open a window. If no Jira credentials are saved yet → show setup.html;
-//      otherwise → load the app from the local server.
-//   3. The setup screen talks back here over IPC (test / save credentials).
+//   2. Open a window on the app. There is deliberately NO credential gate —
+//      Jira is an optional data source, so the app opens straight to the
+//      dashboard where the user can drop a ServiceNow export.
+//   3. If they want the Jira pages, they connect from Settings → Jira
+//      connection, which talks back here over IPC (test / save / clear).
 
 const { app, BrowserWindow, Menu, ipcMain, shell, dialog } = require('electron')
 const path = require('node:path')
@@ -18,8 +20,6 @@ let mainWindow = null
 let serverInfo = null // { url, port, close }
 let currentCreds = null // { baseUrl, email, token } | null
 
-const SETUP_FILE = path.join(__dirname, 'setup.html')
-
 /** What the server reads on every request — re-evaluated so a credential
  *  change takes effect without a restart. */
 function getCredsForServer() {
@@ -29,12 +29,8 @@ function getCredsForServer() {
   }
 }
 
-function loadApp() {
-  if (mainWindow && serverInfo) mainWindow.loadURL(serverInfo.url)
-}
-
-function loadSetup() {
-  if (mainWindow) mainWindow.loadFile(SETUP_FILE)
+function loadApp(route = '/') {
+  if (mainWindow && serverInfo) mainWindow.loadURL(serverInfo.url + route)
 }
 
 function createWindow() {
@@ -62,8 +58,7 @@ function createWindow() {
     return { action: 'deny' }
   })
 
-  if (currentCreds) loadApp()
-  else loadSetup()
+  loadApp()
 }
 
 function buildMenu() {
@@ -72,11 +67,13 @@ function buildMenu() {
       label: 'File',
       submenu: [
         {
-          label: 'Reconfigure Jira credentials…',
-          click: loadSetup,
+          // Credential entry lives in the app itself now — one place for it,
+          // whether you launched the installer or `npm run dev`.
+          label: 'Jira connection…',
+          click: () => loadApp('/settings'),
         },
         {
-          label: 'Clear saved credentials',
+          label: 'Clear saved Jira credentials',
           click: async () => {
             const { response } = await dialog.showMessageBox(mainWindow, {
               type: 'warning',
@@ -84,12 +81,12 @@ function buildMenu() {
               defaultId: 0,
               cancelId: 0,
               message: 'Remove your saved Jira credentials?',
-              detail: 'You will be asked to enter them again next time you launch.',
+              detail: 'ServiceNow imports and every non-Jira page keep working. Re-connect any time from Settings.',
             })
             if (response === 1) {
               clearCreds()
               currentCreds = null
-              loadSetup()
+              loadApp('/settings')
             }
           },
         },
@@ -137,23 +134,37 @@ ipcMain.handle('creds:test', async (_e, { baseUrl, email, token }) => {
   }
 })
 
-ipcMain.handle('creds:saveAndLaunch', async (_e, { baseUrl, email, token }) => {
+// Persist credentials. Does NOT reload the window: the caller is the running
+// app's Settings page, and the local server re-reads currentCreds per request,
+// so the next Jira call just starts working.
+ipcMain.handle('creds:save', async (_e, { baseUrl, email, token }) => {
   if (!email || !token) return { ok: false, message: 'Email and API token are required.' }
   try {
     saveCreds({ baseUrl, email, token })
     currentCreds = { baseUrl: baseUrl || DEFAULT_BASE_URL, email, token }
-    loadApp()
     return { ok: true }
   } catch (err) {
     return { ok: false, message: `Could not save credentials: ${err.message}` }
   }
 })
 
-// Prefill the setup form when reconfiguring (token deliberately NOT returned).
+ipcMain.handle('creds:clear', async () => {
+  try {
+    clearCreds()
+    currentCreds = null
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, message: `Could not remove credentials: ${err.message}` }
+  }
+})
+
+// Prefill the Settings form (token deliberately NOT returned).
 ipcMain.handle('creds:status', () => ({
   configured: Boolean(currentCreds),
   baseUrl: currentCreds?.baseUrl || DEFAULT_BASE_URL,
   email: currentCreds?.email || '',
+  source: currentCreds ? 'keystore' : null,
+  storage: 'keystore',
 }))
 
 ipcMain.handle('open:external', (_e, url) => {

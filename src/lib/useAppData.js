@@ -9,7 +9,7 @@ import Papa from "papaparse"
 import { enrichRow, priorityRank, normalizeXlsxRow } from "./enrich.js"
 import { dbClient } from "./db-client.js"
 import {
-  pingJira, fetchHmsProject, loadCache, saveCache, mergeIssues,
+  pingJira, fetchHmsProject, loadCache, saveCache, mergeIssues, pruneIssues,
   JiraError, PROJECT_KEY,
 } from "./jira-client.js"
 import { enrichIssue, mergeJiraIntoRows } from "./jira-enrich.js"
@@ -22,8 +22,8 @@ import { useFilters } from "./useFilters.js"
 import { aiClient, AiNotConfiguredError } from "./ai-client.js"
 import { scrubForAi } from "./ai-scrub.js"
 import {
-  storeImportBlob, storeImportMeta, readImportBlob, deleteImportFiles,
-  getTotalStorageBytes,
+  storeImportBlob, storeImportMeta, readImportBlob, readImportMeta,
+  deleteImportFiles, listImportDirectories, getTotalStorageBytes,
 } from "./imports-store.js"
 import {
   listDiskMetas, writeDiskBlob, writeDiskMeta, readDiskBlob,
@@ -31,6 +31,7 @@ import {
 } from "./imports-cache.js"
 import { SCHEMA_VERSION } from "./enrich.js"
 import { getAutoDelete, getDiskBackup, getJiraAutoSync, setJiraAutoSync } from "./settings.js"
+import { getJiraCredsStatus } from "./jira-creds.js"
 
 // Background Jira refresh tuning (see the scheduler effect in useAppData below).
 const JIRA_OVERLAP_MIN = 5                        // widen each delta window for clock skew
@@ -207,6 +208,8 @@ export function useAppData() {
   const view = analyst === "__all__" ? "team" : "individual"
 
   const [dbReady, setDbReady] = useState(false)
+  // Whether imports actually survive a reload. null until the worker reports.
+  const [persistence, setPersistence] = useState(null)
   // null = not restoring; number = imports left to pull back from the disk
   // mirror on cold boot. UI shows a transient banner while > 0.
   const [restoringCount, setRestoringCount] = useState(null)
@@ -227,6 +230,9 @@ export function useAppData() {
   const syncLockRef = useRef(false)
   const jiraStateRef = useRef(jiraState)
   const [jiraAutoSync, setJiraAutoSyncState] = useState(getJiraAutoSync)
+  // Whether Jira credentials exist at all (Jira is optional — see
+  // jira-creds.js). `null` until the first probe resolves.
+  const [jiraCreds, setJiraCreds] = useState(null)
   const [printMode, setPrintMode] = useState(null)
   const [printMenuOpen, setPrintMenuOpen] = useState(false)
   const inputRef = useRef(null)
@@ -274,40 +280,44 @@ export function useAppData() {
   // recently-uploaded import active (matches the worker's "newest-active"
   // semantic). Progressively updates `imports` so the file manager fills in
   // as the restore proceeds.
-  const restoreFromDisk = useCallback(async (diskMetas, isCancelled) => {
-    setRestoringCount(diskMetas.length)
-    const sorted = [...diskMetas].sort((a, b) => (a.uploadedAt || 0) - (b.uploadedAt || 0))
+  //
+  // Source-agnostic: `readBlob(meta)` supplies the raw file, so the same loop
+  // rebuilds the index from the on-disk mirror OR from the OPFS blobs. The two
+  // differ only in where the bytes come from and whether OPFS needs writing.
+  const restoreImports = useCallback(async (metas, { readBlob, tag, mirrorToOpfs }, isCancelled) => {
+    setRestoringCount(metas.length)
+    const sorted = [...metas].sort((a, b) => (a.uploadedAt || 0) - (b.uploadedAt || 0))
     let remaining = sorted.length
-    let lastList = []
     let lastActiveUuid = null
     for (const meta of sorted) {
       if (isCancelled()) break
       try {
-        const file = await readDiskBlob(meta.uuid, meta.filename)
-        if (!file) { console.warn(`[sn-cache] no blob on disk for ${meta.uuid} — skipping`); continue }
+        const file = await readBlob(meta)
+        if (!file) { console.warn(`[${tag}] no blob for ${meta.uuid} — skipping`); continue }
         const ext = (meta.fileType || file.name.split(".").pop() || "csv").toLowerCase()
         const rows = await parseFileToRows(file, ext)
-        const { imports: nl, activeUuid: au } = await dbClient.createImport({
+        const { activeUuid: au } = await dbClient.createImport({
           uuid: meta.uuid,
           filename: meta.filename,
           displayName: meta.displayName || meta.filename,
           fileSize: meta.fileSize || file.size,
           fileType: ext,
           rows,
-          // Preserve the original upload time from the disk mirror — otherwise
-          // the worker re-stamps it with the current (reboot) time.
+          // Preserve the original upload time — otherwise the worker re-stamps
+          // it with the current (reboot) time.
           uploadedAt: meta.uploadedAt,
         })
-        // Mirror to OPFS for fast subsequent reloads (re-parse from blob, then
-        // OPFS path takes over). Best-effort; failure here doesn't abort.
-        await storeImportBlob(meta.uuid, file, ext).catch(() => {})
-        await storeImportMeta(meta.uuid, { ...meta, fileType: ext }).catch(() => {})
+        if (mirrorToOpfs) {
+          // Mirror to OPFS for fast subsequent reloads (re-parse from blob, then
+          // OPFS path takes over). Best-effort; failure here doesn't abort.
+          await storeImportBlob(meta.uuid, file, ext).catch(() => {})
+          await storeImportMeta(meta.uuid, { ...meta, fileType: ext }).catch(() => {})
+        }
         rowsCache.current.set(meta.uuid, rows)
-        lastList = nl
         lastActiveUuid = au
-        if (!isCancelled()) setImports(nl)
+        if (!isCancelled()) setImports(await dbClient.listImports().then((r) => r.imports))
       } catch (err) {
-        console.warn(`[sn-cache] restore failed for ${meta.uuid} —`, err?.message || err)
+        console.warn(`[${tag}] restore failed for ${meta.uuid} —`, err?.message || err)
       } finally {
         remaining--
         if (!isCancelled()) setRestoringCount(remaining > 0 ? remaining : null)
@@ -318,8 +328,45 @@ export function useAppData() {
       setRows(rowsCache.current.get(lastActiveUuid) || null)
     }
     if (!isCancelled()) setRestoringCount(null)
-    void lastList
   }, [])
+
+  const restoreFromDisk = useCallback((diskMetas, isCancelled) => (
+    restoreImports(
+      diskMetas,
+      { readBlob: (m) => readDiskBlob(m.uuid, m.filename), tag: "sn-cache", mirrorToOpfs: true },
+      isCancelled,
+    )
+  ), [restoreImports])
+
+  // Rebuild the index straight from the OPFS blobs. This is the recovery path
+  // for imports whose index row was lost while their source file survived —
+  // which is what a non-persistent DuckDB leaves behind. Without it those blobs
+  // are invisible in the UI yet still counted in "storage used", and the only
+  // way to reclaim them is a clear-all that no longer knows they exist.
+  //
+  // meta.json is written next to every blob (storeImportMeta), so the display
+  // name and original upload time survive; a missing/corrupt meta degrades to
+  // the file's own name and an unknown upload time rather than skipping.
+  const restoreFromOpfs = useCallback(async (uuids, isCancelled) => {
+    const metas = []
+    for (const uuid of uuids) {
+      const meta = await readImportMeta(uuid)
+      metas.push(meta?.uuid ? meta : { uuid, filename: null, uploadedAt: 0 })
+    }
+    return restoreImports(
+      metas,
+      {
+        readBlob: async (m) => {
+          const file = await readImportBlob(m.uuid)
+          if (file && !m.filename) m.filename = file.name
+          return file
+        },
+        tag: "opfs-restore",
+        mirrorToOpfs: false,
+      },
+      isCancelled,
+    )
+  }, [restoreImports])
 
   // On mount: boot the worker, load the imports list, activate + rehydrate the
   // active import's rows (this also fixes the old reload-loses-charts bug).
@@ -327,19 +374,35 @@ export function useAppData() {
     let cancelled = false
     dbClient
       .init()
-      .then(async ({ imports: list, activeUuid }) => {
+      .then(async ({ imports: list, activeUuid, opfsAvailable, usingOpfs, dbDurable }) => {
         if (cancelled) return
         const pruned = await enforceAutoDelete(list || [], activeUuid)
         if (cancelled) return
         setDbReady(true)
+        // Surface non-persistent storage instead of letting it fail silently:
+        // without this the app looks completely normal until a reload wipes
+        // every import (see the durability check in db.worker.js init).
+        setPersistence({
+          opfsAvailable: !!opfsAvailable,
+          usingOpfs: !!usingOpfs,
+          dbDurable: !!dbDurable,
+        })
 
-        // Cold boot: OPFS/DuckDB are empty but the disk mirror may have data
-        // from a previous browser. Pull each import back, recreate it (same
-        // uuid), and mirror into OPFS so subsequent reloads are fast.
+        // Cold boot: the DuckDB index is empty. Two recovery sources, in order
+        // of fidelity — the disk mirror (full meta, survives a browser wipe),
+        // then the OPFS blobs (survive anything short of clearing site data,
+        // and are what's left when the index itself failed to persist).
         if (pruned.length === 0) {
           const diskMetas = await listDiskMetas()
           if (!cancelled && diskMetas.length) {
             await restoreFromDisk(diskMetas, () => cancelled)
+            if (!cancelled) refreshStorage()
+            return
+          }
+          const opfsUuids = await listImportDirectories()
+          if (!cancelled && opfsUuids.length) {
+            console.info(`[opfs-restore] index empty, ${opfsUuids.length} import blob(s) in OPFS — rebuilding`)
+            await restoreFromOpfs(opfsUuids, () => cancelled)
             if (!cancelled) refreshStorage()
             return
           }
@@ -355,7 +418,7 @@ export function useAppData() {
       })
       .catch((err) => console.error("[db] init failed", err))
     return () => { cancelled = true }
-  }, [loadActiveRows, refreshStorage, restoreFromDisk])
+  }, [loadActiveRows, refreshStorage, restoreFromDisk, restoreFromOpfs])
 
   // On mount: hydrate Jira from cache.
   React.useEffect(() => {
@@ -409,12 +472,16 @@ export function useAppData() {
         onProgress: background ? undefined : (info) => setJiraState((s) => ({ ...s, progress: info })),
       })
       // Any partial window (day-window OR delta expr) merges onto the cache so
-      // older issues aren't dropped; a full pull replaces.
+      // recent issues the narrow query missed aren't dropped; a full pull
+      // replaces. Either way the result is pruned to the retention window, so
+      // merges can only ever add issues inside it — that's what keeps the cache
+      // from creeping back to a year of data one delta at a time.
       let mergedRaw = rawIssues
       if (since != null || sinceExpr != null) {
-        const cached = await loadCache()
+        const cached = await loadCache({ compact: false })
         if (cached?.issues) mergedRaw = mergeIssues(cached.issues, rawIssues)
       }
+      mergedRaw = pruneIssues(mergedRaw)
       const meta = {
         fetchedAt,
         projectKey: project?.key || PROJECT_KEY,
@@ -463,6 +530,32 @@ export function useAppData() {
     setJiraState((s) => ({ ...s, status: "idle" }))
     return false
   }, [])
+
+  // Credential probe. Cheap (a local status read — never returns the token) and
+  // re-run whenever Settings saves or clears, so every Jira surface can say
+  // "not connected" vs "connect in Settings" accurately.
+  const refreshJiraCreds = useCallback(async () => {
+    const status = await getJiraCredsStatus()
+    setJiraCreds(status)
+    return status
+  }, [])
+
+  React.useEffect(() => { void refreshJiraCreds() }, [refreshJiraCreds])
+
+  // Called by Settings after credentials change. Re-probes, then moves Jira out
+  // of "unconfigured" so a newly-connected user can sync immediately (and back
+  // into it on disconnect) without reloading the app.
+  const onJiraCredsChanged = useCallback(async () => {
+    const status = await refreshJiraCreds()
+    setJiraState((s) => {
+      if (status.configured) {
+        return s.status === "unconfigured" ? { ...s, status: "idle", error: null } : s
+      }
+      // Disconnected: cached issues are stale-but-real, so a ready state stays.
+      return s.status === "ready" ? s : { ...s, status: "unconfigured", error: null }
+    })
+    return status
+  }, [refreshJiraCreds])
 
   // Persist + surface the auto-sync preference; updating state re-arms the
   // scheduler effect below without a reload.
@@ -633,10 +726,19 @@ export function useAppData() {
   }, [imports, activeImportUuid])
 
   const clearAllImports = useCallback(async () => {
-    const current = imports.map((i) => i.uuid)
+    // Sweep every OPFS import directory, not just the ones in the index.
+    // "Storage used" counts all of them (getTotalStorageBytes walks the whole
+    // imports/ tree), so clearing only indexed uuids left orphans that were
+    // charged to the user forever with no way to reclaim them — worst of all
+    // when the index was empty, which made this button a silent no-op.
+    const indexed = imports.map((i) => i.uuid)
+    const onDisk = await listImportDirectories().catch(() => [])
+    const all = [...new Set([...indexed, ...onDisk])]
+    const orphans = all.length - indexed.length
+    if (orphans > 0) console.info(`[opfs] clearing ${orphans} orphaned import dir(s) not in the index`)
     await dbClient.clearAllImports()
     await Promise.all([
-      ...current.map((u) => deleteImportFiles(u).catch(() => {})),
+      ...all.map((u) => deleteImportFiles(u).catch(() => {})),
       clearDiskCache(),
     ])
     rowsCache.current.clear()
@@ -898,11 +1000,12 @@ export function useAppData() {
     analyst, setAnalyst, dateRange, setDateRange, compareOn, setCompareOn, view,
     analystNames, analysts,
     // db / snapshot
-    dbReady, snapshotMs,
+    dbReady, snapshotMs, persistence,
     // print
     printMode, setPrintMode, printMenuOpen, setPrintMenuOpen, triggerPrint,
     // jira
     jiraState, jiraAutoSyncing, syncJira, hydrateFromCache, jiraAutoSync, setJiraAutoSyncPref,
+    jiraCreds, refreshJiraCreds, onJiraCredsChanged,
     // derived data
     enriched, enrichedAnalyst, enrichedAll, enrichedAllJoined,
     compareWindow, compareEnriched,

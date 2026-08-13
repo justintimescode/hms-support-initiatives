@@ -188,18 +188,18 @@ This is gated on `import.meta.env?.DEV` (stripped from production builds by Vite
 
 ---
 
-### 13. Jira API token stored in plaintext `.env` file
+### 13. Jira API token stored in plaintext on disk (dev server)
 **Status: OPEN (by design)**
-**File:** `.env`
+**Files:** `.jira-creds.json`, `.env`
 
-The Atlassian API token lives in `.env` in plaintext. The file is gitignored and never bundled into the client. The token is read once at dev-server startup by `vite.config.js` (Node side) and injected as an HTTP Basic auth header on the proxy — it never reaches the browser bundle.
+In `npm run dev` the Atlassian API token lives in plaintext on disk — in `.jira-creds.json` when entered via **Settings → Jira connection**, or in `.env` as the pre-seed fallback. Both are gitignored and never bundled into the client. They are read **per request** by `vite.config.js` (Node side, `resolveJiraCreds`) and injected as an HTTP Basic auth header on the proxy — the token never reaches the browser bundle. `.jira-creds.json` is written `mode 0600`; note that on Windows the POSIX mode bits are largely advisory, so treat it as user-readable.
 
 This is the standard pattern for Vite dev proxies and is acceptable for a local tool. The risk is:
-- The `.env` file on disk is readable by any process running as the same OS user.
+- The credentials file on disk is readable by any process running as the same OS user.
 - If the workstation is compromised, the token is exposed.
 - The token grants read access to the entire Atlassian organization's Jira (not just the HMS project).
 
-> **UPDATE (2026-06, desktop build):** the plaintext `.env` token applies to **`npm run dev` only**. The packaged Electron app does **not** use `.env` — `electron/creds.cjs` has each user enter their *own* Jira email + token in the first-run setup screen and persists it to `<userData>/credentials.enc` via Electron `safeStorage` (Windows **DPAPI**, keyed to the logged-in Windows user; the file is useless if copied to another machine/account), written `mode 0600`. The token is never returned to the renderer (`creds:status` deliberately omits it) and is injected server-side by the loopback proxy (see #18). This is a meaningful improvement over the dev `.env` for the distributed app. Residual: `creds.cjs` falls back to **plaintext** if `safeStorage.isEncryptionAvailable()` is false, and the token is still org-wide in scope.
+> **UPDATE (2026-06, desktop build):** the plaintext token applies to **`npm run dev` only**. The packaged Electron app does **not** use `.env` or `.jira-creds.json` — `electron/creds.cjs` has each user enter their *own* Jira email + token in Settings → Jira connection (as of 2026-08; previously a first-run setup screen) and persists it to `<userData>/credentials.enc` via Electron `safeStorage` (Windows **DPAPI**, keyed to the logged-in Windows user; the file is useless if copied to another machine/account), written `mode 0600`. The token is never returned to the renderer (`creds:status` deliberately omits it) and is injected server-side by the loopback proxy (see #18). This is a meaningful improvement over the dev `.env` for the distributed app. Residual: `creds.cjs` falls back to **plaintext** if `safeStorage.isEncryptionAvailable()` is false, and the token is still org-wide in scope.
 
 **INCIDENT — token committed and pushed (action required):** a real Atlassian API token was committed in `.env.example` (commit `b8dc0aa`) and pushed to GitLab. It has since been redacted to a placeholder (commit `9c2a64a`), but the token still exists in earlier history on the remote. **The token must be revoked** at https://id.atlassian.com/manage-profile/security/api-tokens and a fresh one generated for local `.env` — redaction does not invalidate an already-exposed credential. History was intentionally left unrewritten (revocation is the real fix); if a clean history is also desired, purge with `git filter-repo` and force-push.
 
@@ -253,12 +253,13 @@ Still gated: no proxy is configured (#1), so no payload leaves the browser yet. 
 ### 16. Dev-server middleware has no origin / host / auth check on data + proxy routes (NEW)
 **Status: OPEN**
 **Severity: Medium** (the authenticated Jira-proxy relay sub-case is higher impact)
-**Files:** `vite.config.js` — `jiraFileCachePlugin`, `snFileCachePlugin`, the `/api/jira` proxy
+**Files:** `vite.config.js` — `jiraFileCachePlugin`, `snFileCachePlugin`, `jiraCredsPlugin`, `jiraProxyPlugin`
 
 The `npm run dev` server mounts middlewares that read, write, and delete data with **no `Origin`/`Host` validation, no CSRF token, and no authentication**:
 
 - `GET /api/cache/sn` and `GET /api/cache/sn/{uuid}/source` stream the **raw, unscrubbed customer case exports** (full PII) to any caller; `GET /api/cache/jira` returns the full cached Jira issue set.
 - The `DELETE` routes (`/api/cache/sn`, `/api/cache/sn/{uuid}`, `/api/cache/jira`) and the `PUT`/`POST` write routes let a caller wipe or overwrite the on-disk caches. The Jira `POST` streams an **unbounded** body to disk (no size cap) — a disk-fill DoS.
+- `GET /api/creds/jira` discloses the configured Atlassian **email** and site URL (never the token) to any caller, and unauthenticated `POST`/`DELETE` on the same route can **overwrite or remove** the saved Jira credentials — writing an attacker-controlled `baseUrl` would silently repoint the proxy, so subsequent syncs would send the *user-supplied* token to that host. Same no-`Origin`/`Host`/CSRF posture as the routes above, and the same fix closes it. (`POST /api/creds/jira/test` is also an unauthenticated outbound-fetch primitive to an arbitrary `baseUrl`.)
 - The `/api/jira` proxy injects the org-wide HTTP Basic token on **every** forwarded request and deliberately strips `Origin`/`Referer`/`Cookie` and sets `X-Atlassian-Token: no-check` (to defeat Atlassian's XSRF guard). Net effect: anything that can reach the dev server can drive **authenticated read/write calls against the entire Atlassian org** with the developer's token — a confused-deputy relay (see #13 for the token's scope).
 
 **Threat model:** the dev server binds to localhost by default (`server.host` is unset), so it is not reachable from the LAN — but it **is** reachable from any web page open in the developer's own browser. Cross-origin reads of the JSON/blob responses are normally blocked by the same-origin policy (no `Access-Control-Allow-Origin` is set on these routes — **verify Vite 8's default `server.cors` does not reflect the request origin**), but a **DNS-rebinding** attack (rebind an attacker domain to `127.0.0.1`) makes the requests same-origin and bypasses that, exposing customer data and the Jira relay to a malicious site. Simple cross-origin `POST`s (e.g. to the Jira cache) can also be issued with no preflight. Error paths call `res.end(err.message)`, which can leak absolute server filesystem paths.
@@ -310,7 +311,7 @@ This is the **normal runtime**, not a developer-only edge case: live Jira sync a
 The Windows desktop build (`npm run electron:build`) packages a local HTTP server (`server.cjs`) that runs in the Electron main process and is the production replacement for the Vite dev middleware — the renderer fetches the same relative `/api/jira`, `/api/cache/jira`, `/api/cache/sn` URLs. This is a brand-new distributed surface a static `vite build` doesn't have.
 
 **Hardened (good — verified):**
-- Renderer `webPreferences`: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. `preload.cjs` exposes only a 4-method `electronAPI` over `contextBridge` (`test` / `saveAndLaunch` / `status` / `openExternal`) — no `ipcRenderer`, `fs`, or Node surface leaks to the renderer.
+- Renderer `webPreferences`: `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. `preload.cjs` exposes only a 5-method `electronAPI` over `contextBridge` (`test` / `save` / `clear` / `status` / `openExternal`) — no `ipcRenderer`, `fs`, or Node surface leaks to the renderer. The credential UI moved from the first-run `setup.html` gate into the app's Settings page (Jira is optional, so the app no longer blocks on it); the bridge is correspondingly `save`/`clear` (no window navigation) rather than `saveAndLaunch`, and `status` still never returns the token.
 - `setWindowOpenHandler` denies in-app popups and routes `https?:` links to the system browser; `open:external` re-validates the scheme.
 - Credentials are encrypted at rest — see #13: `creds.cjs` uses Electron `safeStorage` (Windows DPAPI), `mode 0600`, token never returned to the renderer.
 - The server binds to **`127.0.0.1` only** (not the LAN), and `serveStatic` has a path-traversal guard plus a `distDir` prefix check.

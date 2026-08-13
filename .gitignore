@@ -19,12 +19,19 @@ release/
 .env
 .env.*.local
 
+# Local secrets — Jira credentials entered in Settings (dev server only; the
+# packaged desktop app stores them encrypted under the user's profile instead)
+.jira-creds.json
+
 # Persistent Jira issue cache — large, machine-local
 .jira-cache/
 
 # Persistent ServiceNow imports disk mirror — contains customer case data,
 # machine-local, large. Must never be committed.
 .servicenow-cache/
+
+# Perf harness output (scripts/perf-measure.mjs) — run JSON + browser profile
+.perf/
 
 # Editor directories and files
 .vscode/*

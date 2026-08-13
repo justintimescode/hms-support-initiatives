@@ -26,7 +26,7 @@ const SORT_OPTIONS = [
 export function ImportsCard(ctx) {
   const {
     imports = [], activeImportUuid, storageBytes, schemaVersion,
-    uploading, uploadError, inputRef, handleFile, restoringCount,
+    uploading, uploadError, inputRef, handleFile, restoringCount, persistence,
     activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
   } = ctx
 
@@ -45,7 +45,16 @@ export function ImportsCard(ctx) {
   }
 
   const showControls = imports.length >= 5
-  const totalBytes = storageBytes || imports.reduce((s, i) => s + (i.fileSize || 0), 0)
+  // storageBytes is measured from OPFS (every stored source file); indexedBytes
+  // is what the listed imports account for. A gap means files are stranded in
+  // OPFS with no index row — they still count against "used", so name them
+  // rather than letting the two numbers silently disagree.
+  const indexedBytes = imports.reduce((s, i) => s + (i.fileSize || 0), 0)
+  const totalBytes = storageBytes || indexedBytes
+  const orphanBytes = storageBytes ? Math.max(0, storageBytes - indexedBytes) : 0
+  const orphanNote = orphanBytes > 65536
+    ? `${fmtBytes(orphanBytes)} of stored files aren't linked to any import listed above — left behind by earlier sessions. "Clear ${imports.length > 0 ? "all imports" : "orphaned files"}" reclaims them.`
+    : null
 
   const sorted = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -92,6 +101,21 @@ export function ImportsCard(ctx) {
         </label>
       </div>
 
+      {persistence && !persistence.opfsAvailable && (
+        <div style={{ ...warnBanner, borderColor: T.danger, color: T.ink }}>
+          <AlertTriangle size={14} style={{ color: T.danger, flexShrink: 0 }} />
+          <span>
+            <strong>Imports will not survive a reload.</strong> This browser isn&apos;t giving the app persistent
+            storage (OPFS), so uploads live in memory only. Export anything you need before closing the tab.
+          </span>
+        </div>
+      )}
+      {orphanNote && (
+        <div style={warnBanner}>
+          <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
+          <span>{orphanNote}</span>
+        </div>
+      )}
       {totalBytes > 500 * 1048576 && (
         <div style={warnBanner}>
           <AlertTriangle size={14} style={{ color: T.warn, flexShrink: 0 }} />
@@ -106,7 +130,7 @@ export function ImportsCard(ctx) {
       {restoringCount != null && restoringCount > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: 6, padding: "10px 12px" }}>
           <Loader2 size={14} style={{ color: T.accent, animation: "spin 1s linear infinite" }} />
-          Restoring {restoringCount} {restoringCount === 1 ? "import" : "imports"} from disk cache…
+          Restoring {restoringCount} {restoringCount === 1 ? "import" : "imports"} from local storage…
         </div>
       )}
 
@@ -173,13 +197,26 @@ export function ImportsCard(ctx) {
         </div>
       )}
 
-      {imports.length > 0 && (
+      {/* Also shown with an empty list when orphaned bytes exist — otherwise
+          there is no way to reclaim storage the index no longer knows about. */}
+      {(imports.length > 0 || orphanBytes > 0) && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 11, color: T.muted, fontStyle: "italic" }}>
-            Data is stored locally in your browser (OPFS) and persists across reloads.
+            Data is stored locally in your browser (OPFS) and persists across reloads
+            {persistence && persistence.opfsAvailable && !persistence.dbDurable
+              ? " — the import list is rebuilt from your stored files at startup."
+              : "."}
           </span>
-          <button onClick={() => setConfirmDelete({ all: true })} style={clearAllBtn}>
-            <Trash2 size={12} style={{ verticalAlign: "middle", marginRight: 4 }} /> Clear all imports
+          <button
+            onClick={() => setConfirmDelete({
+              all: true,
+              orphanOnly: imports.length === 0,
+              orphanLabel: fmtBytes(orphanBytes),
+            })}
+            style={clearAllBtn}
+          >
+            <Trash2 size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
+            {imports.length > 0 ? "Clear all imports" : "Clear orphaned files"}
           </button>
         </div>
       )}
@@ -288,11 +325,15 @@ function ConfirmDialog({ target, onCancel, onConfirm }) {
     <div onClick={onCancel} style={{ position: "fixed", inset: 0, background: T.scrim, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20, maxWidth: 420, boxShadow: T.shadowLg }}>
         <div className="display" style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>
-          {isAll ? "Clear all imports?" : `Delete ${target.displayName}?`}
+          {isAll ? (target.orphanOnly ? "Clear orphaned files?" : "Clear all imports?") : `Delete ${target.displayName}?`}
         </div>
         <div style={{ fontSize: 13, color: T.sub, lineHeight: 1.5, marginBottom: 14 }}>
           {isAll
-            ? "This permanently removes every import and its data from this browser. This cannot be undone."
+            ? target.orphanOnly
+              // Nothing is listed, so "every import" would read as a no-op and
+              // leave the user unsure what the button actually does.
+              ? `This removes ${target.orphanLabel} of stored files that are no longer linked to any import. This cannot be undone.`
+              : "This permanently removes every import and its data from this browser. This cannot be undone."
             : <>This removes its data permanently.{target.isActive ? " It is the active import — the most recent remaining import will be activated." : ""}</>}
         </div>
         {needsType && (

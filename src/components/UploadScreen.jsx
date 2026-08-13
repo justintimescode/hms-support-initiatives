@@ -65,7 +65,8 @@ export function UploadScreen({ onPick, uploading, error, inputRef }) {
           }}
         >
           Drop a ServiceNow case export and get an analyst-grade breakdown of SLA performance,
-          priority mix, and the kinds of problems you are actually solving.
+          priority mix, and the kinds of problems you are actually solving. That is the only setup
+          step — no accounts, no tokens.
         </div>
       </div>
 
@@ -188,7 +189,8 @@ export function UploadScreen({ onPick, uploading, error, inputRef }) {
         }}
       >
         <span>• Expects ServiceNow `case` table export</span>
-        <span>• Data stays in your browser</span>
+        <span>• Data stays on this machine</span>
+        <span>• Jira is optional — connect it later in Settings</span>
       </div>
     </div>
   );

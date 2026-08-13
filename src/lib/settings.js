@@ -54,7 +54,7 @@ export function setDiskBackup(enabled) {
 // sync" delta poll on an interval and on window focus, plus a full reconcile
 // once the cache is a day stale (to catch deletions/moves the delta can't see).
 // Default ON: Jira data is read-only here and each delta is a tiny, incremental
-// fetch — not a full 365-day re-pull.
+// fetch — not a full 90-day re-pull.
 const JIRA_AUTOSYNC_KEY = "kpi.jiraAutoSync"
 
 /** @returns {{ enabled: boolean, intervalMin: number }} */

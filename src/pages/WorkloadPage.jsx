@@ -6,6 +6,7 @@ import { WorkloadDistributionBlock } from "../components/charts/WorkloadDistribu
 import { WorkloadVolumeBlock } from "../components/charts/WorkloadVolumeBlock.jsx"
 import { WorkloadResolvedBlock } from "../components/charts/WorkloadResolvedBlock.jsx"
 import { AssigneeAgingBlock } from "../components/charts/AssigneeAgingBlock.jsx"
+import { AnalystQuadrantBlock } from "../components/charts/AnalystQuadrantBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function WorkloadPage() {
@@ -23,6 +24,7 @@ export default function WorkloadPage() {
           <WorkloadDistributionBlock members={members} />
           <WorkloadVolumeBlock members={members} />
           <WorkloadResolvedBlock members={members} />
+          <AnalystQuadrantBlock members={members} />
           <AssigneeAgingBlock members={members} />
         </div>
       </Section>

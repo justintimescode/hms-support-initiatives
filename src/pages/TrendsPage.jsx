@@ -3,6 +3,8 @@ import { Section } from "../components/layout/Section.jsx"
 import { OwnedCasesBlock } from "../components/charts/OwnedCasesBlock.jsx"
 import { TrajectoryBlock } from "../components/charts/TrajectoryBlock.jsx"
 import { ClosedCadenceBlock } from "../components/charts/ClosedCadenceBlock.jsx"
+import { CumulativeFlowBlock } from "../components/charts/CumulativeFlowBlock.jsx"
+import { ResolutionTimeTrendBlock } from "../components/charts/ResolutionTimeTrendBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function TrendsPage() {
@@ -31,6 +33,8 @@ export default function TrendsPage() {
         <OwnedCasesBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
         <TrajectoryBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
         <ClosedCadenceBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
+        <CumulativeFlowBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
+        <ResolutionTimeTrendBlock rows={rows} dateRange={range} snapshotMs={snapshotMs} />
       </div>
     </Section>
   )

@@ -2,6 +2,7 @@ import { useOutletContext } from "react-router-dom"
 import { Section } from "../components/layout/Section.jsx"
 import { AccountProductBlock } from "../components/charts/AccountProductBlock.jsx"
 import { AccountRiskBlock } from "../components/charts/AccountRiskBlock.jsx"
+import { AccountParetoBlock } from "../components/charts/AccountParetoBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { useQuery } from "../lib/useQuery.js"
 import { getAccountData, getProductData } from "../lib/queries.js"
@@ -34,6 +35,10 @@ export default function AccountsPage() {
         metrics={flattenByKey(productData, prodSql.data, "name", ["count"])}
       />
       <AccountProductBlock accountData={accountDataAll} productData={productData} scrollAccounts />
+
+      <div style={{ marginTop: 12 }}>
+        <AccountParetoBlock accountData={accountDataAll} />
+      </div>
 
       <div style={{ marginTop: 12 }}>
         <AccountRiskBlock rows={enrichedAllJoined} snapshotMs={snapshotMs} />

@@ -3,11 +3,14 @@ import { Section } from "../components/layout/Section.jsx"
 import { SlaBlock } from "../components/charts/SlaBlock.jsx"
 import { SlaForecastBlock } from "../components/charts/SlaForecastBlock.jsx"
 import { FrtDistributionBlock } from "../components/charts/FrtDistributionBlock.jsx"
+import { SlaComplianceTrendBlock } from "../components/charts/SlaComplianceTrendBlock.jsx"
+import { FcrTrendBlock } from "../components/charts/FcrTrendBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 
 export default function SlaPage() {
-  const { rows, kpis, priorityData, enriched, enrichedAnalyst, snapshotMs } = useOutletContext()
+  const { rows, kpis, priorityData, enriched, enrichedAnalyst, snapshotMs, dateRange } = useOutletContext()
   if (!rows) return <Section title="SLA Performance"><EmptyState /></Section>
+  const range = dateRange?.from != null || dateRange?.to != null ? dateRange : null
   return (
     <>
       <Section
@@ -23,10 +26,22 @@ export default function SlaPage() {
         <SlaForecastBlock rows={enrichedAnalyst} snapshotMs={snapshotMs} />
       </Section>
       <Section
+        title="Compliance Over Time"
+        subtitle="The same SOP-cadence SLA as the headline above, tracked month by month and split by why misses missed — so a slipping number can be traced to triage (late first responses) or follow-through (broken update cadences), and to when the slide started."
+      >
+        <SlaComplianceTrendBlock rows={enrichedAnalyst} dateRange={range} />
+      </Section>
+      <Section
         title="First Response Time"
         subtitle="The full distribution of how long cases wait for their first Infor response — not just the average, which a few slow outliers can distort."
       >
         <FrtDistributionBlock rows={enriched} />
+      </Section>
+      <Section
+        title="Resolution Quality"
+        subtitle="Whether cases are being solved cleanly: the share resolved on effectively one touch (first-contact resolution), tracked monthly, plus how many closed cases have bounced back open."
+      >
+        <FcrTrendBlock rows={enrichedAnalyst} dateRange={range} />
       </Section>
     </>
   )

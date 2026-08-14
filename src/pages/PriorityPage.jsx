@@ -1,6 +1,7 @@
 import { useOutletContext } from "react-router-dom"
 import { Section } from "../components/layout/Section.jsx"
 import { PriorityBlock } from "../components/charts/PriorityBlock.jsx"
+import { PriorityTrendBlock } from "../components/charts/PriorityTrendBlock.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { useQuery } from "../lib/useQuery.js"
 import { getPriorityData } from "../lib/queries.js"
@@ -8,7 +9,7 @@ import { DevCompare } from "../components/dev/DevCompare.jsx"
 import { flattenByKey } from "../components/dev/devCompareUtils.js"
 
 export default function PriorityPage() {
-  const { rows: loadedRows, view, priorityData, enriched, teamMembers, analyst, manager, dateRange } = useOutletContext()
+  const { rows: loadedRows, view, priorityData, enriched, enrichedAnalyst, teamMembers, teamMembersAll, analyst, manager, dateRange } = useOutletContext()
   // Phase 1 validation: SQL getPriorityData vs in-memory priorityData.
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const sql = useQuery(
@@ -36,6 +37,14 @@ export default function PriorityPage() {
         metrics={flattenByKey(priorityData, sql.data, "priority", ["total", "closed", "sla_met", "sla_total", "avg_res_h"])}
       />
       <PriorityBlock priorityData={priorityData} rows={rows} />
+      <div style={{ marginTop: 12 }}>
+        <PriorityTrendBlock
+          rows={view === "team"
+            ? (teamMembersAll ? teamMembersAll.flatMap((m) => m.rows) : enrichedAnalyst)
+            : enrichedAnalyst}
+          dateRange={dateRange?.from != null || dateRange?.to != null ? dateRange : null}
+        />
+      </div>
     </Section>
   )
 }

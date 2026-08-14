@@ -854,3 +854,282 @@ export const workloadConcentration = (members) => {
     totalCases: total,
   };
 };
+
+/* ==================== monthly indicator trends ====================
+ * ServiceNow Performance Analytics tracks its headline CSM indicators as
+ * monthly scorecards (average time to resolve, SLA compliance, FCR, case mix).
+ * These builders produce the same indicators from the export, on a continuous
+ * calendar-month grid so charts can window/zoom via time-axis.js. Months with
+ * no observations carry null measurements (a gap), never fabricated zeroes. */
+
+export const startOfMonth = (d) => {
+  const x = startOfDay(d);
+  x.setDate(1);
+  return x;
+};
+
+const nextMonth = (ts) => {
+  const d = new Date(ts);
+  d.setMonth(d.getMonth() + 1);
+  return d.getTime();
+};
+
+/** Continuous month-start grid spanning every timestamp `getTs` yields.
+ *  Returns [] when nothing yields a timestamp; guards against >20y of months. */
+const monthGrid = (rows, getTs) => {
+  let min = null;
+  let max = null;
+  for (const r of rows) {
+    const t = getTs(r);
+    if (t == null) continue;
+    if (min == null || t < min) min = t;
+    if (max == null || t > max) max = t;
+  }
+  if (min == null) return [];
+  const months = [];
+  let cur = startOfMonth(min).getTime();
+  const end = startOfMonth(max).getTime();
+  while (cur <= end && months.length <= 240) {
+    months.push(cur);
+    cur = nextMonth(cur);
+  }
+  return months;
+};
+
+/** Time-to-resolve trend by CLOSE month — the PA "Average time to resolve"
+ *  indicator, told with percentiles instead of a mean so one whale of a case
+ *  can't masquerade as a slow month. Days, one decimal. */
+export const monthlyResolutionTrend = (rows) => {
+  const closed = rows.filter((r) => r._isClosed && r._resolvedMs != null && r._closed);
+  const months = monthGrid(closed, (r) => r._closed.getTime());
+  if (!months.length) return [];
+  const byMonth = new Map(months.map((m) => [m, []]));
+  for (const r of closed) {
+    const k = startOfMonth(r._closed).getTime();
+    byMonth.get(k)?.push(r._resolvedMs);
+  }
+  const toDays = (ms) => (ms == null ? null : Math.round((ms / 864e5) * 10) / 10);
+  return months.map((m) => {
+    const vals = byMonth.get(m) || [];
+    vals.sort((a, b) => a - b);
+    const n = vals.length;
+    return {
+      month: m,
+      n,
+      medianDays: n ? toDays(percentile(vals, 50)) : null,
+      p90Days: n ? toDays(percentile(vals, 90)) : null,
+      avgDays: n ? toDays(vals.reduce((s, v) => s + v, 0) / n) : null,
+    };
+  });
+};
+
+/** SOP-SLA compliance composition by CREATED month — the PA "SLA compliance"
+ *  trend, but against the Infor SOP cadence (this app's only SLA — see
+ *  enrich.js) and split by WHY a month's misses missed: blown initial response
+ *  vs a blown update cadence. Percent keys stack to 100 for eligible months. */
+export const monthlySlaComposition = (rows) => {
+  const eligible = rows.filter((r) => r._slaEligible && r._created);
+  const months = monthGrid(eligible, (r) => r._created.getTime());
+  if (!months.length) return [];
+  const mk = () => ({ total: 0, met: 0, missedInitial: 0, missedCadence: 0 });
+  const byMonth = new Map(months.map((m) => [m, mk()]));
+  for (const r of eligible) {
+    const b = byMonth.get(startOfMonth(r._created).getTime());
+    if (!b) continue;
+    b.total++;
+    if (!r._slaBreached) b.met++;
+    else if (r._slaBreachReason === "initial") b.missedInitial++;
+    else b.missedCadence++;
+  }
+  const pct = (n, d) => (d ? (n / d) * 100 : null);
+  return months.map((m) => {
+    const b = byMonth.get(m);
+    return {
+      month: m,
+      ...b,
+      metPct: pct(b.met, b.total),
+      initialPct: pct(b.missedInitial, b.total),
+      cadencePct: pct(b.missedCadence, b.total),
+    };
+  });
+};
+
+/** First-contact-resolution trend by CLOSE month. Same definition as
+ *  qualityMetrics: a closed case resolved in ≤1 Infor-authored journal turn.
+ *  ServiceNow's headline FCR KPI, made longitudinal. */
+export const monthlyFcrTrend = (rows) => {
+  const closed = rows.filter((r) => r._isClosed && r._closed);
+  const months = monthGrid(closed, (r) => r._closed.getTime());
+  if (!months.length) return [];
+  const byMonth = new Map(months.map((m) => [m, { closed: 0, fcr: 0 }]));
+  for (const r of closed) {
+    const b = byMonth.get(startOfMonth(r._closed).getTime());
+    if (!b) continue;
+    b.closed++;
+    if ((r._analystTurns || 0) <= 1) b.fcr++;
+  }
+  return months.map((m) => {
+    const b = byMonth.get(m);
+    return {
+      month: m,
+      closed: b.closed,
+      fcr: b.fcr,
+      fcrPct: b.closed ? (b.fcr / b.closed) * 100 : null,
+    };
+  });
+};
+
+/** Case-mix trend by CREATED month, one count per priority rank. Fixed key
+ *  order (critical/major/medium/standard/other) so stacked series never
+ *  reorder or repaint as the data changes. */
+export const monthlyPriorityMix = (rows) => {
+  const dated = rows.filter((r) => r._created);
+  const months = monthGrid(dated, (r) => r._created.getTime());
+  if (!months.length) return [];
+  const mk = () => ({ critical: 0, major: 0, medium: 0, standard: 0, other: 0, total: 0 });
+  const byMonth = new Map(months.map((m) => [m, mk()]));
+  const KEYS = [null, "critical", "major", "medium", "standard"];
+  for (const r of dated) {
+    const b = byMonth.get(startOfMonth(r._created).getTime());
+    if (!b) continue;
+    b[KEYS[priorityRank(r.priority)] || "other"]++;
+    b.total++;
+  }
+  return months.map((m) => ({ month: m, ...byMonth.get(m) }));
+};
+
+/* ==================== weekly flow reconstructions ====================
+ * ServiceNow charts today's queue; these rebuild what the queue looked like on
+ * every past week from the timestamps baked into the export, which is the
+ * analysis SN dashboards can't do without Performance Analytics history. */
+
+/** Where a case sat at instant `ts`, using the same anchors the lifecycle
+ *  model already trusts: the close timestamp for closed, and the
+ *  Solution-Proposed entry anchored like `_autoCloseAt` (resolution-notes
+ *  saved, else last genuine Infor note, else creation — clamped ≥ created).
+ *  Returns null when the case didn't exist yet. */
+const lifecycleAt = (r, ts) => {
+  const created = r._created ? r._created.getTime() : null;
+  if (created == null || created > ts) return null;
+  if (r._closed && r._closed.getTime() <= ts) return "closed";
+  if (r._lifecycle === "solution_proposed") {
+    const anchorRaw =
+      (r._resolvedAt && r._resolvedAt.getTime()) ??
+      (r._lastInforUpdate && r._lastInforUpdate.getTime()) ??
+      created;
+    if (Math.max(anchorRaw, created) <= ts) return "solution_proposed";
+  }
+  return "open";
+};
+
+/** Weekly week-start grid from the oldest creation to the snapshot. */
+const weekGrid = (rows, refNow) => {
+  let minCreated = null;
+  for (const r of rows) {
+    if (r._created && (minCreated == null || r._created < minCreated)) minCreated = r._created;
+  }
+  if (minCreated == null) return [];
+  const start = startOfMonday(minCreated).getTime();
+  const end = startOfMonday(refNow).getTime();
+  const weeks = [];
+  for (let w = start; w <= end && weeks.length <= 520; w += 7 * 864e5) weeks.push(w);
+  return weeks;
+};
+
+/** Cumulative flow: every case in the dataset, partitioned by where its
+ *  lifecycle sat at the end of each week (capped at the snapshot for the
+ *  current partial week). The three bands stack to the total case count, so a
+ *  fattening open band with a flat closed band IS the backlog problem. */
+export const cumulativeFlow = (rows, refNow = Date.now()) => {
+  const weeks = weekGrid(rows, refNow);
+  return weeks.map((w) => {
+    const evalTs = Math.min(w + 7 * 864e5 - 1, refNow);
+    let open = 0;
+    let solutionProposed = 0;
+    let closed = 0;
+    for (const r of rows) {
+      const lc = lifecycleAt(r, evalTs);
+      if (lc === "closed") closed++;
+      else if (lc === "solution_proposed") solutionProposed++;
+      else if (lc === "open") open++;
+    }
+    return { week: w, open, solutionProposed, closed, total: open + solutionProposed + closed };
+  });
+};
+
+/** Backlog age composition, reconstructed weekly: of the cases OPEN at each
+ *  week's end, how old was each (AGING_BUCKETS, same thresholds as the aging
+ *  chart)? Emits one count key per bucket name. A growing top band means the
+ *  backlog isn't just big — it's graying. */
+export const backlogAgeTrend = (rows, refNow = Date.now()) => {
+  const weeks = weekGrid(rows, refNow);
+  return weeks.map((w) => {
+    const evalTs = Math.min(w + 7 * 864e5 - 1, refNow);
+    const cells = AGING_BUCKETS.map(() => 0);
+    let total = 0;
+    for (const r of rows) {
+      if (lifecycleAt(r, evalTs) !== "open") continue;
+      const days = Math.floor((evalTs - r._created.getTime()) / 864e5);
+      const idx = AGING_BUCKETS.findIndex((b) => days >= b.min && days <= b.max);
+      if (idx >= 0) {
+        cells[idx]++;
+        total++;
+      }
+    }
+    const point = { week: w, total };
+    AGING_BUCKETS.forEach((b, i) => { point[b.name] = cells[i]; });
+    return point;
+  });
+};
+
+/* ==================== analyst efficiency scatter ==================== */
+
+/** Volume-versus-speed read per analyst: closed count, median resolution days
+ *  over those closes, and the open load they're still carrying (bubble size).
+ *  Median cut lines come back too so the chart can draw quadrants. */
+export const analystEfficiency = (members) => {
+  const points = [];
+  for (const m of members || []) {
+    const closed = m.rows.filter((r) => r._isClosed && r._resolvedMs != null);
+    if (!closed.length) continue;
+    const vals = closed.map((r) => r._resolvedMs).sort((a, b) => a - b);
+    points.push({
+      name: m.name,
+      closed: closed.length,
+      medianDays: Math.round((percentile(vals, 50) / 864e5) * 10) / 10,
+      open: m.rows.filter((r) => r._isOpen).length,
+      total: m.rows.length,
+    });
+  }
+  const med = (arr) => {
+    if (!arr.length) return null;
+    const s = [...arr].sort((a, b) => a - b);
+    return percentile(s, 50);
+  };
+  return {
+    points,
+    medClosed: med(points.map((p) => p.closed)),
+    medDays: med(points.map((p) => p.medianDays)),
+  };
+};
+
+/* ==================== account concentration (Pareto) ==================== */
+
+/** Pareto read over the account volume table ({name, count}, sorted desc):
+ *  each account's share of total volume plus the running cumulative share,
+ *  both percentages so they live on ONE axis. `topN` rows are returned for
+ *  charting; the cumulative math always runs over the full table. */
+export const accountPareto = (accountData, topN = 12) => {
+  const all = (accountData || []).filter((a) => a.name !== "Unknown");
+  const total = all.reduce((s, a) => s + a.count, 0);
+  if (!total) return { items: [], total: 0, totalAccounts: 0, accountsTo80 : null };
+  let cum = 0;
+  let accountsTo80 = null;
+  const items = all.map((a, i) => {
+    cum += a.count;
+    const cumPct = (cum / total) * 100;
+    if (accountsTo80 == null && cumPct >= 80) accountsTo80 = i + 1;
+    return { name: a.name, count: a.count, sharePct: (a.count / total) * 100, cumPct };
+  });
+  return { items: items.slice(0, topN), total, totalAccounts: all.length, accountsTo80 };
+};

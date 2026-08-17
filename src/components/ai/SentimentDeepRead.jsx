@@ -5,6 +5,7 @@ import { Card } from "../layout/Card.jsx";
 import { aiClient } from "../../lib/ai-client.js";
 import { scrubForAi } from "../../lib/ai-scrub.js";
 import { parseInteractionStream } from "../../lib/sentiment.js";
+import { CopyableNumber } from "../CopyableNumber.jsx";
 
 /* Optional, OPT-IN LLM deep-read — the hybrid's second half. The lexicon engine
  * grades the whole queue on device; this sends ONLY a hand-picked handful (the
@@ -153,8 +154,8 @@ export function SentimentDeepRead({ scoreable, rows }) {
             return (
               <div key={i} style={{ borderLeft: `3px solid ${alpha(T.accent, 0.5)}`, paddingLeft: 12 }}>
                 {g && (
-                  <div className="mono" style={{ fontSize: 12, color: T.accent, marginBottom: 4 }}>
-                    {g.number}
+                  <div className="mono" style={{ fontSize: 12, marginBottom: 4 }}>
+                    <CopyableNumber value={g.number} style={{ fontSize: 12 }} />
                   </div>
                 )}
                 <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.55 }}>{note?.coaching}</div>

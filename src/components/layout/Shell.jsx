@@ -82,7 +82,11 @@ export function Shell({ children }) {
           from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .fade-in { animation: fade-in-up 0.32s ease both; }
+        /* fill-mode "backwards", not "both": "both" leaves transform:translateY(0)
+           applied forever, and even an identity transform makes the element the
+           containing block for position:fixed descendants — which silently moved
+           row menus, toasts and modal overlays inside a Section off-viewport. */
+        .fade-in { animation: fade-in-up 0.32s ease backwards; }
 
         /* ----- Background micro-texture: a very subtle radial wash ----- */
         .app-canvas::before {

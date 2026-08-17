@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
 import {
   FileSpreadsheet, Upload, Loader2, AlertTriangle, MoreVertical,
   Check, Pencil, RotateCcw, Trash2, CircleDot, Circle,
@@ -319,7 +320,10 @@ const MENU_W = 200
  * dropdown was cut off — and clipped pixels aren't hit-testable, which made the
  * "Activate" item look present but unclickable. The menu is therefore positioned
  * `fixed` off the trigger's viewport rect, and flipped above the button when
- * there isn't room below, so every item is always visible and clickable. */
+ * there isn't room below, so every item is always visible and clickable.
+ * It is also portalled to <body>: a transformed ancestor (any CSS animation
+ * leaving a transform behind) would otherwise become the containing block for
+ * `fixed` and shift the whole menu off-viewport. */
 function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRebuild, onDelete }) {
   const btnRef = useRef(null)
   const [pos, setPos] = useState(null)
@@ -359,7 +363,7 @@ function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRe
     <div style={{ flexShrink: 0 }}>
       <button ref={btnRef} onClick={toggle} style={iconBtn} title="Actions"
         aria-label="Actions" aria-haspopup="menu" aria-expanded={open}><MoreVertical size={16} /></button>
-      {open && pos && (
+      {open && pos && createPortal(
         <>
           <div onClick={onToggle} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
           <div role="menu" style={{
@@ -373,7 +377,8 @@ function RowMenu({ open, onToggle, isActive, hasBlob, onActivate, onRename, onRe
               title={hasBlob ? "Re-parse the stored source file with current logic" : "No stored source — re-upload instead"} />
             <MenuItem icon={Trash2} label="Delete" onClick={onDelete} danger last />
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   )

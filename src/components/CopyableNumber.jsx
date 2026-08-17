@@ -45,7 +45,13 @@ export function CopyableNumber({ value, style, className }) {
   const timer = useRef(null)
   const alive = useRef(true)
 
-  useEffect(() => () => { alive.current = false; clearTimeout(timer.current) }, [])
+  // Set alive on mount, not just at useRef init: StrictMode mounts, unmounts and
+  // remounts in dev, so a cleanup-only effect would leave alive false forever
+  // and swallow every toast.
+  useEffect(() => {
+    alive.current = true
+    return () => { alive.current = false; clearTimeout(timer.current) }
+  }, [])
 
   const copy = useCallback((e) => {
     e.stopPropagation()

@@ -474,6 +474,7 @@ export default defineConfig(() => {
     // dev server, so live sync is unavailable in `vite preview` / deploys (the
     // packaged desktop app ships its own equivalent in electron/server.cjs).
     server: {
+      host: '0.0.0.0',
       allowedHosts: ['inbavwinterfac2'],
     },
   }

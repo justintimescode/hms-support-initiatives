@@ -616,6 +616,28 @@ export function classifyCase(state, priorityRankValue) {
   }
 }
 
+/** The working sub-state a case sits in. NOTE the column: values like
+ *  "Development Researching" live in the export's `Status` field, NOT `State`.
+ *  State only carries the coarse lifecycle (Open / Awaiting Info / Resolved /
+ *  Closed); Status carries the sub-state (Researching, Development Researching,
+ *  Code Fix Pending, Solution Proposed, …). `state` is the fallback for exports
+ *  that omit the Status column. */
+export const statusOf = (row) => String(row?.status || row?.state || '').trim()
+
+/** True when the case's status hands it to engineering — the DEV_STATUS_MARKERS
+ *  set (Development Researching / Code Fix Pending / Code Deployment Pending).
+ *  Deliberately NOT plain "Researching", which means the analyst is still
+ *  investigating, not that engineering owns the case. */
+export const isDevStatus = (row) => {
+  const s = statusOf(row).toLowerCase()
+  return DEV_STATUS_MARKERS.some((marker) => s.includes(marker))
+}
+
+/** Rows that belong on the Jira Blockers surfaces: open cases that either carry
+ *  a Jira reference or sit in an engineering-owned status. */
+export const isJiraBlocked = (row) =>
+  !!row?._isOpen && ((row._jiraTickets?.length || 0) > 0 || isDevStatus(row))
+
 /** Used by the UI's in-memory pipeline. Returns the original row plus the
  *  underscore-prefixed enriched fields. `snapshotMs` is the data-as-of anchor
  *  (the active import's upload time) used by the SOP-SLA cadence check for the

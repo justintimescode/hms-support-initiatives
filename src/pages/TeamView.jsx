@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { T } from "../lib/theme.js";
 import { fmtDuration, SLA_COLOR, deltaColor, fmtDeltaCount, fmtDeltaPct } from "../lib/format.js";
 import { computeKpis } from "../lib/stats.js";
+import { isJiraBlocked } from "../lib/enrich.js";
 import { PROJECT_KEY } from "../lib/jira-client.js";
 import { Section } from "../components/layout/Section.jsx";
 import { Card } from "../components/layout/Card.jsx";
@@ -169,9 +170,9 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
 
       {(page === "jira" || printMode) && (
         <div className="print-section">
-        <Section title="Jira Blockers" subtitle="Open cases across the team waiting on engineering work. Cases here are gated by a Jira ticket rather than analyst capacity, so they need a different intervention than the rest of the backlog.">
+        <Section title="Jira Blockers" subtitle="Open cases across the team waiting on engineering work — those with a Jira reference plus those in a Development Researching, Code Fix Pending, or Code Deployment Pending status. Cases here are gated by engineering rather than analyst capacity, so they need a different intervention than the rest of the backlog.">
           <JiraDashboard
-            rows={allRows.filter((r) => r._isOpen && r._jiraTickets.length > 0)}
+            rows={allRows.filter(isJiraBlocked)}
             jiraConnected={jiraState?.status === "ready"}
           />
         </Section>

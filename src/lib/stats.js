@@ -1,4 +1,4 @@
-import { priorityRank } from "./enrich.js";
+import { priorityRank, isJiraBlocked } from "./enrich.js";
 import { priorityColor } from "./format.js";
 import {
   WEEKDAY_NAMES, WEEKDAY_ORDER, PRESETS, AGING_BUCKETS, SLA_RISK_BUCKETS, FRT_BUCKETS,
@@ -269,6 +269,39 @@ export const slaRiskSegments = (rows) => {
     else counts.comfortable++;
   }
   return SLA_RISK_BUCKETS.map((b) => ({ ...b, count: counts[b.key] }));
+};
+
+/** Point-in-time health of the open queue at `refNow` — the counts a manager
+ *  triages from. Snapshot-anchored rather than wall-clocked, so a report built
+ *  (or printed) days after the import still describes the data it came from.
+ *  `solutionProposed` rides along because the team still owns that queue; every
+ *  other tally is truly-open only (see the three-state lifecycle in enrich.js). */
+export const openWorkHealth = (rows, refNow = Date.now(), { stuckDays = 30 } = {}) => {
+  const stuckMs = stuckDays * 864e5;
+  let open = 0, solutionProposed = 0, breached = 0, due24 = 0, noSla = 0, stuck = 0, jiraBlocked = 0;
+  let oldestMs = null, ageTotal = 0, ageN = 0;
+  for (const r of rows) {
+    if (r._lifecycle === "solution_proposed") solutionProposed++;
+    if (!r._isOpen) continue;
+    open++;
+    if (isJiraBlocked(r)) jiraBlocked++;
+    const due = r._slaDueSop ? r._slaDueSop.getTime() : null;
+    if (due == null) noSla++;
+    else if (due < refNow) breached++;
+    else if (due - refNow < 24 * 36e5) due24++;
+    const created = r._created ? r._created.getTime() : null;
+    if (created != null) {
+      if (refNow - created >= stuckMs) stuck++;
+      ageTotal += refNow - created;
+      ageN++;
+      if (oldestMs == null || created < oldestMs) oldestMs = created;
+    }
+  }
+  return {
+    open, solutionProposed, breached, due24, noSla, stuck, jiraBlocked, stuckDays,
+    avgAgeMs: ageN ? ageTotal / ageN : null,
+    oldestAgeMs: oldestMs != null ? refNow - oldestMs : null,
+  };
 };
 
 export const slaRiskOf = (r, now = Date.now()) => {
@@ -996,6 +1029,81 @@ export const monthlyPriorityMix = (rows) => {
     b.total++;
   }
   return months.map((m) => ({ month: m, ...byMonth.get(m) }));
+};
+
+/** One row per calendar month — the table a manager reads in a monthly review,
+ *  with both halves of the flow on the same line. Intake, SOP-SLA and first
+ *  response are attributed by CREATED month; throughput, resolution time and
+ *  FCR by CLOSE month (the month the work actually landed), matching
+ *  monthlyResolutionTrend / monthlyFcrTrend above. `net` is intake minus
+ *  throughput, so a run of positive months IS a growing backlog. Rates are null
+ *  where there is nothing to measure — a gap, never a fabricated zero. Oldest
+ *  month first; `months` keeps only the most recent N.
+ *
+ *  Leading empty months are dropped so the table opens on real activity: a scope
+ *  with one stray old case and then a quiet month would otherwise lead with an
+ *  all-zero row once the window is sliced. INTERIOR gaps are kept — "nothing
+ *  happened between these two months" is a finding, not noise. */
+export const monthlyScorecard = (rows, { months = null } = {}) => {
+  const stamps = [];
+  for (const r of rows) {
+    if (r._created) stamps.push(r._created.getTime());
+    if (r._isClosed && r._closed) stamps.push(r._closed.getTime());
+  }
+  const grid = monthGrid(stamps, (t) => t);
+  if (!grid.length) return [];
+  const mk = () => ({
+    created: 0, closed: 0, slaEligible: 0, slaMet: 0,
+    missedInitial: 0, missedCadence: 0, fcr: 0, res: [], frt: [],
+  });
+  const byMonth = new Map(grid.map((m) => [m, mk()]));
+  for (const r of rows) {
+    if (r._created) {
+      const b = byMonth.get(startOfMonth(r._created).getTime());
+      if (b) {
+        b.created++;
+        if (r._slaEligible) {
+          b.slaEligible++;
+          if (!r._slaBreached) b.slaMet++;
+          else if (r._slaBreachReason === "initial") b.missedInitial++;
+          else b.missedCadence++;
+        }
+        if (r._frtMs != null) b.frt.push(r._frtMs);
+      }
+    }
+    if (r._isClosed && r._closed) {
+      const b = byMonth.get(startOfMonth(r._closed).getTime());
+      if (b) {
+        b.closed++;
+        if (r._resolvedMs != null) b.res.push(r._resolvedMs);
+        if ((r._analystTurns || 0) <= 1) b.fcr++;
+      }
+    }
+  }
+  const out = grid.map((m) => {
+    const b = byMonth.get(m);
+    b.res.sort((x, y) => x - y);
+    b.frt.sort((x, y) => x - y);
+    return {
+      month: m,
+      created: b.created,
+      closed: b.closed,
+      net: b.created - b.closed,
+      slaEligible: b.slaEligible,
+      slaMet: b.slaMet,
+      slaRate: b.slaEligible ? (b.slaMet / b.slaEligible) * 100 : null,
+      missedInitial: b.missedInitial,
+      missedCadence: b.missedCadence,
+      resP50: percentile(b.res, 50),
+      resP90: percentile(b.res, 90),
+      frtP50: percentile(b.frt, 50),
+      fcrRate: b.closed ? (b.fcr / b.closed) * 100 : null,
+    };
+  });
+  const windowed = months != null && months > 0 ? out.slice(-months) : out;
+  let lead = 0;
+  while (lead < windowed.length && !windowed[lead].created && !windowed[lead].closed) lead++;
+  return windowed.slice(lead);
 };
 
 /* ==================== weekly flow reconstructions ====================

@@ -26,6 +26,7 @@ import {
   hasAnyTagData,
   unrecognizedTags,
   shortTagLabel,
+  isIgnoredTag,
 } from "./ai-tags.js";
 
 // The seven real tag strings from x_igss2_customer_p_standard_case (1).xlsx.
@@ -71,6 +72,32 @@ test("parseTags on missing / empty input returns []", () => {
   assert.deepEqual(parseTags(row("   ")), []);
   assert.deepEqual(parseTags({}), []);
   assert.deepEqual(parseTags(null), []);
+});
+
+test("parseTags drops the non-AI 'database_table' bookkeeping tag", () => {
+  // Another team stamps `database_table` onto the same ServiceNow Tags column. It
+  // carries no AI signal, so it must not appear as a tag, must not make the case
+  // count as tagged, and must not land in the "Other tag" bucket.
+  assert.deepEqual(parseTags(row("database_table")), []);
+  assert.deepEqual(parseTags(row("Database_Table")), []); // case-insensitive
+  assert.deepEqual(parseTags(row("database_table, Kiro Assisted")), [T_ASSIST]);
+  assert.equal(isTagged(row("database_table")), false);
+  assert.equal(rowOutcome(row("database_table")), null);
+  assert.equal(isIgnoredTag("DATABASE_TABLE"), true);
+  assert.equal(isIgnoredTag(T_ASSIST), false);
+
+  // ...and it never inflates the coverage denominator or the dropdown.
+  const s = aiTagSummary([row("database_table"), row(T_ASSIST)]);
+  assert.equal(s.tagged, 1);
+  assert.equal(s.untagged, 1);
+  assert.deepEqual(unrecognizedTags([row("database_table")]), []);
+  const ids = tagSelectionOptions([row("database_table")]).map((o) => o.id);
+  assert.ok(!ids.some((id) => id.includes("database_table")));
+
+  // A Tags column carrying ONLY ignored labels can't tell you anything about AI,
+  // so the page-level guard must still fire.
+  assert.equal(hasAnyTagData([row("database_table")]), false);
+  assert.equal(hasAnyTagData([row("database_table"), row(T_ASSIST)]), true);
 });
 
 test("tagsRaw falls back to the raw CSV header spelling", () => {

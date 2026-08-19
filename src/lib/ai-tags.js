@@ -84,6 +84,23 @@ const OUTCOME_LEXICON = [
 // before the comma), so plain equality/regex on the raw string is unreliable.
 const norm = (s) => String(s ?? "").trim().replace(/\s+/g, " ").toLowerCase();
 
+// Tags that are NOT AI-assistance vocabulary and must never reach an aggregation.
+// ServiceNow's `Tags` column is a shared free-for-all: other teams and automations
+// stamp their own bookkeeping labels onto the same field. `database_table` is one
+// of those — it says nothing about whether AI was used, but because rule 1 above
+// discovers the vocabulary, an ignored-tag list is the ONLY thing keeping it out
+// of the dropdown, the "Other tag" bucket and — worse — the `tagged` denominator,
+// where it would inflate tagging coverage on cases nobody actually tagged.
+//
+// Matched on the normalized tag (lowercased, whitespace-collapsed), so
+// "Database_Table" and "database_table" are both dropped. Filtering happens in
+// parseTags, the single chokepoint every other function and the case explorer
+// goes through, so no caller can accidentally see one of these.
+const IGNORED_TAGS = new Set(["database_table"]);
+
+/** Whether a tag is bookkeeping noise rather than AI-assistance vocabulary. */
+export const isIgnoredTag = (tag) => IGNORED_TAGS.has(norm(tag));
+
 /** The raw `Tags` cell for a row, or "". Reads the mapped `tags` field first
  *  (XLSX, and CSV whose header already is that system field name), then a couple
  *  of likely raw CSV header spellings as a best-effort fallback — same shape as
@@ -97,6 +114,9 @@ export function tagsRaw(row) {
 /** The individual tags on a row: trimmed, whitespace-collapsed, de-duped,
  *  original casing preserved for display.
  *
+ *  Tags in `IGNORED_TAGS` are dropped here, which is what keeps non-AI
+ *  bookkeeping labels out of every downstream count.
+ *
  *  Splits on `,` `;` `|` ONLY — never on `/`. Tag names legitimately contain
  *  slashes ("Kiro Not Required / Not Applicable", "Kiro Got it Right / Solved"),
  *  so slash-splitting would shatter the vocabulary into nonsense fragments. */
@@ -108,6 +128,7 @@ export function parseTags(row) {
   for (const part of raw.split(/[,;|]/)) {
     const tag = part.trim().replace(/\s+/g, " ");
     if (!tag) continue;
+    if (IGNORED_TAGS.has(tag.toLowerCase())) continue;
     const key = tag.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -462,11 +483,15 @@ export function rowsWithTag(rows, tag) {
  *  would read as "the team never uses AI" rather than "this export can't tell
  *  you".
  *
+ *  Asks parseTags, not tagsRaw, so a `Tags` column carrying only ignored
+ *  bookkeeping labels still trips the guard — the export genuinely can't tell you
+ *  anything about AI use.
+ *
  *  It cannot distinguish "column absent" from "column present, nothing tagged" —
  *  normalizeXlsxRow sets `tags: null` in both cases and the pre-normalized rows
  *  aren't retained — so the guard's copy must cover both readings honestly. */
 export function hasAnyTagData(rows) {
-  return (rows || []).some((r) => tagsRaw(r) !== "");
+  return (rows || []).some((r) => parseTags(r).length > 0);
 }
 
 /** Discovered tags the lexicon didn't recognize. Surfaced in the UI as a strip so

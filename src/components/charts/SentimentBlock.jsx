@@ -108,6 +108,14 @@ const thStyle = (align = "left") => ({
 });
 const tdStyle = { padding: "8px 12px", verticalAlign: "top" };
 
+/* Case owner. `assigned_to` is the CURRENT assignee, so on reassigned cases it is
+ * not provably whoever handled the conversation being graded. */
+const AssigneeCell = ({ name }) => (
+  <td style={{ ...tdStyle, color: T.sub, whiteSpace: "nowrap", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis" }}>
+    {name || "Unassigned"}
+  </td>
+);
+
 /** Shared expandable row: header cells + a detail panel (factors, quote, coaching). */
 function CaseRow({ g, cols, colSpan, open, onToggle }) {
   const toggle = (e) => { e.stopPropagation(); onToggle(); };
@@ -202,7 +210,7 @@ function EarlyWarningView({ open }) {
     return <EmptyState title="No open cases with customer dialogue" message="Open cases in the current view have no written customer messages to read." />;
   }
   const visible = expanded ? ranked : ranked.slice(0, 12);
-  const COLSPAN = 6;
+  const COLSPAN = 7;
 
   return (
     <Card>
@@ -220,6 +228,7 @@ function EarlyWarningView({ open }) {
           <thead>
             <tr style={{ background: T.surfaceAlt }}>
               <th style={thStyle()}>Case</th>
+              <th style={thStyle()}>Assignee</th>
               <th style={thStyle()}>Priority</th>
               <th style={thStyle()}>Risk</th>
               <th style={thStyle()}>Waiting</th>
@@ -237,6 +246,7 @@ function EarlyWarningView({ open }) {
                 onToggle={() => toggleCase(g.number)}
                 cols={
                   <>
+                    <AssigneeCell name={g.assignee} />
                     <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{g.priority || "—"}</td>
                     <td style={{ ...tdStyle, whiteSpace: "nowrap" }}><RiskPill risk={g.risk} escalated={g.escalated} /></td>
                     <td style={{ ...tdStyle, whiteSpace: "nowrap", color: T.sub, fontSize: 12.5 }}>
@@ -291,7 +301,7 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
   const counts = { pushback: 0, conditional: 0, silent: 0, confirmed: 0 };
   for (const g of proposed) if (g.confirmState) counts[g.confirmState]++;
   const visible = expanded ? ranked : ranked.slice(0, 12);
-  const COLSPAN = 5;
+  const COLSPAN = 6;
   const fmtDate = (d) => (d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : "—");
 
   return (
@@ -325,6 +335,7 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
             <thead>
               <tr style={{ background: T.surfaceAlt }}>
                 <th style={thStyle()}>Case</th>
+                <th style={thStyle()}>Assignee</th>
                 <th style={thStyle()}>Customer response</th>
                 <th style={thStyle()}>Reopen risk</th>
                 <th style={thStyle()}>Auto-closes</th>
@@ -344,6 +355,7 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
                     onToggle={() => toggleCase(g.number)}
                     cols={
                       <>
+                        <AssigneeCell name={g.assignee} />
                         <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                           <Pill color={m.color}><m.Icon size={11} /> {m.label}</Pill>
                         </td>
@@ -401,7 +413,7 @@ function ClosedReviewView({ closed, summary }) {
     return <EmptyState title="No scoreable closed cases" message="Every closed case here was handled by phone or closed silently — nothing written to review." />;
   }
   const visible = expanded ? scoreable : scoreable.slice(0, 12);
-  const COLSPAN = 6;
+  const COLSPAN = 7;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -443,6 +455,7 @@ function ClosedReviewView({ closed, summary }) {
             <thead>
               <tr style={{ background: T.surfaceAlt }}>
                 <th style={thStyle()}>Case</th>
+                <th style={thStyle()}>Assignee</th>
                 <th style={thStyle()}>Priority</th>
                 <th style={thStyle("right")}>Valence</th>
                 <th style={thStyle()}>Sentiment</th>
@@ -460,6 +473,7 @@ function ClosedReviewView({ closed, summary }) {
                   onToggle={() => toggleCase(g.number)}
                   cols={
                     <>
+                      <AssigneeCell name={g.assignee} />
                       <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{g.priority || "—"}</td>
                       <td className="mono" style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: valColor(g.valence) }}>
                         {g.valence > 0 ? `+${g.valence}` : g.valence}

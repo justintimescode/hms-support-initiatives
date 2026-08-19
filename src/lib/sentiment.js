@@ -565,6 +565,7 @@ export function gradeCase(row) {
   return {
     number: r.number,
     account: r.account,
+    assignee: r.assigned_to || null,
     priority: r.priority || null,
     lifecycle,
     myMsgs: a.nAnalyst,
@@ -687,6 +688,7 @@ function resolveGrade(row) {
   return {
     number: row.number,
     account: row.account,
+    assignee: row.assigned_to || null,
     priority: row.priority || null,
     lifecycle: row._lifecycle ?? row.lifecycle ?? lifecycleOfState(row.state),
     myMsgs: row._analystTurns ?? (row.analyst_turns == null ? null : Number(row.analyst_turns)),

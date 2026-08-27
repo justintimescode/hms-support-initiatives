@@ -317,12 +317,34 @@ shipped to users.** `.perf/` is gitignored.
 | `lib/useQuery.js` | `react-hooks/set-state-in-effect` | 1 |
 | `test-jira-perf.js` (untracked scratch file) | `no-undef` | 2 |
 
-`npm test` → **65 pass, 4 fail**. All 4 failures are untracked scratch
-Playwright scripts in the repo root (`test-jira-perf.mjs`,
-`test-jira-perf-detailed.mjs`, `test-jira-perf.js`, `test-jira-tabs.mjs`) that
-`node --test` picks up by filename and that fail because they hard-code
-`localhost:5174`. Every tracked test in `src/lib/` passes. **Baseline to hold:
-65 pass, 19 `src/` lint errors, build exit 0.**
+`npm test` → **65 pass, 4 fail** *(figure as of 2026-07-26 — see the
+correction below)*. All 4 failures are untracked scratch Playwright scripts in the
+repo root (`test-jira-perf.mjs`, `test-jira-perf-detailed.mjs`,
+`test-jira-perf.js`, `test-jira-tabs.mjs`) that `node --test` picks up by filename
+and that fail because they hard-code `localhost:5174`. Every tracked test in
+`src/lib/` passes.
+
+> **Corrected 2026-08-24.** The pass count above is stale — suites have landed
+> since (ai-tags, sentiment, dod, time-axis, stats.scorecard, the SLA
+> solution-proposed suite, and the unified-insights layer). Re-measure rather than
+> quoting this section: as of the unified-insights work the numbers are
+> **`npm test` → 337 pass / 4 fail**, with **336 pass / 0 fail** across the
+> tracked `src/lib` suites alone (`node --test "src/lib/*.test.js"`, which is the
+> meaningful figure — it excludes the root scratch scripts entirely).
+>
+> The lint figure below is still accurate in shape but has *improved*: **16**
+> `src/` errors, down from 19, because snapshot-anchoring `JiraDashboard.jsx`
+> removed its three `react-hooks/purity` violations.
+>
+> Two traps in the 4 root scratch scripts, worth knowing before you trust a run:
+> they **pass** whenever a dev server happens to be listening on `:5174`, and
+> `test-jira-tabs.mjs` / `test-jira-perf*.mjs` **write screenshots into tracked
+> paths** (`tab-*.png`, `app-state-1.png`, `final-state.png`). So a `npm test` run
+> with a dev server up both flatters the count and dirties the working tree. They
+> should be moved out of the `node --test` glob.
+
+**Baseline to hold (2026-08-24): 336 pass / 0 fail across `src/lib`, 16 `src/`
+lint errors, build exit 0.**
 
 The 12 `static-components` errors are not cosmetic — `JiraDashboard`'s
 `JiraCaseDetail` defines its `Field` component *inside* render

@@ -1,20 +1,26 @@
-import React, { useState, useMemo } from "react";
-import { T } from "../../lib/theme.js";
-
-/* Heat ramp mixed from the accent into the empty-cell color so it carries in
- * both themes — a raw alpha ramp tuned for white backgrounds goes nearly
- * invisible at the low end on dark surfaces. */
-const heat = (frac) => `color-mix(in srgb, ${T.accent} ${Math.round(frac * 100)}%, ${T.surfaceAlt})`;
+import React, { useMemo, useState } from "react";
+import { T, neutralHeat as heat } from "../../lib/theme.js";
 import { WEEKDAY_NAMES, WEEKDAY_ORDER } from "../../lib/constants.js";
 import { hourHeatmap } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 import { CaseDrilldown } from "../CaseDrilldown.jsx";
 
-/* ================= Intake Heatmap ================= */
+const MIN_FRAC = 0.14;
+const MAX_FRAC = 0.8;
+const QUARTER_HOURS = new Set([0, 6, 12, 18]);
+
 export function IntakeHeatmap({ rows }) {
   const { grid, max } = useMemo(() => hourHeatmap(rows), [rows]);
   const [selected, setSelected] = useState(null); // { rowIdx, hourIdx }
   const hours = Array.from({ length: 24 }, (_, i) => i);
+
+  const rowTotals = useMemo(() => grid.map((row) => row.reduce((s, v) => s + v, 0)), [grid]);
+  const colTotals = useMemo(
+    () => hours.map((hi) => grid.reduce((s, row) => s + row[hi], 0)),
+    [grid, hours],
+  );
+  const grandTotal = useMemo(() => rowTotals.reduce((s, v) => s + v, 0), [rowTotals]);
+
   const drilldownRows = useMemo(() => {
     if (!selected) return [];
     const dow = WEEKDAY_ORDER[selected.rowIdx];
@@ -22,26 +28,53 @@ export function IntakeHeatmap({ rows }) {
       .filter((r) => r._created && r._created.getDay() === dow && r._created.getHours() === selected.hourIdx)
       .sort((a, b) => b._created - a._created);
   }, [rows, selected]);
+
+  const TOTAL_CELL = { background: T.surfaceSunk, color: T.ink, fontWeight: 700 };
+
   return (
     <Card>
       <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Intake heatmap · weekday × hour</div>
-      <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>When new cases come in. Deeper red = more cases created in that slot. Click a tile to drill in.</div>
+      <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>
+        When new cases come in. Darker = more cases created in that slot. Click a tile to drill in.
+      </div>
       <div style={{ marginTop: 16, overflowX: "auto", textAlign: "left" }} className="scrollbar">
-        <div style={{ display: "grid", gridTemplateColumns: `36px repeat(24, minmax(20px, 1fr))`, gap: 2, minWidth: "100%" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `48px repeat(24, minmax(28px, 1fr)) 58px`,
+            gap: 2,
+            minWidth: "100%",
+          }}
+        >
           <div />
           {hours.map((h) => (
-            <div key={h} className="mono" style={{ fontSize: 9, color: T.muted, textAlign: "center" }}>
+            <div
+              key={h}
+              className="mono"
+              style={{
+                fontSize: 10.5,
+                fontWeight: QUARTER_HOURS.has(h) ? 700 : 400,
+                color: QUARTER_HOURS.has(h) ? T.sub : T.muted,
+                textAlign: "center",
+              }}
+            >
               {String(h).padStart(2, "0")}
             </div>
           ))}
+          <div className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: T.sub, textAlign: "center" }}>
+            Total
+          </div>
+
           {grid.map((row, ri) => (
             <React.Fragment key={ri}>
-              <div className="mono" style={{ fontSize: 10, color: T.sub, alignSelf: "center" }}>{WEEKDAY_NAMES[ri]}</div>
+              <div className="mono" style={{ fontSize: 12, fontWeight: 600, color: T.sub, alignSelf: "center" }}>
+                {WEEKDAY_NAMES[ri]}
+              </div>
               {row.map((v, hi) => {
-                const intensity = max ? v / max : 0;
-                const bg = v === 0
-                  ? T.surfaceAlt
-                  : heat(0.18 + intensity * 0.72);
+                const intensity = max ? Math.sqrt(v / max) : 0;
+                const frac = v === 0 ? 0 : MIN_FRAC + intensity * (MAX_FRAC - MIN_FRAC);
+                const bg = v === 0 ? T.surfaceAlt : heat(frac);
+                const textColor = v === 0 ? T.muted : frac > 0.5 ? T.surface : T.ink;
                 const isSelected = selected && selected.rowIdx === ri && selected.hourIdx === hi;
                 return (
                   <div
@@ -50,29 +83,73 @@ export function IntakeHeatmap({ rows }) {
                       if (v === 0) return;
                       setSelected((prev) => (prev && prev.rowIdx === ri && prev.hourIdx === hi ? null : { rowIdx: ri, hourIdx: hi }));
                     }}
-                    title={`${WEEKDAY_NAMES[ri]} ${hi}:00 — ${v} case${v === 1 ? "" : "s"}`}
+                    title={`${WEEKDAY_NAMES[ri]} ${String(hi).padStart(2, "0")}:00 — ${v} case${v === 1 ? "" : "s"}`}
+                    className="mono"
                     style={{
-                      height: 22,
+                      height: 30,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: textColor,
                       background: bg,
-                      border: isSelected ? `2px solid ${T.ink}` : `1px solid ${T.borderSoft}`,
-                      boxShadow: isSelected ? `0 0 0 1px ${T.surface}` : "none",
+                      border: `1px solid ${T.borderSoft}`,
+                      borderLeft: QUARTER_HOURS.has(hi) && hi !== 0 ? `2px solid ${T.border}` : `1px solid ${T.borderSoft}`,
+                      outline: isSelected ? `2px solid ${T.accent}` : "none",
+                      outlineOffset: -1,
                       borderRadius: 2,
                       cursor: v === 0 ? "default" : "pointer",
                     }}
-                  />
+                  >
+                    {v === 0 ? <span style={{ color: T.muted }}>·</span> : v}
+                  </div>
                 );
               })}
+              <div className="mono" style={{ ...TOTAL_CELL, height: 30, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, borderRadius: 2 }}>
+                {rowTotals[ri]}
+              </div>
             </React.Fragment>
           ))}
+
+          {/* Column-total footer row */}
+          <div className="mono" style={{ ...TOTAL_CELL, fontSize: 10.5, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}>
+            Total
+          </div>
+          {colTotals.map((v, hi) => (
+            <div
+              key={hi}
+              className="mono"
+              style={{
+                ...TOTAL_CELL,
+                height: 26,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 10.5,
+                borderRadius: 2,
+                borderLeft: QUARTER_HOURS.has(hi) && hi !== 0 ? `2px solid ${T.border}` : "none",
+              }}
+            >
+              {v}
+            </div>
+          ))}
+          <div className="mono" style={{ ...TOTAL_CELL, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, borderRadius: 2 }}>
+            {grandTotal}
+          </div>
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, marginTop: 10, fontSize: 11, color: T.muted }}>
         <span className="mono">0</span>
-        <div style={{ display: "flex", gap: 2 }}>
-          {[0.18, 0.36, 0.54, 0.72, 0.9].map((a) => (
-            <div key={a} style={{ width: 18, height: 10, background: heat(a), borderRadius: 2 }} />
-          ))}
-        </div>
+        <div
+          style={{
+            width: 140,
+            height: 10,
+            borderRadius: 3,
+            border: `1px solid ${T.borderSoft}`,
+            background: `linear-gradient(to right, ${heat(MIN_FRAC)}, ${heat(MAX_FRAC)})`,
+          }}
+        />
         <span className="mono">{max}</span>
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: T.muted, fontStyle: "italic", lineHeight: 1.4 }}>

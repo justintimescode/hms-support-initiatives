@@ -17,6 +17,7 @@ import {
   blastRadius, blastRadiusSummary, openCasesHistogram,
   resolutionStatsByPriority, staleWithImpact, fixVersionPipeline,
 } from "../lib/jira-stats.js"
+import { AliasNote } from "../components/AliasNote.jsx"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
@@ -28,19 +29,19 @@ import { CopyableNumber } from "../components/CopyableNumber.jsx"
 const COMPOSITION_WINDOW_DAYS = 14
 
 export default function JiraStatsPage() {
-  const { jiraState, syncJira, rows, enrichedAllJoined, jiraCreds } = useOutletContext()
+  const { jiraState, syncJira, rows, enrichedAllJoined, jiraCreds, snapshotMs } = useOutletContext()
   const issues = useMemo(() => jiraState?.issues || [], [jiraState?.issues])
   const ready = jiraState?.status === "ready" && issues.length > 0
-  const jiraIssueMap = useMemo(() => {
-    const m = new Map()
-    for (const it of issues) m.set(it.key, it)
-    return m
-  }, [issues])
   // Blast radius is shared by the cross-source section and the lifecycle
   // section (stale-with-impact, fix-version impact). Computed once here.
+  //
+  // `blastRadius` now projects the shared correlation engine and normalizes the
+  // join keys itself, so the local raw-keyed issue map this used to build is
+  // gone (it was the half of CODEREVIEW(5-31).md P1 #2 on the Jira side).
+  // Snapshot-anchored: "days idle" and "days open" measure against the import.
   const blast = useMemo(
-    () => (rows ? blastRadius(enrichedAllJoined, jiraIssueMap).filter((b) => b.openCount > 0) : []),
-    [rows, enrichedAllJoined, jiraIssueMap],
+    () => (rows ? blastRadius(enrichedAllJoined, issues, snapshotMs).filter((b) => b.openCount > 0) : []),
+    [rows, enrichedAllJoined, issues, snapshotMs],
   )
 
   if (!ready) {
@@ -208,7 +209,7 @@ function CrossSource({ blast, hasSn }) {
                     <React.Fragment key={b.key}>
                       <tr onClick={() => expandRow(b)} className="hoverlift"
                         style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isExpanded ? T.surfaceAlt : "transparent" }}>
-                        <td className="mono" style={{ padding: "9px 12px", color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}</td>
+                        <td className="mono" style={{ padding: "9px 12px", color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}<AliasNote keys={b.aliasedFrom} /></td>
                         <td style={{ padding: "9px 12px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.ink }} title={b.summary}>{b.summary || (b.hasLive ? "" : "(not in synced project)")}</td>
                         <td style={{ padding: "9px 12px", color: T.sub, whiteSpace: "nowrap" }}>{b.issueType}</td>
                         <td style={{ padding: "9px 12px", whiteSpace: "nowrap", color: priorityColor(b.priority), fontWeight: 600 }}>{b.priority || "—"}</td>

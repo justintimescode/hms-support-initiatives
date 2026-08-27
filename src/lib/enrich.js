@@ -251,6 +251,17 @@ export function normalizeXlsxRow(r) {
     // field name directly (see parseFileToRows) so this XLSX label mapping is
     // only needed for the recommended XLSX path.
     tags:                r['Tags']                ?? null,
+    // Geographic region and the owning support queue. BOTH of these DO exist in
+    // the standard ServiceNow case export ("Region" = e.g. "NA";
+    // "Assignment group" = e.g. "Hospitality - HMS Support") — they were simply
+    // never mapped, so every downstream surface behaved as though the columns
+    // did not exist. Raw passthrough with the same treatment as `parent_account`
+    // and `tags` above: not baked into the SQL schema, carried on the in-memory
+    // enriched row (enrichRow spreads `...r`). CSV exports carry the system
+    // field names directly, so this XLSX label mapping is only needed for the
+    // recommended XLSX path.
+    region:              r['Region']              ?? null,
+    assignment_group:    r['Assignment group']    ?? r['Assignment Group'] ?? null,
     contact:             r['Contact']             ?? r['Contact name'] ?? r['Caller'] ?? null,
     product_line:        r['Product line']        ?? null,
     assigned_to:         r['Assigned to']         ?? null,

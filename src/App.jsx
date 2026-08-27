@@ -16,6 +16,7 @@ import TeamPage from "./pages/TeamPage.jsx";
 import JiraPage from "./pages/JiraPage.jsx";
 import JiraBlockersPage from "./pages/JiraBlockersPage.jsx";
 import JiraStatsPage from "./pages/JiraStatsPage.jsx";
+import OperationsPage from "./pages/OperationsPage.jsx";
 import InsightsPage from "./pages/InsightsPage.jsx";
 import SentimentPage from "./pages/SentimentPage.jsx";
 import AiAssistedPage from "./pages/AiAssistedPage.jsx";
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/jira" element={<JiraPage />} />
           <Route path="/jira-blockers" element={<JiraBlockersPage />} />
           <Route path="/jira-stats" element={<JiraStatsPage />} />
+          <Route path="/operations" element={<OperationsPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/sentiment" element={<SentimentPage />} />
           <Route path="/ai-assisted" element={<AiAssistedPage />} />

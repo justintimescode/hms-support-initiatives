@@ -5,7 +5,7 @@ import {
   Clock, Inbox, TrendingUp, CalendarClock, CircleDot, Layers, Building2,
   Scale, Users, Ban, Shield,
   ExternalLink, BarChart3,
-  Plug, Sparkles, Gauge, Table, Mailbox, Settings, Bot,
+  Plug, Sparkles, Gauge, Table, Mailbox, Settings, Bot, Network,
 } from "lucide-react";
 import { T } from "../../lib/theme.js";
 import { useAppData } from "../../lib/useAppData.js";
@@ -67,6 +67,10 @@ const NAV_GROUPS = [
       { to: "/jira",          label: "All HMS Jira's",         icon: ExternalLink },
       { to: "/jira-blockers", label: "Cases w/ Jira Blockers", icon: Ban },
       { to: "/jira-stats",    label: "Statistics",             icon: BarChart3 },
+      // Cross-source Jira<->case view. Sits with the Jira group rather than
+      // Analysis: "Insights" there is already the AI narrative page, and someone
+      // hunting for which tickets are hurting customers looks here.
+      { to: "/operations",    label: "Impact Clusters",        icon: Network },
     ],
   },
   {

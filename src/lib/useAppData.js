@@ -130,7 +130,9 @@ function xlsxCellValue(v) {
   return v
 }
 
-async function readXlsxRows(arrayBuffer) {
+/** Exported for testing: the duplicate-header rule below is load-bearing for
+ *  case identity, so it gets a unit test rather than only a code comment. */
+export async function readXlsxRows(arrayBuffer) {
   const ExcelJS = (await import("exceljs")).default
   const wb = new ExcelJS.Workbook()
   await wb.xlsx.load(arrayBuffer)
@@ -144,6 +146,22 @@ async function readXlsxRows(arrayBuffer) {
     for (let i = 1; i < headers.length; i++) {
       const key = headers[i]
       if (key == null) continue
+      // FIRST column with a given header WINS.
+      //
+      // Real ServiceNow exports can repeat a header: the standard case layout
+      // ships "Number" twice — column 1 is the case number (CS1887438) and a
+      // later column is the account number (ACCT9000004). Assigning
+      // unconditionally let the LAST one win, so every row's `number` became an
+      // account number: case numbers were wrong everywhere they are displayed,
+      // copied, exported to CSV, or used as a React key (which is why such an
+      // export produced "two children with the same key" warnings), and the
+      // SN<->Jira correlation would collapse distinct cases that shared an
+      // account into a single node.
+      //
+      // The first occurrence is the record's own field — that is the column a
+      // human reading the sheet means, and the one every other header here
+      // follows. Keep it.
+      if (Object.hasOwn(obj, key)) continue
       obj[key] = xlsxCellValue(row.getCell(i).value)
     }
     rows.push(obj)

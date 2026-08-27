@@ -9,10 +9,17 @@
 // can be reused as-is against Jira data.
 
 import { parseDate, categorize } from './enrich.js'
+// CODEREVIEW(5-31).md P1 #1 — ONE percentile for the whole app. The local
+// `Math.floor((p/100) * len)` helper that used to live here was biased high (for
+// four values it returned the third as the median), so every Jira median / p85 /
+// p90 skewed upward. stats.js interpolates correctly.
+import { percentile } from './stats.js'
 
 const DAY = 864e5
 const JIRA_BROWSE_URL = 'https://infor.atlassian.net/browse/'
-const STALE_DAYS = 30
+// Exported so the insight layer (insight-thresholds.js) reads ONE value for
+// "a Jira has gone quiet" instead of adding a fourth copy of 30.
+export const STALE_DAYS = 30
 
 // Mirrors AGING_BUCKETS in KpiAnalyzer.jsx — keep the thresholds identical so
 // the standalone aging chart and the reused AssigneeAgingBlock agree.
@@ -204,12 +211,6 @@ function ageBucketName(days) {
 
 /* --------------------------- aggregate helpers --------------------------- */
 
-const percentile = (sorted, p) => {
-  if (!sorted.length) return null
-  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
-  return sorted[idx]
-}
-
 const statOf = (values) => {
   const v = values.filter((x) => x != null && !isNaN(x)).sort((a, b) => a - b)
   if (!v.length) return { median: null, avg: null, p85: null, n: 0 }
@@ -364,6 +365,11 @@ export function weeklyCreated(issues, weeks = 12) {
 
 /* --------------------------- ServiceNow ↔ Jira --------------------------- */
 
+/** Largest value in a list, or null when empty. Spread-free by design. */
+const maxOrNull = (values) =>
+  values.reduce((best, x) => (best == null || x > best ? x : best), null)
+
+
 /**
  * Second enrichment pass: merge live Jira issue data into a ServiceNow row
  * that was already run through `enrichRow`. Runs AFTER enrichRow so enrichRow
@@ -430,7 +436,10 @@ export function mergeJiraIntoRows(row, jiraIssueMap) {
     _jiraAnyLive: tickets.some((t) => t.jira),
     _jiraMismatch: mismatch,
     _jiraStaleBlock: staleBlock,
-    _jiraEngWaitMs: cycleVals.length ? Math.max(...cycleVals) : null,
-    _jiraEngQueueMs: queueVals.length ? Math.max(...queueVals) : null,
+    // `reduce`, not `Math.max(...array)`: these lists are as long as the case's
+    // linked-ticket count, and a spread throws RangeError on a large one
+    // (CODEREVIEW(5-31).md P1 #3).
+    _jiraEngWaitMs: maxOrNull(cycleVals),
+    _jiraEngQueueMs: maxOrNull(queueVals),
   }
 }

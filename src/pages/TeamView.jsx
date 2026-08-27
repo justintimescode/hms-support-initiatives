@@ -173,6 +173,7 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
         <Section title="Jira Blockers" subtitle="Open cases across the team waiting on engineering work — those with a Jira reference plus those in a Development Researching, Code Fix Pending, or Code Deployment Pending status. Cases here are gated by engineering rather than analyst capacity, so they need a different intervention than the rest of the backlog.">
           <JiraDashboard
             rows={allRows.filter(isJiraBlocked)}
+            aliasRows={allRows}
             jiraConnected={jiraState?.status === "ready"}
           />
         </Section>

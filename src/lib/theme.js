@@ -69,3 +69,14 @@ export const T = {
 export function alpha(color, fraction) {
   return `color-mix(in srgb, ${color} ${+(fraction * 100).toFixed(1)}%, transparent)`;
 }
+
+/* Hue-neutral intensity ramp for "how much" heatmaps (case volume, mix share)
+ * as opposed to "how risky" ones (which should keep using accent/warn/danger
+ * through `alpha()`). Mixes ink into surfaceAlt rather than a semantic color,
+ * so plain volume never accidentally reads as an alarm — and it survives a
+ * theme flip for free: ink is BY DEFINITION the color body text uses against
+ * `surface` in every theme, so a caller can flip a high-intensity cell's own
+ * text to `T.surface` and it will always contrast. */
+export function neutralHeat(frac) {
+  return `color-mix(in srgb, ${T.ink} ${Math.round(frac * 100)}%, ${T.surfaceAlt})`;
+}

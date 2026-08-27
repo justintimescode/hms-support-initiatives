@@ -1,11 +1,16 @@
 export const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 export const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
-/* ---------- date-range filters ---------- */
+/* ---------- date-range filters ----------
+ * Rolling look-back windows anchored on today, plus "older90" which looks
+ * the other direction (everything before the 90d cutoff) so the full set
+ * covers <=7d, >7d, >30d, >60d, and >90d spans. */
 export const PRESETS = [
   { key: "all", label: "All-time" },
   { key: "ytd", label: "YTD" },
-  { key: "qtr", label: "Last quarter (90d)" },
+  { key: "older90", label: "Older than 90 days" },
+  { key: "90d", label: "Last 90 days" },
+  { key: "60d", label: "Last 60 days" },
   { key: "30d", label: "Last 30 days" },
   { key: "7d", label: "Last 7 days" },
   { key: "custom", label: "Custom" },

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { T } from "../../lib/theme.js";
+import { T, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_H, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { CaseDrilldown } from "../CaseDrilldown.jsx";
 
@@ -8,9 +8,15 @@ import { CaseDrilldown } from "../CaseDrilldown.jsx";
 // Stack order = bottom -> top; colors from theme tokens (never hardcode hex).
 // "Resolved" = State="Resolved" (Solution Proposed, awaiting customer). "Closed" =
 // State="Closed" (truly done). These are distinct lifecycle buckets, see enrich.js v8.
+//
+// One color family, duotone: Closed takes the Infor Purple lead and Resolved its
+// Purple Tint 02 companion. Neither bucket is "bad", so no red appears here — the
+// previous status-token pairing (ok, then Infor Green, against accent Infor Red)
+// was exactly the good/bad pairing the brand prohibits. Purple Tint 02 measures
+// 1.65:1 on the plot well, hence the 1px T.vizStroke on the bars.
 const SEGMENTS = [
-  { key: "Closed", color: T.ok, match: (r) => r._isClosed },
-  { key: "Resolved", color: T.accent, match: (r) => r._lifecycle === "solution_proposed" },
+  { key: "Closed", color: T.vizAccent, match: (r) => r._isClosed },
+  { key: "Resolved", color: T.categorical[5], match: (r) => r._lifecycle === "solution_proposed" },
 ];
 
 export function WorkloadResolvedBlock({ members }) {
@@ -46,7 +52,7 @@ export function WorkloadResolvedBlock({ members }) {
   if (!data.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Resolved / closed cases by assignee</div>
+        <div className="eyebrow">Resolved / closed cases by assignee</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           No resolved or closed cases in the current date range.
         </div>
@@ -58,7 +64,7 @@ export function WorkloadResolvedBlock({ members }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Resolved / closed cases by assignee</div>
+      <div className="eyebrow">Resolved / closed cases by assignee</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
         Completed work per analyst — Closed (State=Closed) plus Resolved (Solution Proposed, awaiting
         customer confirmation), sorted high to low. Click a segment to drill into those cases.
@@ -66,38 +72,42 @@ export function WorkloadResolvedBlock({ members }) {
       <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
         {SEGMENTS.map((s) => (
           <span key={s.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 12, height: 10, background: s.color, borderRadius: 2 }} />
+            <span style={{ width: 12, height: 10, background: s.color, borderRadius: T.radiusChart, border: `1px solid ${T.vizStroke}` }} />
             {s.key}
           </span>
         ))}
       </div>
-      <div style={{ height, marginTop: 12 }}>
+      <div style={{ height, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <BarChart data={data} layout="vertical" margin={{ top: 10, right: 20, left: 8, bottom: 0 }}>
-            <CartesianGrid stroke={T.borderSoft} horizontal={false} />
+            <CartesianGrid stroke={T.vizGrid} horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               allowDecimals={false}
             />
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fill: T.ink, fontSize: 12 }}
+              tick={AXIS_TICK_CAT}
               width={140}
               interval={0}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
             />
-            <Tooltip content={<ResolvedTip />} cursor={{ fill: T.surfaceAlt }} />
+            <Tooltip content={<ResolvedTip />} cursor={{ fill: T.vizWell }} />
             {SEGMENTS.map((s, i) => (
               <Bar
                 key={s.key}
                 dataKey={s.key}
                 stackId="rc"
                 fill={s.color}
+                stroke={T.vizStroke}
+                strokeWidth={1}
+                /* Rounded end only on the top-of-stack segment; interior stays square. */
+                radius={i === SEGMENTS.length - 1 ? BAR_RADIUS_H : [0, 0, 0, 0]}
                 cursor="pointer"
                 onClick={(d) =>
                   setSelected((prev) =>
@@ -124,12 +134,12 @@ function ResolvedTip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const total = payload.reduce((s, p) => s + (p.value || 0), 0);
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{label}</div>
       <div className="mono" style={{ color: T.sub, marginBottom: 4 }}>{total} resolved / closed</div>
       {payload.filter((p) => p.value > 0).map((p) => (
         <div key={p.dataKey} className="mono" style={{ color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 8, height: 8, background: p.color, borderRadius: 2 }} />
+          <span style={{ width: 8, height: 8, background: p.color, borderRadius: T.radiusChart, border: `1px solid ${T.vizStroke}` }} />
           {p.dataKey}: {p.value}
         </div>
       ))}

@@ -15,7 +15,6 @@ const jiraBtn = (primary, disabled) => ({
   borderRadius: 4,
   fontSize: 12,
   fontWeight: 600,
-  fontFamily: "DM Sans, sans-serif",
   cursor: disabled ? "default" : "pointer",
   opacity: disabled ? 0.55 : 1,
   border: `1px solid ${primary ? T.accent : T.border}`,
@@ -217,7 +216,7 @@ function JiraIssueList({ issues, mode }) {
           value={query}
           onChange={(e) => { setQuery(e.target.value); setShowAll(false); setExpandedKey(null) }}
           placeholder="Search key or summary…"
-          style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 220, fontFamily: "DM Sans, sans-serif" }}
+          style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 220 }}
         />
       </div>
       <div style={{ overflowX: "auto" }} className="scrollbar">

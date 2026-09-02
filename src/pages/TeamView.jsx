@@ -81,15 +81,15 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
         <Section title="Team at a Glance" subtitle="Top-line numbers across every analyst with assigned cases. Use this row as the starting frame for everything below — leaderboard, cadence, and per-member profiles.">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
             <Card className="hoverlift">
-              <div className="eyebrow" style={{ color: T.muted }}>Team size</div>
-              <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: T.ink, lineHeight: 1 }}>
+              <div className="eyebrow">Team size</div>
+              <div className="display" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {members.length}
               </div>
               <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>analysts with assigned cases</div>
             </Card>
             <Card className="hoverlift">
-              <div className="eyebrow" style={{ color: T.muted }}>Total cases</div>
-              <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: T.ink, lineHeight: 1 }}>
+              <div className="eyebrow">Total cases</div>
+              <div className="display" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: T.ink, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {totals.total.toLocaleString()}
               </div>
               <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{totals.closed} closed · {totals.solutionProposed ? `${totals.solutionProposed} solution proposed · ` : ""}{totals.open} open</div>
@@ -98,8 +98,8 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
               )}
             </Card>
             <Card className="hoverlift">
-              <div className="eyebrow" style={{ color: T.muted }}>Team SLA</div>
-              <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: SLA_COLOR(totals.slaRate), lineHeight: 1 }}>
+              <div className="eyebrow">Team SLA</div>
+              <div className="display" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: SLA_COLOR(totals.slaRate), lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {totals.slaRate == null ? "—" : `${totals.slaRate.toFixed(1)}%`}
               </div>
               <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{totals.slaMet} / {totals.slaEligible} within SLA</div>
@@ -108,8 +108,8 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
               )}
             </Card>
             <Card className="hoverlift">
-              <div className="eyebrow" style={{ color: T.muted }}>Open at risk</div>
-              <div className="display mono" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: totals.breached.length ? T.danger : totals.atRisk.length ? T.warn : T.ok, lineHeight: 1 }}>
+              <div className="eyebrow">Open at risk</div>
+              <div className="display" style={{ fontSize: 40, fontWeight: 500, marginTop: 10, color: totals.breached.length ? T.danger : totals.atRisk.length ? T.warn : T.ok, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
                 {totals.breached.length + totals.atRisk.length}
               </div>
               <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>{totals.breached.length} breached · {totals.atRisk.length} due in 24h</div>
@@ -218,7 +218,7 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
                     >
                       {h.label}
                       {sort.key === h.key && (
-                        <span style={{ marginLeft: 4, color: T.accent }}>
+                        <span style={{ marginLeft: 4, color: T.accentDeep }}>
                           {sort.dir === "asc" ? "▲" : "▼"}
                         </span>
                       )}
@@ -232,7 +232,7 @@ export function TeamView({ page, printMode, manager, members, allMembers, compar
                     <td style={{ padding: "10px 14px" }}>
                       <button
                         onClick={() => drillIntoMember(m.name)}
-                        style={{ background: "none", border: "none", color: T.ink, cursor: "pointer", padding: 0, fontSize: 13, fontFamily: "DM Sans, sans-serif", textAlign: "left" }}
+                        style={{ background: "none", border: "none", color: T.ink, cursor: "pointer", padding: 0, fontSize: 13, textAlign: "left" }}
                       >
                         <span style={{ fontWeight: 600 }}>{m.name}</span>
                       </button>
@@ -326,11 +326,11 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
             onClick={(e) => { e.stopPropagation(); onOpenProfile(); }}
             style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
           >
-            <div className="display" style={{ fontSize: 18, fontWeight: 600, color: T.ink, lineHeight: 1.2 }}>
+            <div style={{ fontSize: 18, fontWeight: 600, color: T.ink, lineHeight: 1.2 }}>
               {member.name}
             </div>
           </button>
-          <div className="eyebrow" style={{ color: T.muted, marginTop: 6 }}>
+          <div className="eyebrow" style={{ marginTop: 6 }}>
             {k.total} cases · {k.closed} closed · {k.solutionProposed ? `${k.solutionProposed} solution proposed · ` : ""}{k.open} open
           </div>
         </div>
@@ -350,12 +350,12 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
       </div>
 
       <div>
-        <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>Priority mix</div>
+        <div className="eyebrow" style={{ marginBottom: 6 }}>Priority mix</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {member.priorityMix.map((p) => (
             <div key={p.priority} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
               <div style={{ width: 90, color: T.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.priority}</div>
-              <div style={{ flex: 1, height: 6, background: T.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ flex: 1, height: 6, background: T.vizWell, borderRadius: T.radiusChart, overflow: "hidden" }}>
                 <div style={{ width: `${(p.count / maxPriority) * 100}%`, height: "100%", background: p.color }} />
               </div>
               <div className="mono" style={{ width: 28, textAlign: "right", color: T.sub }}>{p.count}</div>
@@ -375,8 +375,8 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "7px 12px", background: T.ink, color: T.surface,
-            border: `1px solid ${T.ink}`, borderRadius: 6,
-            fontFamily: "DM Sans, sans-serif", fontSize: 12, fontWeight: 500, cursor: "pointer",
+            border: `1px solid ${T.ink}`, borderRadius: T.radiusSm,
+            fontSize: 12, fontWeight: 600, cursor: "pointer",
           }}
         >
           View profile
@@ -385,8 +385,8 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
           onClick={(e) => { e.stopPropagation(); onDrillIn(); }}
           style={{
             padding: "7px 12px", background: "transparent", color: T.sub,
-            border: `1px solid ${T.border}`, borderRadius: 6,
-            fontFamily: "DM Sans, sans-serif", fontSize: 12, cursor: "pointer",
+            border: `1px solid ${T.border}`, borderRadius: T.radiusSm,
+            fontSize: 12, cursor: "pointer",
           }}
         >
           Open full dashboard →
@@ -398,8 +398,8 @@ function MemberCard({ member, onDrillIn, onOpenProfile }) {
 
 function Stat({ label, value, accent }) {
   return (
-    <div style={{ background: T.surfaceAlt, borderRadius: 4, padding: "8px 10px" }}>
-      <div className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>{label}</div>
+    <div style={{ background: T.surfaceAlt, borderRadius: T.radiusSm, padding: "8px 10px" }}>
+      <div className="eyebrow">{label}</div>
       <div className="mono" style={{ fontSize: 14, fontWeight: 600, color: accent || T.ink, marginTop: 2 }}>{value}</div>
     </div>
   );
@@ -408,7 +408,7 @@ function Stat({ label, value, accent }) {
 function ListBlock({ label, items }) {
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>{label}</div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {items.length === 0 ? (
           <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>—</div>

@@ -8,10 +8,10 @@ export function Section({ title, subtitle, children }) {
           <div
             className="display"
             style={{
-              fontSize: 36,
+              fontSize: "var(--fs-h2)",
               lineHeight: 1.05,
               color: T.ink,
-              letterSpacing: "-0.018em",
+              letterSpacing: "-0.01em",
             }}
           >
             {title}

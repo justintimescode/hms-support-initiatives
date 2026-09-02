@@ -85,7 +85,7 @@ export function ThemeToggle() {
       title={dark ? "Switch to light theme" : "Switch to dark theme"}
     >
       <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-        <g className="tt-rays" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+        <g className="tt-rays" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
           {RAY_ANGLES.map((deg) => {
             const a = (deg * Math.PI) / 180
             return (

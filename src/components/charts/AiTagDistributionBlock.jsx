@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import {
   BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { T, alpha } from "../../lib/theme.js";
+import {
+  T, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_H, TOOLTIP_STYLE,
+} from "../../lib/theme.js";
 import { OUTCOME_LABEL, aiTagSummary, tagCatalog, outcomeByPriority, rowsWithTag } from "../../lib/ai-tags.js";
 import { OUTCOME_COLOR, UNTAGGED_COLOR } from "../../lib/ai-tag-colors.js";
 import { Card } from "../layout/Card.jsx";
@@ -42,7 +44,7 @@ export function AiTagDistributionBlock({ rows }) {
   if (!summary.tagged) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Tag distribution</div>
+        <div className="eyebrow">Tag distribution</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           No cases in the current view carry an AI tag, so there is no distribution to show.
         </div>
@@ -54,7 +56,7 @@ export function AiTagDistributionBlock({ rows }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Which tags analysts apply</div>
+          <div className="eyebrow">Which tags analysts apply</div>
           <div className="mono" style={{ fontSize: 12, color: T.sub }}>
             {summary.tagged.toLocaleString()} tagged
           </div>
@@ -65,15 +67,15 @@ export function AiTagDistributionBlock({ rows }) {
           . Colored by outcome; click a bar for its cases.
         </div>
         <OutcomeKey ids={[...new Set(catalog.map((t) => t.outcome))]} />
-        <div style={{ height: Math.max(200, catalog.length * 34 + 40), marginTop: 8 }}>
+        <div style={{ height: Math.max(200, catalog.length * 34 + 40), marginTop: 8, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <BarChart data={catalog} layout="vertical" margin={{ top: 4, right: 64, left: 8, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} horizontal={false} />
+              <CartesianGrid stroke={T.vizGrid} horizontal={false} />
               <XAxis
                 type="number"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
               <YAxis
@@ -81,14 +83,14 @@ export function AiTagDistributionBlock({ rows }) {
                 dataKey="tag"
                 width={225}
                 interval={0}
-                tick={{ fill: T.ink, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK_CAT}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
               />
-              <Tooltip content={<TagTip />} cursor={{ fill: T.surfaceAlt }} />
+              <Tooltip content={<TagTip />} cursor={{ fill: T.vizWell }} />
               <Bar
                 dataKey="count"
-                radius={[0, 3, 3, 0]}
+                radius={BAR_RADIUS_H}
                 cursor="pointer"
                 onClick={(d) => setSelectedTag((prev) => (prev === d.tag ? null : d.tag))}
               >
@@ -98,7 +100,7 @@ export function AiTagDistributionBlock({ rows }) {
                 <LabelList
                   dataKey="count"
                   position="right"
-                  style={{ fill: T.sub, fontSize: 11, fontFamily: "JetBrains Mono" }}
+                  style={{ fill: T.sub, fontSize: 11, fontFamily: "var(--sans)", fontVariantNumeric: "tabular-nums" }}
                   formatter={(v) => `${v} · ${((v / summary.tagged) * 100).toFixed(0)}%`}
                 />
               </Bar>
@@ -115,20 +117,20 @@ export function AiTagDistributionBlock({ rows }) {
       </Card>
 
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Tagging reach by priority</div>
+        <div className="eyebrow">Tagging reach by priority</div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
           Is AI use being recorded on the harder work, or only on routine cases? Bars are all cases
           at that priority, split tagged vs untagged; the label is the tagged share.
         </div>
-        <div style={{ height: Math.max(200, priorities.length * 40 + 40), marginTop: 12 }}>
+        <div style={{ height: Math.max(200, priorities.length * 40 + 40), marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <BarChart data={priorities} layout="vertical" margin={{ top: 4, right: 56, left: 8, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} horizontal={false} />
+              <CartesianGrid stroke={T.vizGrid} horizontal={false} />
               <XAxis
                 type="number"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
               <YAxis
@@ -136,17 +138,17 @@ export function AiTagDistributionBlock({ rows }) {
                 dataKey="priority"
                 width={140}
                 interval={0}
-                tick={{ fill: T.ink, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK_CAT}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
               />
-              <Tooltip content={<PriorityTip />} cursor={{ fill: T.surfaceAlt }} />
-              <Bar stackId="p" dataKey="tagged" name="tagged" fill={T.accent} stroke={T.surface} strokeWidth={1} />
-              <Bar stackId="p" dataKey="untagged" name="untagged" fill={UNTAGGED_COLOR} stroke={T.surface} strokeWidth={1} radius={[0, 3, 3, 0]}>
+              <Tooltip content={<PriorityTip />} cursor={{ fill: T.vizWell }} />
+              <Bar stackId="p" dataKey="tagged" name="tagged" fill={T.vizAccent} stroke={T.surface} strokeWidth={1} />
+              <Bar stackId="p" dataKey="untagged" name="untagged" fill={UNTAGGED_COLOR} stroke={T.vizStroke} strokeWidth={1} radius={BAR_RADIUS_H}>
                 <LabelList
                   dataKey="coveragePct"
                   position="right"
-                  style={{ fill: T.sub, fontSize: 11, fontFamily: "JetBrains Mono" }}
+                  style={{ fill: T.sub, fontSize: 11, fontFamily: "var(--sans)", fontVariantNumeric: "tabular-nums" }}
                   formatter={(v) => (v == null ? "—" : `${v.toFixed(0)}%`)}
                 />
               </Bar>
@@ -169,7 +171,7 @@ function OutcomeKey({ ids }) {
     <div style={{ display: "flex", gap: 14, marginTop: 8, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
       {ids.map((id) => (
         <span key={id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 12, height: 10, background: OUTCOME_COLOR[id], border: `1px solid ${alpha(T.ink, 0.12)}`, borderRadius: 2 }} />
+          <span style={{ width: 12, height: 10, background: OUTCOME_COLOR[id], border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />
           {OUTCOME_LABEL[id]}
         </span>
       ))}
@@ -181,7 +183,7 @@ function TagTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12, maxWidth: 300 }}>
+    <div style={{ ...TOOLTIP_STYLE, maxWidth: 300 }}>
       <div style={{ fontWeight: 600 }}>{d.tag}</div>
       <div className="mono" style={{ color: T.sub }}>
         {d.count} case{d.count === 1 ? "" : "s"}
@@ -201,7 +203,7 @@ function PriorityTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{d.priority}</div>
       <div className="mono" style={{ color: T.sub }}>
         {d.tagged} of {d.total} tagged{d.coveragePct == null ? "" : ` · ${d.coveragePct.toFixed(0)}%`}

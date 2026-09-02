@@ -70,7 +70,7 @@ const NAV_GROUPS = [
       // Cross-source Jira<->case view. Sits with the Jira group rather than
       // Analysis: "Insights" there is already the AI narrative page, and someone
       // hunting for which tickets are hurting customers looks here.
-      { to: "/operations",    label: "Impact Clusters",        icon: Network },
+      { to: "/operations",    label: "Jira x ServiceNow",      icon: Network },
     ],
   },
   {
@@ -140,6 +140,13 @@ function Sidebar({ importCount, storageBytes }) {
         overflowY: "auto",
       }}
     >
+      {/* Brand lockup — endorsed-product pattern: the parent Infor wordmark on
+       * top, a hairline that hangs the product name off it (clearspace +
+       * "an Infor product" hierarchy without a second competing mark), then
+       * the product name. The name is a single Montserrat Regular treatment,
+       * Title Case, in ink — NO accent color inside the lockup, per the brand
+       * rule that accent colors never appear in a logo lockup or text
+       * treatment (.brand/SPEC.md §6.9). */}
       <div
         style={{
           padding: "20px 20px 18px",
@@ -147,20 +154,46 @@ function Sidebar({ importCount, storageBytes }) {
           display: "flex",
           flexDirection: "column",
           alignItems: "flex-start",
-          gap: 10,
+          gap: 14,
         }}
       >
-        <InforLogo height={26} />
+        <InforLogo />
         <div
-          className="display"
           style={{
-            fontSize: 22,
-            color: T.ink,
-            lineHeight: 1.05,
-            letterSpacing: "-0.015em",
+            alignSelf: "stretch",
+            borderTop: `1px solid ${T.border}`,
+            paddingTop: 12,
           }}
         >
-          HMS <em>Insights</em>
+          {/* Two-line lockup. Line 1 carries the brand anchor — bold, with
+              "Support" in Infor Red; line 2 drops to a lighter weight and
+              secondary color with open tracking so the three-word name reads as
+              a hierarchy, not one crowded run across the 248px sidebar. Both
+              lines stay in the Montserrat display face (.display). */}
+          <div
+            className="display"
+            style={{
+              fontSize: 20,
+              fontWeight: 700,
+              color: T.ink,
+              lineHeight: 1.15,
+              letterSpacing: "-0.005em",
+            }}
+          >
+            HMS <span style={{ color: T.accentDeep }}>Support</span>
+          </div>
+          <div
+            className="display"
+            style={{
+              fontSize: 20,
+              fontWeight: 400,
+              color: T.sub,
+              lineHeight: 1.15,
+              letterSpacing: "0.02em",
+            }}
+          >
+            Insights
+          </div>
         </div>
       </div>
 
@@ -170,8 +203,6 @@ function Sidebar({ importCount, storageBytes }) {
             <div
               className="eyebrow"
               style={{
-                color: T.muted,
-                fontSize: 9,
                 padding: "0 12px 8px",
               }}
             >
@@ -197,7 +228,7 @@ function Sidebar({ importCount, storageBytes }) {
             borderTop: `1px solid ${T.borderSoft}`,
           }}
         >
-          <span className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>Appearance</span>
+          <span className="eyebrow">Appearance</span>
           <ThemeToggle />
         </div>
         <DataRetentionNotice importCount={importCount} storageBytes={storageBytes} />
@@ -218,10 +249,9 @@ function SidebarLink({ to, label, icon: Icon }) {
         gap: 11,
         padding: "8px 12px",
         margin: "0 4px",
-        borderRadius: 7,
+        borderRadius: T.radiusSm,
         background: isActive ? T.accentTint : "transparent",
-        color: isActive ? T.accentDeep : T.sub,
-        fontFamily: "Geist, DM Sans, sans-serif",
+        color: isActive ? T.onAccentSoft : T.sub,
         fontSize: 13,
         fontWeight: isActive ? 600 : 500,
         textDecoration: "none",
@@ -240,12 +270,12 @@ function SidebarLink({ to, label, icon: Icon }) {
                 top: 8,
                 bottom: 8,
                 width: 3,
-                borderRadius: 2,
+                borderRadius: T.radiusSm,
                 background: T.accent,
               }}
             />
           )}
-          <Icon size={15} strokeWidth={isActive ? 2.25 : 1.85} />
+          <Icon size={14} strokeWidth={2.25} />
           {label}
         </>
       )}

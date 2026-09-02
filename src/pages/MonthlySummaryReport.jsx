@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useOutletContext } from "react-router-dom"
 import { Printer, User, Users, Globe } from "lucide-react"
-import { T, alpha } from "../lib/theme.js"
+import { T } from "../lib/theme.js"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
@@ -187,10 +187,10 @@ export default function MonthlySummaryReport() {
               key={w}
               onClick={() => setWin(w)}
               style={{
-                padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600,
+                padding: "6px 12px", borderRadius: T.radiusSm, cursor: "pointer", fontSize: 12, fontWeight: 600,
                 border: `1px solid ${w === win ? T.accent : T.border}`,
                 background: w === win ? T.accentTint : T.surface,
-                color: w === win ? T.accentDeep : T.sub,
+                color: w === win ? T.onAccentSoft : T.sub,
               }}
             >{w}d</button>
           ))}
@@ -200,15 +200,15 @@ export default function MonthlySummaryReport() {
         </span>
         <button
           onClick={() => window.print()}
-          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, background: T.accent, color: T.onAccent, border: `1px solid ${T.accentDeep}` }}
+          style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: T.radiusSm, cursor: "pointer", fontSize: 13, fontWeight: 600, background: T.accent, color: T.onAccent, border: `1px solid ${T.accentDeep}` }}
         >
-          <Printer size={14} /> Print / Save as PDF
+          <Printer size={14} strokeWidth={2.25} /> Print / Save as PDF
         </button>
       </div>
 
       {/* Report header */}
       <div style={{ marginBottom: 16 }}>
-        <div className="display" style={{ fontSize: 26, color: T.ink, letterSpacing: "-0.015em" }}>
+        <div className="display" style={{ fontSize: 28, color: T.ink, letterSpacing: "-0.015em" }}>
           Support Operations — {win}-Day Summary
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -217,11 +217,11 @@ export default function MonthlySummaryReport() {
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "4px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
               background: scope.kind === "all" ? T.surfaceAlt : T.accentTint,
-              color: scope.kind === "all" ? T.sub : T.accentDeep,
-              border: `1px solid ${scope.kind === "all" ? T.border : alpha(T.accent, 0.35)}`,
+              color: scope.kind === "all" ? T.sub : T.onAccentSoft,
+              border: `1px solid ${scope.kind === "all" ? T.border : T.accentSoft}`,
             }}
           >
-            <ScopeIcon size={12} /> {scope.label}
+            <ScopeIcon size={14} strokeWidth={2.25} /> {scope.label}
           </span>
           <span className="mono" style={{ fontSize: 12, color: T.sub }}>
             {scoped.length.toLocaleString()} cases in scope
@@ -231,7 +231,7 @@ export default function MonthlySummaryReport() {
           {fmtFullDate(report.from)} – {fmtFullDate(report.to)} <span style={{ color: T.muted }}>vs. prior {win} days</span>
           {filename ? <span style={{ color: T.muted }}> · source: {filename}</span> : null}
         </div>
-        <div style={{ color: T.muted, fontSize: 11.5, marginTop: 3 }}>
+        <div style={{ color: T.muted, fontSize: 12, marginTop: 3 }}>
           Intake, SLA and response metrics cover cases <strong>created</strong> in the window; throughput and
           resolution time cover cases <strong>closed</strong> in it. Queue counts are as of the snapshot,{" "}
           {fmtFullDate(report.to)}. SLA is the Infor SOP update cadence.
@@ -242,9 +242,9 @@ export default function MonthlySummaryReport() {
       <div className="msr-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
         {metrics.map((m) => (
           <Card key={m.label} className="msr-card" style={{ position: "relative", overflow: "hidden", padding: "16px 18px 18px" }}>
-            <div aria-hidden style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: m.accent || T.ink, opacity: 0.8 }} />
-            <div className="eyebrow" style={{ color: T.muted }}>{m.label}</div>
-            <div className="display" style={{ fontSize: 34, lineHeight: 1.05, marginTop: 8, color: m.accent || T.ink, letterSpacing: "-0.02em", fontFeatureSettings: '"tnum"' }}>{m.value}</div>
+            <div aria-hidden style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: m.accent || T.ink }} />
+            <div className="eyebrow">{m.label}</div>
+            <div className="display" style={{ fontSize: 34, lineHeight: 1.05, marginTop: 8, color: m.accent || T.ink, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{m.value}</div>
             {m.hint && <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{m.hint}</div>}
             <DeltaLine text={m.delta.text} color={m.delta.color} />
           </Card>
@@ -254,7 +254,7 @@ export default function MonthlySummaryReport() {
       <div className="msr-split" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, marginTop: 12 }}>
         {/* Why the SLA misses missed */}
         <Card className="msr-card">
-          <div className="eyebrow" style={{ color: T.muted }}>SOP cadence — where it broke ({win}d)</div>
+          <div className="eyebrow">SOP cadence — where it broke ({win}d)</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
             Mutually exclusive reasons: a missed first response, or a missed follow-up update. Prior window shown beneath.
           </div>
@@ -268,7 +268,7 @@ export default function MonthlySummaryReport() {
 
         {/* The queue as it stands */}
         <Card className="msr-card">
-          <div className="eyebrow" style={{ color: T.muted }}>Open queue at snapshot</div>
+          <div className="eyebrow">Open queue at snapshot</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
             Point-in-time across the whole scope — not limited to the {win}-day window.
           </div>
@@ -287,7 +287,7 @@ export default function MonthlySummaryReport() {
       {/* Escalation early warning — only when the queue has something to warn about */}
       {showSentiment ? (
         <Card className="msr-card" style={{ marginTop: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Escalation early warning</div>
+          <div className="eyebrow">Escalation early warning</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
             Open queue at snapshot, from the on-device sentiment engine. Risk is driven by silence — unanswered
             messages, customer chases and analyst staleness — not tone alone.
@@ -304,7 +304,7 @@ export default function MonthlySummaryReport() {
 
       {/* Backlog outlook */}
       <Card className="msr-card" style={{ marginTop: 12 }}>
-        <div className="eyebrow" style={{ color: T.muted }}>Backlog outlook</div>
+        <div className="eyebrow">Backlog outlook</div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
           Monte Carlo burn-down bootstrapped from the last {backlog.sampleWeeks} mature
           week{backlog.sampleWeeks === 1 ? "" : "s"} of intake vs resolution.
@@ -353,7 +353,7 @@ export default function MonthlySummaryReport() {
       {/* Calendar-month scorecard */}
       {report.scorecard.length > 1 && (
         <Card className="msr-card" style={{ marginTop: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>
+          <div className="eyebrow">
             Month by month — {fmtAxisDate(report.scorecard[0].month)} to {fmtAxisDate(report.scorecard[report.scorecard.length - 1].month)}
           </div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
@@ -402,7 +402,7 @@ export default function MonthlySummaryReport() {
       {/* Accounts to watch */}
       {report.watch.length > 0 && (
         <Card className="msr-card" style={{ marginTop: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Accounts to watch</div>
+          <div className="eyebrow">Accounts to watch</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Highest churn-risk accounts — rising volume, falling SLA, or open blockers (last {win}d vs prior).</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10 }}>
             <thead>
@@ -433,7 +433,7 @@ export default function MonthlySummaryReport() {
           already a single person, where a one-row table says nothing. */}
       {showAnalystTable ? (
         <Card className="msr-card" style={{ marginTop: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>By analyst ({win}d)</div>
+          <div className="eyebrow">By analyst ({win}d)</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10 }}>
             <thead>
               <tr style={{ background: T.surfaceAlt }}>
@@ -463,7 +463,7 @@ export default function MonthlySummaryReport() {
         </Card>
       ) : (
         <Card className="msr-card" style={{ marginTop: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Conversation load ({win}d)</div>
+          <div className="eyebrow">Conversation load ({win}d)</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
             How much back-and-forth each case took. Shown in place of the per-analyst table, which has nothing to
             compare when the report already covers one person.
@@ -486,9 +486,9 @@ const TD = { padding: "8px 12px", whiteSpace: "nowrap" }
 function Mini({ label, value, color, hint }) {
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted }}>{label}</div>
+      <div className="eyebrow">{label}</div>
       <div className="mono" style={{ fontSize: 26, fontWeight: 600, color, lineHeight: 1, marginTop: 6 }}>{value}</div>
-      {hint && <div style={{ color: T.sub, fontSize: 11.5, marginTop: 5 }}>{hint}</div>}
+      {hint && <div style={{ color: T.sub, fontSize: 12, marginTop: 5 }}>{hint}</div>}
     </div>
   )
 }
@@ -508,9 +508,9 @@ function MiniRow({ children }) {
 function RankCard({ title, rows }) {
   return (
     <Card className="msr-card">
-      <div className="eyebrow" style={{ color: T.muted }}>{title}</div>
+      <div className="eyebrow">{title}</div>
       {rows.length === 0 ? (
-        <div style={{ color: T.sub, fontSize: 12.5, marginTop: 10 }}>Nothing in this window.</div>
+        <div style={{ color: T.sub, fontSize: 12, marginTop: 10 }}>Nothing in this window.</div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginTop: 10 }}>
           <thead>

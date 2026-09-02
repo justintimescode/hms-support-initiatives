@@ -1,62 +1,305 @@
-/* ---------- theme palettes ----------
- * Source of truth for every color token. JS reads these through var() refs in
- * src/lib/theme.js (T.bg === "var(--t-bg)"), so components keep using T.* and
- * the [data-theme] attribute on <html> decides what they resolve to.
- * index.html sets data-theme before first paint; src/lib/theme-mode.js owns it
- * at runtime.
+/* ---------- Infor brand theme palettes ----------
+ * Source of truth for every color token in the app. JS reads these through
+ * var() refs in src/lib/theme.js (T.bg === "var(--t-bg)"), so components keep
+ * using T.* and the [data-theme] attribute on <html> decides what they resolve
+ * to. index.html sets data-theme before first paint; src/lib/theme-mode.js owns
+ * it at runtime.
+ *
+ * Structure, and why it is this way:
+ *   1. BRAND PRIMITIVES  — every approved Infor hex, written exactly ONCE.
+ *   2. DERIVATIONS       — the only values not in the approved set. Each is an
+ *                          sRGB mix of exactly two approved colors, and the mix
+ *                          is stated. Reproduce them; never eyeball a new one.
+ *   3. :root             — the light palette, built from 1 and 2.
+ *   4. [data-theme=dark] — the dark palette, anchored on Infor Charcoal.
+ *   5. @media print      — neutralises the dark block only.
+ * Because the palettes reference primitives rather than restating hexes, a
+ * brand color can never drift between the light, dark and print copies — which
+ * is exactly how the previous palette ended up with four different "reds".
+ *
+ * Reference: Infor Brand Visual Identity Guidelines, February 2026.
+ * Deviations from the brand letter are marked DEVIATION and explained inline.
  */
+
+@import '@fontsource-variable/montserrat';
+@import '@fontsource-variable/montserrat/wght-italic.css';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/inter/wght-italic.css';
+
 :root {
-  --sans: 'Geist', 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --display: 'Instrument Serif', 'Fraunces', Georgia, serif;
-  --mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  /* ================= 1. BRAND PRIMITIVES =================
+   * Each approved hex appears exactly once in this file. */
 
-  /* Surfaces */
-  --t-bg: #F6F6F7;
-  --t-surface: #FFFFFF;
-  --t-surface-alt: #F1F2F4;
-  --t-surface-sunk: #FAFAFB;
+  /* PRIMARY */
+  --brand-red:            #ED0C0C;
+  --brand-gray:           #DEE0E2;
+  --brand-white:          #FFFFFF;
+  --brand-charcoal:       #15262E;
 
-  /* Ink */
-  --t-ink: #0E0E10;
-  --t-sub: #52525B;
-  --t-muted: #9A9AA3;
-  --t-border: #E4E4E7;
-  --t-border-soft: #EEEEF0;
+  /* SECONDARY — CTAs, data viz, icons */
+  --brand-purple:         #460DAF;
+  --brand-purple-shade:   #180D4B;
 
-  /* Brand — Infor red */
-  --t-accent: #DA291C;
-  --t-accent-deep: #B11E14;
-  --t-accent-soft: #FBE3E0;
-  --t-accent-tint: #FEF3F2;
-  --t-on-accent: #FFFFFF;
+  /* TERTIARY — data viz + icons ONLY, never body text */
+  --brand-green:          #00BD58;
+  --brand-green-shade:    #004A1A;
+  --brand-yellow:         #FFAC00;
+  --brand-yellow-shade:   #7B3E00;
 
-  /* Brand tints for external systems */
-  --t-sn-green: #1FA84C;
-  --t-jira-blue: #1868DB;
+  /* SHADES / TINTS */
+  --brand-red-shade-01:   #D5000E;
+  --brand-red-shade-02:   #720000;
+  --brand-red-tint-01:    #FFD3D2;
+  --brand-red-tint-02:    #F48288;
+  --brand-gray-shade-01:  #C6CBCC;
+  --brand-gray-shade-02:  #747777;
+  --brand-gray-tint-01:   #F2F3F4;
+  --brand-purple-tint-01: #E7E3FA;
+  --brand-purple-tint-02: #C4B8F2;
+  --brand-green-tint-01:  #CDF2D7;
+  --brand-green-tint-02:  #82DE9B;
+  --brand-yellow-tint-01: #FFEECF;
+  --brand-yellow-tint-02: #FFD586;
 
-  /* Semantic */
-  --t-ok: #137A4D;
-  --t-ok-soft: #DCF1E4;
-  --t-warn: #B45309;
-  --t-warn-soft: #FCE9C5;
-  --t-danger: #B91C1C;
-  --t-danger-soft: #FBDDDB;
+  /* ================= 2. SANCTIONED DERIVATIONS =================
+   * DEVIATION: these are the ONLY values in the app that are not members of
+   * the approved set. Three structural gaps in the standard force them:
+   *   (a) No mid-neutral. The approved neutral ladder runs
+   *       #FFFFFF / #F2F3F4 / #DEE0E2 / #C6CBCC / #747777 / #15262E with
+   *       NOTHING between #747777 (4.52:1 on white) and Charcoal, so the app's
+   *       ink/sub/muted three-step hierarchy cannot exist. Raw #747777 for
+   *       --t-sub would drop 543 callsites from 7.73:1 to 4.52:1 and below AA
+   *       on the tinted canvas. Both derived neutrals IMPROVE on today.
+   *   (b) No purple mid-steps. The approved purple luminances are
+   *       0.010 / 0.047 / 0.524 / 0.788 — an 11x gap with nothing in it, so an
+   *       ordinal ramp is impossible without intermediates. Both mids are pure
+   *       blends of two approved purples, so no new hue enters the palette.
+   *   (c) No second light-neutral step for raised wells.
+   * Each value is the exact output of its stated mix — paste the formula, get
+   * the hex. */
+  --d-neutral-sub:    #454F53; /* 50% gray-shade-02 + 50% charcoal */
+  --d-neutral-muted:  #5C6365; /* 75% gray-shade-02 + 25% charcoal */
+  --d-surface-alt:    #E8EAEB; /* 50% gray-tint-01  + 50% gray     */
+  --d-purple-mid-hi:  #9A80DC; /* 33% purple + 67% purple-tint-02  */
+  --d-purple-mid-lo:  #7045C5; /* 67% purple + 33% purple-tint-02  */
+  --d-purple-deep:    #2F0D7D; /* 50% purple + 50% purple-shade    */
 
-  /* Priority palette */
-  --t-priority-critical: #B91C1C;
-  --t-priority-major: #B45309;
-  --t-priority-medium: #137A4D;
-  --t-priority-standard: #475569;
+  /* External-system reference tints. DEVIATION, deliberate and scoped: these
+   * tint case numbers (CS...) and ticket keys (HMS-..., RN-...) so an analyst
+   * can tell at a glance WHICH system a reference belongs to. That cue carries
+   * real information, and collapsing both onto Infor Purple would make CS and
+   * HMS refs identical. Infor has no blue at all, so --t-jira-blue is the one
+   * genuinely non-brand hue in the palette; the ServiceNow tint is a blend of
+   * two approved Infor greens, so its hue stays on-brand.
+   * Infor Green Shade alone (#004A1A, 10.53:1) is technically the approved
+   * choice but reads as near-black at 12px, which destroys the very cue this
+   * token exists to carry; Infor Green itself is 2.49:1 and fails outright.
+   * The blend below is the lightest step that still clears AA on all four
+   * light surfaces (6.09 / 5.48 / 5.04 / 4.60) while reading unmistakably green.
+   * These appear as inline TEXT ONLY and never as chart geometry. */
+  --d-ref-green:      #007230; /* 35% infor-green + 65% green-shade */
+  --d-ref-blue:       #0747A6; /* Atlassian dark blue — 8.53:1 on white */
+  --d-ref-blue-dark:  #85B8FF; /* Atlassian dark-mode blue, 7.64:1 on charcoal */
 
-  /* Effects */
-  --t-scrim: rgba(14, 14, 16, 0.55);
-  --t-shadow-sm: 0 1px 2px rgba(15, 15, 17, 0.04), 0 1px 1px rgba(15, 15, 17, 0.03);
-  --t-shadow-md: 0 4px 12px rgba(15, 15, 17, 0.06), 0 1px 3px rgba(15, 15, 17, 0.04);
-  --t-shadow-lg: 0 12px 32px rgba(15, 15, 17, 0.08), 0 2px 6px rgba(15, 15, 17, 0.04);
-  --t-ring: 0 0 0 3px rgba(218, 41, 28, 0.18);
+  /* ================= FONTS =================
+   * Montserrat for headlines, Inter for body/UI — the brand's two faces, and
+   * the only two the app ships. Self-hosted via @fontsource above rather than
+   * the Google Fonts CDN, so the offline Electron build renders correctly.
+   * --mono is retained as a NAME so existing var(--mono) references resolve;
+   * it resolves to Inter, which ships genuine tabular figures and a slashed
+   * zero — the two things the previous monospace face was actually chosen for. */
+  --sans:    'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --display: 'Montserrat Variable', Montserrat, 'Inter Variable', Inter, system-ui, sans-serif;
+  --mono:    var(--sans);
+
+  /* ---------- Type scale, X = 14px (the body size declared below) ----------
+   * The brand hierarchy: Eyebrow 1.5X ALL CAPS / Headline 01 6X /
+   * Headline 02 3X / Subhead X / Body X. */
+  --fs-eyebrow: 21px;   /* 1.5X, ALL CAPS   */
+  --fs-h1:      84px;   /* 6X, Headline 01  */
+  --fs-h2:      42px;   /* 3X, Headline 02  */
+  --fs-subhead: 14px;   /* X,  Title Case   */
+  --fs-body:    14px;   /* X,  sentence case */
+
+  /* DECLARED DENSE-UI EXCEPTION. 632 of this app's 777 font sizes are <=13px.
+   * The X-scale was written for marketing collateral; a literal 21px eyebrow
+   * above a 48px KPI figure inverts the hierarchy, and a 14px floor in a
+   * nine-column analyst table would cost this tool the information density it
+   * exists for. So: the X-scale governs PAGE-level type (hero, section titles,
+   * card subheads, prose) and the dense tier governs type inside a card,
+   * table, chart or pill. Nothing sits between the two. */
+  --fs-eyebrow-dense: 11px;
+  --fs-body-dense:    12px;
+  --fs-micro:         11px;
+  --fs-h2-dense:      28px;
+
+  /* ================= 3. LIGHT PALETTE ================= */
+
+  /* Surfaces. --t-bg is Gray Tint 01, the brand's own named "subtle Infor Gray
+   * Tint background", which also makes the page canvas an approved data-viz
+   * container background. */
+  --t-bg:           var(--brand-gray-tint-01);
+  --t-surface:      var(--brand-white);
+  --t-surface-alt:  var(--d-surface-alt);
+  --t-surface-sunk: var(--brand-gray);
+
+  /* Ink ladder. Tiers are 1.85 (ink->sub) and 1.37 (sub->muted); every tier
+   * passes AA on all four light surfaces. --t-muted rises from 2.79:1 (a
+   * standing AA failure across 494 callsites) to 6.13:1. */
+  --t-ink:         var(--brand-charcoal);
+  --t-sub:         var(--d-neutral-sub);
+  --t-muted:       var(--d-neutral-muted);
+  --t-border:      var(--brand-gray-shade-01);
+  --t-border-soft: var(--brand-gray);
+
+  /* Brand — Infor Red. --t-accent is a FILL role: #ED0C0C is 4.51:1 on white
+   * but only 4.06:1 on the tinted canvas, so it cannot carry small text.
+   * Accent-colored TEXT uses --t-accent-deep (Red Shade 01, 5.48/4.93/4.54). */
+  --t-accent:      var(--brand-red);
+  --t-accent-deep: var(--brand-red-shade-01);
+  --t-accent-soft: var(--brand-red-tint-02);
+  --t-accent-tint: var(--brand-red-tint-01);
+  --t-on-accent:   var(--brand-white);
+
+  /* Text on any red tint fill. Exists so no callsite has to judge it:
+   * Red Shade 01 on Red Tint 01 is only 4.04:1, Red Shade 02 is 9.04:1. */
+  --t-on-accent-soft: var(--brand-red-shade-02);
+
+  /* External-system reference tints — see the derivation note above. */
+  --t-sn-green:  var(--d-ref-green); /* ServiceNow case numbers, 6.09:1 */
+  --t-jira-blue: var(--d-ref-blue);        /* Jira / RN ticket keys,    8.24:1 */
+
+  /* Semantic status. --t-ok is Infor PURPLE, not green: because --t-ok was
+   * green and --t-danger red, every good/bad pairing in the app was
+   * automatically the brand's one absolute prohibition ("never red + green as
+   * the only two colors; never adjacent"). Re-pointing this single token
+   * removes red+green everywhere by construction, across the 27 files that
+   * pair them. It is also a measured accessibility win: the old green/red pair
+   * was 1.01:1 under deuteranopia — literally the same color to a red-green
+   * colorblind viewer. Infor Green survives as --t-ok-fill, chart marks only.
+   * Text values are the Shade members; the saturated cores are quarantined
+   * into the -fill tokens because Infor Green is 2.49:1 on white and Infor
+   * Yellow 1.88:1 — neither can ever carry text. */
+  --t-ok:          var(--brand-purple);
+  --t-ok-soft:     var(--brand-purple-tint-01);
+  --t-warn:        var(--brand-yellow-shade);
+  --t-warn-soft:   var(--brand-yellow-tint-01);
+  --t-danger:      var(--brand-red-shade-02);
+  --t-danger-soft: var(--brand-red-tint-01);
+
+  /* Priority palette — text positions. All four are now text-safe. */
+  --t-priority-critical: var(--brand-red-shade-02);  /* 12.24 */
+  --t-priority-major:    var(--brand-purple-shade);  /* 17.53 */
+  --t-priority-medium:   var(--brand-purple);        /* 10.84 */
+  --t-priority-standard: var(--d-neutral-muted);     /*  6.13 */
+
+  /* Effects. Shadow geometry is the brand spec exactly: 15% opacity, 10px
+   * offset AND blur, light source top-left (so X and Y are both positive; the
+   * old tokens had X:0, i.e. a light directly overhead), single layer, built on
+   * Infor Charcoal channels rather than a hex that matched nothing.
+   * --t-shadow-sm is `none` on purpose: it satisfies the companion clause "the
+   * largest shape never has a drop shadow" at the token layer with zero
+   * component edits, since its seven consumers are the Card (the largest shape
+   * on every page, 69 importers), the filter bar and three top-bar controls.
+   * -md and -lg are identical because the brand specifies ONE shadow and
+   * forbids mixing depths in a layout; aliasing them makes that violation
+   * unreachable while all 90 callsites keep working. */
+  --t-scrim:     rgba(21, 38, 46, 0.55);
+  --t-shadow-sm: none;
+  --t-shadow-md: 10px 10px 10px rgba(21, 38, 46, 0.15);
+  --t-shadow-lg: 10px 10px 10px rgba(21, 38, 46, 0.15);
+
+  /* Focus ring — the app's ONLY focus indicator (Shell.jsx removes outlines).
+   * The old rgba(218,41,28,0.18) composited over white to #F8D8D6 = 1.33:1,
+   * i.e. functionally invisible. Full-opacity Infor Purple is 10.84:1 on
+   * white. The surface-colored inner ring is load-bearing: purple against a
+   * filled #ED0C0C button is only 2.41:1, but the white spacer is 4.51:1. */
+  --t-ring: 0 0 0 2px var(--t-surface), 0 0 0 4px var(--brand-purple);
+
+  /* ---------- Data-visualization tokens ----------
+   * The brand's most specific data-viz instruction is "PRIORITIZE PURPLE as
+   * the accent color in data visualization over green/yellow", and it names
+   * duotone purple-or-charcoal on white/gray-tint as the default mode. These
+   * tokens exist so chart geometry never reaches for a status token: --t-ok /
+   * --t-warn / --t-danger are for text, pills and dots; charts use --t-viz-* /
+   * --t-cat-*. That single rule is what stops charts from re-deriving the
+   * forbidden pairings. */
+  --t-viz-accent:      var(--brand-purple);
+  --t-viz-accent-deep: var(--brand-purple-shade);
+  --t-viz-accent-soft: var(--brand-purple-tint-01);
+  --t-on-viz:          var(--brand-white);
+
+  /* Fill-only members of the tertiary palette. NEVER use as text. */
+  --t-ok-fill:     var(--brand-green);
+  --t-warn-fill:   var(--brand-yellow);
+  --t-danger-fill: var(--brand-red);
+
+  /* Chart chrome, uniform across all 27 charting files. */
+  --t-viz-well:   var(--brand-gray-tint-01); /* the "subtle Gray Tint" plot ground */
+  --t-viz-grid:   var(--brand-gray);         /* CartesianGrid stroke */
+  --t-viz-axis:   var(--brand-gray-shade-01);/* axisLine / tickLine / ReferenceLine */
+  --t-viz-tick:   var(--d-neutral-muted);    /* numeric tick TEXT, 6.13 (was 2.79) */
+  --t-viz-cat:    var(--brand-charcoal);     /* category tick + table header text */
+  --t-viz-stroke: var(--d-neutral-muted);    /* 1px perceivability stroke */
+
+  /* Ordinal ramp, low -> high. One family, strictly monotonic in luminance
+   * (0.524 > 0.275 > 0.117 > 0.047), so it survives the grayscale printer the
+   * Monthly Summary actually goes to and stays orderable under deuteranomaly.
+   * The ramp it replaces was green->yellow->red->red, whose last two steps were
+   * six hex points apart and visually identical. */
+  --t-viz-r1: var(--brand-purple-tint-02);
+  --t-viz-r2: var(--d-purple-mid-hi);
+  --t-viz-r3: var(--d-purple-mid-lo);
+  --t-viz-r4: var(--brand-purple);
+
+  /* Sequential intensity ramp endpoints for neutralHeat(). Bounded short of
+   * full Infor Purple on purpose, so ONE text color works on every cell:
+   * --t-ink reads 14.02 -> 8.52 across the whole light range. */
+  --t-heat-from: var(--brand-gray-tint-01);
+  --t-heat-to:   var(--brand-purple-tint-02);
+
+  /* Priority chart FILLS (the text tiers stay on --t-priority-*). */
+  --t-priority-standard-fill: var(--brand-gray-shade-01);
+  --t-priority-medium-fill:   var(--d-purple-mid-hi);
+  --t-priority-major-fill:    var(--brand-purple);
+  --t-priority-critical-fill: var(--brand-red);
+
+  /* Categorical ramp — an ordered Infor Purple tint ladder. One color family,
+   * as many steps as there are categories, so the "max 3 color families in any
+   * single data visualization" cap is satisfied outright rather than argued
+   * around. Ordered dark -> light, which reads as a natural ranking on the
+   * size-sorted pies and bars that use it. Slot 8 is the achromatic residual
+   * ("Other"), not a hue. A 9th category takes slot 8 too — the fallback is
+   * encoded in the array, never in `i % length`, so a new product line can
+   * never introduce a new hue. Steps below 3:1 against the plot ground carry a
+   * 1px --t-viz-stroke outline. */
+  --t-cat-1: var(--brand-purple-shade);
+  --t-cat-2: var(--d-purple-deep);
+  --t-cat-3: var(--brand-purple);
+  --t-cat-4: var(--d-purple-mid-lo);
+  --t-cat-5: var(--d-purple-mid-hi);
+  --t-cat-6: var(--brand-purple-tint-02);
+  --t-cat-7: var(--brand-purple-tint-01);
+  --t-cat-8: var(--brand-gray-shade-01);
+
+  /* SLA risk ramp. Red is reserved for the terminal breached state, where it
+   * carries meaning; everything else is the purple ladder plus neutrals. Two
+   * families plus the achromatic slot. */
+  --t-risk-breached:    var(--brand-red);
+  --t-risk-due24:       var(--brand-purple);
+  --t-risk-dueweek:     var(--d-purple-mid-hi);
+  --t-risk-comfortable: var(--brand-gray-shade-01);
+  --t-risk-none:        var(--brand-gray);
+
+  /* DoD parent accounts — four purely categorical branches with no good/bad
+   * meaning, so they take four well-separated steps of the purple ladder. */
+  --t-dod-airforce:   var(--brand-purple-shade);
+  --t-dod-army:       var(--brand-purple);
+  --t-dod-navy:       var(--d-purple-mid-hi);
+  --t-dod-navylodges: var(--brand-purple-tint-02);
 
   font: 14px/1.5 var(--sans);
-  letter-spacing: 0.005em;
+  letter-spacing: 0;
   color-scheme: light;
   color: var(--t-ink);
   background: var(--t-bg);
@@ -66,88 +309,234 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Dark palette. The accent lifts toward coral so Infor red keeps contrast on
- * near-black; soft fills become deep washes of the same hue. */
+/* ================= 4. DARK PALETTE =================
+ * DEVIATION: the brand standard contains exactly ONE dark color, Infor
+ * Charcoal, and Purple Shade sits only 1.13:1 from it — so it cannot serve as
+ * a second surface step. A dark theme therefore REQUIRES derived steps. Every
+ * one below is a stated mix of Charcoal with black, Infor Gray, or a single
+ * approved core color, and Charcoal itself anchors --t-surface. Do not
+ * "resolve" this deviation by deleting dark mode.
+ * Fills invert relative to light: Infor Purple is only 1.44:1 on Charcoal and
+ * unusable as a dark bar fill, so the purple ramp runs the other way and the
+ * lighter tints carry the emphasis. */
 html[data-theme="dark"] {
-  --t-bg: #101114;
-  --t-surface: #17181C;
-  --t-surface-alt: #1F2026;
-  --t-surface-sunk: #141518;
+  --d-dk-bg:          #0E191E; /* charcoal x 0.65                    */
+  --d-dk-sunk:        #0F1B21; /* charcoal x 0.72                    */
+  --d-dk-alt:         #293940; /* charcoal + 10% infor gray          */
+  --d-dk-border:      #414F56; /* charcoal + 22% infor gray          */
+  --d-dk-border-soft: #314047; /* charcoal + 14% infor gray          */
+  --d-dk-muted:       #A5A9AA; /* 60% gray-shade-01 + 40% gray-shade-02 */
+  --d-dk-red-soft:    #4B2026; /* charcoal + 25% infor red           */
+  --d-dk-red-tint:    #402127; /* charcoal + 20% infor red           */
+  --d-dk-purple-soft: #371588; /* charcoal + 70% infor purple        */
+  --d-dk-yellow-soft: #484324; /* charcoal + 22% infor yellow        */
+  --d-dk-green-soft:  #104737; /* charcoal + 22% infor green         */
 
-  --t-ink: #F2F2F4;
-  --t-sub: #A8A8B3;
-  --t-muted: #70707B;
-  --t-border: #2A2B33;
-  --t-border-soft: #222329;
+  --t-bg:           var(--d-dk-bg);
+  --t-surface:      var(--brand-charcoal);
+  --t-surface-alt:  var(--d-dk-alt);
+  --t-surface-sunk: var(--d-dk-sunk);
 
-  --t-accent: #F25C50;
-  --t-accent-deep: #E0382B;
-  --t-accent-soft: #46201C;
-  --t-accent-tint: #2C1715;
-  /* Coral is effectively a light accent — white on it fails AA (3.27:1),
-   * near-black ink gives 5.8:1. */
-  --t-on-accent: #101114;
+  /* Dark ink tiers are 1.47 and 1.45 — both above the just-noticeable
+   * threshold, which the previous 1.19/1.24 pair was not. */
+  --t-ink:         var(--brand-gray-tint-01);
+  --t-sub:         var(--brand-gray-shade-01);
+  --t-muted:       var(--d-dk-muted);
+  --t-border:      var(--d-dk-border);
+  --t-border-soft: var(--d-dk-border-soft);
 
-  --t-sn-green: #3BCB6D;
-  --t-jira-blue: #5C9DFF;
+  /* The approved set holds exactly two dark-safe reds, so --t-accent takes
+   * Tint 01 and --t-accent-deep Tint 02. The distinction that matters
+   * survives: accent vs danger is 1.85:1 here, against 1.07:1 before — the two
+   * were previously almost literally the same color. --t-accent-deep is
+   * text-safe (6.23 on surface, 4.79 on raised wells), which matters because
+   * it carries the active nav item and the EmptyState hover fill. */
+  --t-accent:      var(--brand-red-tint-01);
+  --t-accent-deep: var(--brand-red-tint-02);
+  --t-accent-soft: var(--d-dk-red-soft);
+  --t-accent-tint: var(--d-dk-red-tint);
+  --t-on-accent:   var(--brand-charcoal);
 
-  --t-ok: #34C384;
-  --t-ok-soft: #14301F;
-  --t-warn: #E09A3E;
-  --t-warn-soft: #332608;
-  --t-danger: #EF5350;
-  --t-danger-soft: #3B1716;
+  --t-on-accent-soft: var(--brand-red-tint-01);
 
-  --t-priority-critical: #EF5350;
-  --t-priority-major: #E09A3E;
-  --t-priority-medium: #34C384;
-  --t-priority-standard: #94A3B8;
+  --t-sn-green:  var(--brand-green-tint-02); /* 9.17:1 on charcoal */
+  --t-jira-blue: var(--d-ref-blue-dark);     /* 8.60:1 on charcoal */
 
-  --t-scrim: rgba(0, 0, 0, 0.65);
-  --t-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.25);
-  --t-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --t-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.35);
-  /* Focus ring is the app's ONLY focus indicator (Shell.jsx removes
-   * outlines), so it needs ≥3:1 against dark surfaces — 0.75 alpha ≈ 3.5:1. */
-  --t-ring: 0 0 0 3px rgba(242, 92, 80, 0.75);
+  --t-ok:          var(--brand-purple-tint-02);
+  --t-ok-soft:     var(--d-dk-purple-soft);
+  --t-warn:        var(--brand-yellow-tint-02);
+  --t-warn-soft:   var(--d-dk-yellow-soft);
+  --t-danger:      var(--brand-red-tint-02);
+  --t-danger-soft: var(--d-dk-red-soft);
+
+  --t-priority-critical: var(--brand-red-tint-02);
+  --t-priority-major:    var(--brand-purple-tint-01);
+  --t-priority-medium:   var(--brand-purple-tint-02);
+  --t-priority-standard: var(--d-dk-muted);
+
+  /* DEVIATION: 15% charcoal over a charcoal-family ground measures 1.02:1 —
+   * literally invisible. The geometry, direction and single-layer structure of
+   * the brand spec are preserved; only the alpha lifts so the shadow exists. */
+  --t-scrim:     rgba(9, 17, 21, 0.78);
+  --t-shadow-sm: none;
+  --t-shadow-md: 10px 10px 10px rgba(0, 0, 0, 0.45);
+  --t-shadow-lg: 10px 10px 10px rgba(0, 0, 0, 0.45);
+  --t-ring: 0 0 0 2px var(--t-surface), 0 0 0 4px var(--brand-purple-tint-02);
+
+  --t-viz-accent:      var(--brand-purple-tint-02);
+  --t-viz-accent-deep: var(--brand-purple-tint-01);
+  --t-viz-accent-soft: var(--d-dk-purple-soft);
+  --t-on-viz:          var(--brand-charcoal);
+
+  --t-ok-fill:     var(--brand-green-tint-02);
+  --t-warn-fill:   var(--brand-yellow-tint-02);
+  --t-danger-fill: var(--brand-red-tint-02);
+
+  --t-viz-well:   var(--d-dk-alt);
+  --t-viz-grid:   var(--d-dk-border-soft);
+  --t-viz-axis:   var(--d-dk-border);
+  --t-viz-tick:   var(--d-dk-muted);
+  --t-viz-cat:    var(--brand-gray-tint-01);
+  --t-viz-stroke: var(--brand-gray-shade-01);
+
+  --t-viz-r1: var(--brand-purple);
+  --t-viz-r2: var(--d-purple-mid-lo);
+  --t-viz-r3: var(--d-purple-mid-hi);
+  --t-viz-r4: var(--brand-purple-tint-02);
+
+  --t-heat-from: var(--d-dk-alt);
+  --t-heat-to:   var(--d-purple-mid-lo);
+
+  --t-priority-standard-fill: var(--brand-gray-shade-02);
+  --t-priority-medium-fill:   var(--d-purple-mid-lo);
+  --t-priority-major-fill:    var(--brand-purple-tint-02);
+  --t-priority-critical-fill: var(--brand-red-tint-02);
+
+  /* Ladder runs light -> dark here: the darkest purples vanish against a
+   * charcoal ground, so the visible half of the family carries the categories
+   * and the neutral tail takes the overflow slots. */
+  --t-cat-1: var(--brand-purple-tint-01);
+  --t-cat-2: var(--brand-purple-tint-02);
+  --t-cat-3: var(--d-purple-mid-hi);
+  --t-cat-4: var(--d-purple-mid-lo);
+  --t-cat-5: var(--brand-purple);
+  --t-cat-6: var(--d-dk-muted);
+  --t-cat-7: var(--brand-gray-shade-02);
+  --t-cat-8: var(--d-dk-border);
+
+  --t-risk-breached:    var(--brand-red-tint-02);
+  --t-risk-due24:       var(--brand-purple-tint-02);
+  --t-risk-dueweek:     var(--d-purple-mid-lo);
+  --t-risk-comfortable: var(--brand-gray-shade-02);
+  --t-risk-none:        var(--d-dk-border);
+
+  --t-dod-airforce:   var(--brand-purple-tint-01);
+  --t-dod-army:       var(--brand-purple-tint-02);
+  --t-dod-navy:       var(--d-purple-mid-hi);
+  --t-dod-navylodges: var(--d-purple-mid-lo);
 
   color-scheme: dark;
 }
 
-/* Printed reports stay light no matter what theme is active on screen. */
+/* ================= 5. PRINT =================
+ * Printed reports stay light no matter what theme is on screen. Because :root
+ * already carries the light palette, this block only has to neutralise the
+ * dark selector — same specificity, later in the file, so it wins. NOTHING
+ * here restates a brand hex; the primitives remain the single source, which is
+ * what keeps the print copy from drifting out of sync (the previous version
+ * duplicated all 31 values as literals). */
 @media print {
+  html[data-theme="dark"] {
+    --t-bg:           var(--brand-gray-tint-01);
+    --t-surface:      var(--brand-white);
+    --t-surface-alt:  var(--d-surface-alt);
+    --t-surface-sunk: var(--brand-gray);
+
+    --t-ink:         var(--brand-charcoal);
+    --t-sub:         var(--d-neutral-sub);
+    --t-muted:       var(--d-neutral-muted);
+    --t-border:      var(--brand-gray-shade-01);
+    --t-border-soft: var(--brand-gray);
+
+    --t-accent:         var(--brand-red);
+    --t-accent-deep:    var(--brand-red-shade-01);
+    --t-accent-soft:    var(--brand-red-tint-02);
+    --t-accent-tint:    var(--brand-red-tint-01);
+    --t-on-accent:      var(--brand-white);
+    --t-on-accent-soft: var(--brand-red-shade-02);
+
+    --t-sn-green:  var(--d-ref-green);
+    --t-jira-blue: var(--d-ref-blue);
+
+    --t-ok:          var(--brand-purple);
+    --t-ok-soft:     var(--brand-purple-tint-01);
+    --t-warn:        var(--brand-yellow-shade);
+    --t-warn-soft:   var(--brand-yellow-tint-01);
+    --t-danger:      var(--brand-red-shade-02);
+    --t-danger-soft: var(--brand-red-tint-01);
+
+    --t-priority-critical: var(--brand-red-shade-02);
+    --t-priority-major:    var(--brand-purple-shade);
+    --t-priority-medium:   var(--brand-purple);
+    --t-priority-standard: var(--d-neutral-muted);
+
+    --t-scrim: rgba(21, 38, 46, 0.55);
+    --t-ring:  0 0 0 2px var(--t-surface), 0 0 0 4px var(--brand-purple);
+
+    --t-viz-accent:      var(--brand-purple);
+    --t-viz-accent-deep: var(--brand-purple-shade);
+    --t-viz-accent-soft: var(--brand-purple-tint-01);
+    --t-on-viz:          var(--brand-white);
+
+    --t-ok-fill:     var(--brand-green);
+    --t-warn-fill:   var(--brand-yellow);
+    --t-danger-fill: var(--brand-red);
+
+    --t-viz-well:   var(--brand-gray-tint-01);
+    --t-viz-grid:   var(--brand-gray);
+    --t-viz-axis:   var(--brand-gray-shade-01);
+    --t-viz-tick:   var(--d-neutral-muted);
+    --t-viz-cat:    var(--brand-charcoal);
+    --t-viz-stroke: var(--d-neutral-muted);
+
+    --t-viz-r1: var(--brand-purple-tint-02);
+    --t-viz-r2: var(--d-purple-mid-hi);
+    --t-viz-r3: var(--d-purple-mid-lo);
+    --t-viz-r4: var(--brand-purple);
+
+    --t-heat-from: var(--brand-gray-tint-01);
+    --t-heat-to:   var(--brand-purple-tint-02);
+
+    --t-priority-standard-fill: var(--brand-gray-shade-01);
+    --t-priority-medium-fill:   var(--d-purple-mid-hi);
+    --t-priority-major-fill:    var(--brand-purple);
+    --t-priority-critical-fill: var(--brand-red);
+
+    --t-cat-1: var(--brand-purple-shade);
+    --t-cat-2: var(--d-purple-deep);
+    --t-cat-3: var(--brand-purple);
+    --t-cat-4: var(--d-purple-mid-lo);
+    --t-cat-5: var(--d-purple-mid-hi);
+    --t-cat-6: var(--brand-purple-tint-02);
+    --t-cat-7: var(--brand-purple-tint-01);
+    --t-cat-8: var(--brand-gray-shade-01);
+
+    --t-risk-breached:    var(--brand-red);
+    --t-risk-due24:       var(--brand-purple);
+    --t-risk-dueweek:     var(--d-purple-mid-hi);
+    --t-risk-comfortable: var(--brand-gray-shade-01);
+    --t-risk-none:        var(--brand-gray);
+
+    --t-dod-airforce:   var(--brand-purple-shade);
+    --t-dod-army:       var(--brand-purple);
+    --t-dod-navy:       var(--d-purple-mid-hi);
+    --t-dod-navylodges: var(--brand-purple-tint-02);
+  }
+
   :root, html[data-theme="dark"] {
-    --t-bg: #F6F6F7;
-    --t-surface: #FFFFFF;
-    --t-surface-alt: #F1F2F4;
-    --t-surface-sunk: #FAFAFB;
-    --t-ink: #0E0E10;
-    --t-sub: #52525B;
-    --t-muted: #9A9AA3;
-    --t-border: #E4E4E7;
-    --t-border-soft: #EEEEF0;
-    --t-accent: #DA291C;
-    --t-accent-deep: #B11E14;
-    --t-accent-soft: #FBE3E0;
-    --t-accent-tint: #FEF3F2;
-    --t-on-accent: #FFFFFF;
-    --t-sn-green: #1FA84C;
-    --t-jira-blue: #1868DB;
-    --t-ok: #137A4D;
-    --t-ok-soft: #DCF1E4;
-    --t-warn: #B45309;
-    --t-warn-soft: #FCE9C5;
-    --t-danger: #B91C1C;
-    --t-danger-soft: #FBDDDB;
-    --t-priority-critical: #B91C1C;
-    --t-priority-major: #B45309;
-    --t-priority-medium: #137A4D;
-    --t-priority-standard: #475569;
-    --t-scrim: rgba(14, 14, 16, 0.55);
     --t-shadow-sm: none;
     --t-shadow-md: none;
     --t-shadow-lg: none;
-    --t-ring: 0 0 0 3px rgba(218, 41, 28, 0.18);
     color-scheme: light;
   }
 }
@@ -173,6 +562,10 @@ h1, h2, h3 {
 }
 
 p { margin: 0; }
+
+/* Native controls do not inherit the document face by default, which is what
+ * left selects and buttons rendering in the OS sans. */
+button, select, input, textarea, a { font-family: inherit; }
 
 /* ---------- theme switch: circular ripple via the View Transitions API ----
  * ThemeToggle.jsx calls document.startViewTransition and then animates
@@ -221,7 +614,7 @@ html.theme-fade *:not(.theme-toggle, .theme-toggle *)::after {
   padding: 0;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--t-sub);
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
@@ -280,6 +673,12 @@ html[data-theme="dark"] .tt-rays {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .hoverlift:hover { transform: none !important; }
   .theme-toggle,
   .theme-toggle svg,
   .tt-disc,

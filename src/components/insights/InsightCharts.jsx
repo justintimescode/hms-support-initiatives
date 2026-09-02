@@ -3,7 +3,10 @@ import {
   BarChart, Bar, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell,
   ScatterChart, Scatter, ReferenceLine,
 } from "recharts";
-import { T, alpha, neutralHeat } from "../../lib/theme.js";
+import {
+  T, neutralHeat, AXIS_TICK, AXIS_TICK_CAT, TOOLTIP_STYLE, LEGEND_STYLE,
+  BAR_RADIUS_V, BAR_RADIUS_H,
+} from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { AGING_BUCKETS } from "../../lib/constants.js";
 import {
@@ -24,27 +27,31 @@ import { CaseRecordList, JiraRecordList, JiraCasesRecordList } from "./ClusterRe
  * Recharts note: recharts 3 alphabetizes stacked-series legends, so any chart
  * whose series order carries meaning pins an explicit `payload`. */
 
-const AXIS = { stroke: T.muted, fontSize: 11 };
-const TOOLTIP_STYLE = {
-  background: T.surface,
-  border: `1px solid ${T.border}`,
-  borderRadius: 6,
-  fontSize: 12,
-  color: T.ink,
-};
+/* Axis chrome, spread onto every axis on this page. The single `AXIS` object
+ * this replaces set the axis LINE color and left tick TEXT at recharts' own
+ * default, which is why the Operations page silently differed from every other
+ * chart in the app; tick text now comes from the shared AXIS_TICK/AXIS_TICK_CAT. */
+const AXIS_LINE = { axisLine: { stroke: T.vizAxis }, tickLine: { stroke: T.vizAxis } };
+
+/* The plot ground. Spread onto the EXISTING height wrapper of each chart —
+ * never a nested element, or ResponsiveContainer measures 0px. */
+const PLOT_WELL = { background: T.vizWell, borderRadius: T.radiusMd };
 
 const CardHead = ({ title, subtitle }) => (
   <>
-    <div className="eyebrow" style={{ color: T.muted }}>{title}</div>
+    <div className="eyebrow">{title}</div>
     {subtitle && <div style={{ color: T.sub, fontSize: 12, marginTop: 4, marginBottom: 10, maxWidth: 620 }}>{subtitle}</div>}
   </>
 );
 
 /* ===================== Jira age vs case age ===================== */
 
+/* Duotone: Infor Purple leads and the charcoal reference mark carries the
+ * second population. T.jiraBlue is a link-affordance TEXT color for Jira keys
+ * and stays out of chart geometry entirely. */
 const AGE_SERIES = [
-  { key: "cases", label: "ServiceNow cases", color: T.accent },
-  { key: "jira", label: "Jira tickets", color: T.jiraBlue },
+  { key: "cases", label: "ServiceNow cases", color: T.vizAccent },
+  { key: "jira", label: "Jira tickets", color: T.vizCat },
 ];
 
 /** Both sides on ONE shared bucket axis, which is the only way the comparison
@@ -78,16 +85,17 @@ export function AgeComparisonBlock({ clusters }) {
           No correlated records in this view.
         </div>
       ) : (
-        <div style={{ height: 230 }}>
+        <div style={{ height: 230, ...PLOT_WELL }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
-              <XAxis dataKey="name" {...AXIS} />
-              <YAxis allowDecimals={false} {...AXIS} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: alpha(T.ink, 0.04) }} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
+              <XAxis dataKey="name" {...AXIS_LINE} tick={AXIS_TICK_CAT} />
+              <YAxis allowDecimals={false} {...AXIS_LINE} tick={AXIS_TICK} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: T.vizWell }} />
               {/* Pinned payload: recharts 3 would otherwise alphabetize. */}
               <Legend
-                wrapperStyle={{ fontSize: 11 }}
+                wrapperStyle={LEGEND_STYLE}
+                iconType="square"
                 payload={AGE_SERIES.map((s) => ({ value: s.label, type: "square", color: s.color, id: s.key }))}
               />
               {AGE_SERIES.map((s) => (
@@ -96,7 +104,7 @@ export function AgeComparisonBlock({ clusters }) {
                   dataKey={s.key}
                   name={s.label}
                   fill={s.color}
-                  radius={[3, 3, 0, 0]}
+                  radius={BAR_RADIUS_V}
                   cursor="pointer"
                   onClick={(d) => setPick(d?.payload?.name ?? null)}
                 />
@@ -154,14 +162,14 @@ export function ImpactHistogramBlock({ clusters }) {
           No ticket in this view has an open case behind it.
         </div>
       ) : (
-        <div style={{ height: 230 }}>
+        <div style={{ height: 230, ...PLOT_WELL }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
-              <XAxis dataKey="name" {...AXIS} />
-              <YAxis allowDecimals={false} {...AXIS} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: alpha(T.ink, 0.04) }} />
-              <Bar dataKey="count" name="Jira tickets" fill={T.jiraBlue} radius={[3, 3, 0, 0]} cursor="pointer" onClick={(d) => setPick(d?.payload?.name ?? null)} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
+              <XAxis dataKey="name" {...AXIS_LINE} tick={AXIS_TICK_CAT} />
+              <YAxis allowDecimals={false} {...AXIS_LINE} tick={AXIS_TICK} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: T.vizWell }} />
+              <Bar dataKey="count" name="Jira tickets" fill={T.vizAccent} radius={BAR_RADIUS_V} cursor="pointer" onClick={(d) => setPick(d?.payload?.name ?? null)} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -178,15 +186,36 @@ export function ImpactHistogramBlock({ clusters }) {
 
 /* ============== escalation x urgency heatmap ============== */
 
+/* FILL tones for the three escalation levels. Purple carries the base stop,
+ * Infor Yellow the middle and Infor Red the terminal one — the only
+ * three-stop arrangement the brand sanctions, and the reason "watch" and
+ * "escalated" no longer render as the same red. Fills only: Infor Yellow is
+ * 1.88:1 and can never be text. */
 const ESC_TONE = {
+  [ESC_ESCALATED]: T.dangerFill,
+  [ESC_AT_RISK]: T.warnFill,
+  [ESC_WATCH]: T.vizAccent,
+};
+
+/* TEXT positions for the same three levels, since the fills above are not
+ * text-safe. Every use is paired with the level's own written label, which is
+ * the second channel the palette requires. */
+const ESC_TEXT = {
   [ESC_ESCALATED]: T.danger,
   [ESC_AT_RISK]: T.warn,
-  [ESC_WATCH]: T.accent,
+  [ESC_WATCH]: T.ok,
 };
 
 // Shared with the band-distribution chart and the Jira-status × band heatmap
 // below, so "high" always reads the same color everywhere on this page.
-const BAND_FILL = { high: T.danger, medium: T.warn, low: T.muted };
+const BAND_FILL = { high: T.dangerFill, medium: T.vizAccent, low: T.categorical[7] };
+
+// Same bands in text positions; dangerFill is a chart fill, not a text color.
+const BAND_TEXT = { high: T.danger, medium: T.ok, low: T.sub };
+
+// De-emphasis for the bands a selection excludes: the next lighter step of the
+// same family, never an opacity knock-back.
+const BAND_FILL_DIM = { high: T.dangerSoft, medium: T.vizAccentSoft, low: T.surfaceAlt };
 
 /** Escalation level against normalized urgency. "Unknown" urgency gets its own
  *  column rather than being folded into Low — an unknown priority is not a low
@@ -209,10 +238,12 @@ export function EscalationHeatmapBlock({ clusters, snapshotMs }) {
 
   const cellBg = (cell) => {
     if (!cell.count) return T.surface;
-    const tone = ESC_TONE[cell.escalation] || T.muted;
+    const tone = ESC_TONE[cell.escalation] || T.categorical[7];
     // Linear intensity against the busiest cell — enough to read the shape
-    // without implying a precision the counts do not have.
-    return alpha(tone, 0.1 + 0.5 * (cell.count / (maxCount || 1)));
+    // without implying a precision the counts do not have. Mixed INTO the plot
+    // well rather than composited with alpha() so the ramp is theme-correct.
+    const pct = Math.round((0.1 + 0.5 * (cell.count / (maxCount || 1))) * 100);
+    return `color-mix(in srgb, ${tone} ${pct}%, ${T.vizWell})`;
   };
 
   const open = (cell) => {
@@ -243,7 +274,7 @@ export function EscalationHeatmapBlock({ clusters, snapshotMs }) {
             <tr>
               <th style={{ padding: "8px 14px" }} />
               {matrix.urgencyBands.map((b) => (
-                <th key={b.id} style={{ padding: "8px 14px", color: T.sub, fontWeight: 600, fontSize: 12.5, whiteSpace: "nowrap" }}>
+                <th key={b.id} style={{ padding: "8px 14px", color: T.sub, fontWeight: 600, fontSize: 12, whiteSpace: "nowrap" }}>
                   {b.label}
                 </th>
               ))}
@@ -252,7 +283,7 @@ export function EscalationHeatmapBlock({ clusters, snapshotMs }) {
           <tbody>
             {matrix.escalationLevels.map((level) => (
               <tr key={level}>
-                <td style={{ padding: "8px 14px", color: ESC_TONE[level] || T.muted, fontWeight: 600, fontSize: 12.5, whiteSpace: "nowrap", textTransform: "capitalize" }}>
+                <td style={{ padding: "8px 14px", color: ESC_TEXT[level] || T.muted, fontWeight: 600, fontSize: 12, whiteSpace: "nowrap", textTransform: "capitalize" }}>
                   {level}
                 </td>
                 {matrix.urgencyBands.map((b) => {
@@ -267,19 +298,19 @@ export function EscalationHeatmapBlock({ clusters, snapshotMs }) {
                         aria-label={`${level} escalation, ${b.label} urgency: ${cell.count} clusters, ${cell.openCases} open cases`}
                         title={`${cell.count} cluster${cell.count === 1 ? "" : "s"} · ${cell.openCases} open case${cell.openCases === 1 ? "" : "s"}`}
                         style={{
-                          width: "100%", height: 68, borderRadius: 8,
-                          border: `1px solid ${active ? T.accent : T.borderSoft}`,
+                          width: "100%", height: 68, borderRadius: T.radiusSm,
+                          border: `1px solid ${active ? T.vizAccent : T.borderSoft}`,
                           background: cellBg(cell),
                           color: cell.count ? T.ink : T.muted,
                           cursor: cell.count ? "pointer" : "default",
-                          fontFamily: "JetBrains Mono, monospace",
+                          fontVariantNumeric: "tabular-nums",
                           fontSize: 22, fontWeight: 600,
                           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
                         }}
                       >
                         {cell.count || "·"}
                         {cell.openCases > 0 && (
-                          <span style={{ fontSize: 11.5, fontWeight: 500, color: T.sub }}>{cell.openCases} open</span>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: T.sub }}>{cell.openCases} open</span>
                         )}
                       </button>
                     </td>
@@ -313,19 +344,20 @@ export function BandBreakdownBlock({ counts, onPick, active }) {
       {total === 0 ? (
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", padding: "18px 0" }}>Nothing to band.</div>
       ) : (
-        <div style={{ height: 180 }}>
+        <div style={{ height: 180, ...PLOT_WELL }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={counts} layout="vertical" margin={{ top: 4, right: 16, left: 10, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} horizontal={false} />
-              <XAxis type="number" allowDecimals={false} {...AXIS} />
-              <YAxis type="category" dataKey="band" width={62} {...AXIS} />
-              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: alpha(T.ink, 0.04) }} />
-              <Bar dataKey="count" name="Clusters" radius={[0, 3, 3, 0]} cursor="pointer" onClick={(d) => onPick?.(d?.payload?.band ?? null)}>
+              <CartesianGrid stroke={T.vizGrid} horizontal={false} />
+              <XAxis type="number" allowDecimals={false} {...AXIS_LINE} tick={AXIS_TICK} />
+              <YAxis type="category" dataKey="band" width={62} {...AXIS_LINE} tick={AXIS_TICK_CAT} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: T.vizWell }} />
+              <Bar dataKey="count" name="Clusters" radius={BAR_RADIUS_H} cursor="pointer" onClick={(d) => onPick?.(d?.payload?.band ?? null)}>
                 {counts.map((c) => (
                   <Cell
                     key={c.band}
-                    fill={BAND_FILL[c.band] || T.muted}
-                    opacity={active && active !== c.band ? 0.35 : 1}
+                    fill={(active && active !== c.band ? BAND_FILL_DIM[c.band] : BAND_FILL[c.band]) || T.categorical[7]}
+                    stroke={T.vizStroke}
+                    strokeWidth={1}
                   />
                 ))}
               </Bar>
@@ -356,8 +388,10 @@ export function JiraStatusBandHeatmapBlock({ blockerRows }) {
 
   const cellBg = (cell) => {
     if (!cell.count) return T.surface;
-    const tone = BAND_FILL[cell.band] || T.muted;
-    return alpha(tone, 0.1 + 0.5 * (cell.count / (maxCount || 1)));
+    const tone = BAND_FILL[cell.band] || T.categorical[7];
+    // Same intensity channel as the escalation grid, mixed into the plot well.
+    const pct = Math.round((0.1 + 0.5 * (cell.count / (maxCount || 1))) * 100);
+    return `color-mix(in srgb, ${tone} ${pct}%, ${T.vizWell})`;
   };
 
   const open = (cell) => {
@@ -377,7 +411,7 @@ export function JiraStatusBandHeatmapBlock({ blockerRows }) {
             <tr>
               <th style={{ padding: "6px 10px" }} />
               {matrix.bands.map((band) => (
-                <th key={band} style={{ padding: "6px 10px", color: BAND_FILL[band] || T.sub, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", textTransform: "capitalize" }}>
+                <th key={band} style={{ padding: "6px 10px", color: BAND_TEXT[band] || T.sub, fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", textTransform: "capitalize" }}>
                   {band}
                 </th>
               ))}
@@ -401,12 +435,12 @@ export function JiraStatusBandHeatmapBlock({ blockerRows }) {
                         aria-label={`${sc.label} status, ${band} band: ${cell.count} tickets, ${cell.openCases} open cases`}
                         title={`${cell.count} ticket${cell.count === 1 ? "" : "s"} · ${cell.openCases} open case${cell.openCases === 1 ? "" : "s"}`}
                         style={{
-                          width: 96, height: 56, borderRadius: 6,
-                          border: `1px solid ${active ? T.accent : T.borderSoft}`,
+                          width: 96, height: 56, borderRadius: T.radiusSm,
+                          border: `1px solid ${active ? T.vizAccent : T.borderSoft}`,
                           background: cellBg(cell),
                           color: cell.count ? T.ink : T.muted,
                           cursor: cell.count ? "pointer" : "default",
-                          fontFamily: "JetBrains Mono, monospace",
+                          fontVariantNumeric: "tabular-nums",
                           fontSize: 18, fontWeight: 600,
                           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1,
                         }}
@@ -496,14 +530,14 @@ export function AccountJiraHeatmapBlock({ blockerRows }) {
           {matrix.keys.map((k) => (
             <div key={k.key} className="mono" style={{ fontSize: 11, fontWeight: 700, textAlign: "center", color: T.jiraBlue, lineHeight: 1.3 }}>
               {k.key}
-              <div style={{ fontSize: 9.5, fontWeight: 500, color: T.sub }}>{k.openCases} open</div>
+              <div style={{ fontSize: 10, fontWeight: 500, color: T.sub }}>{k.openCases} open</div>
             </div>
           ))}
           <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: T.sub, textAlign: "center", alignSelf: "center" }}>Total</div>
 
           {matrix.accounts.map((account, ri) => (
             <Fragment key={account}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={account}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={account}>
                 {account}
               </div>
               {matrix.keys.map((k, ci) => {
@@ -513,7 +547,10 @@ export function AccountJiraHeatmapBlock({ blockerRows }) {
                 const intensity = v && max ? Math.sqrt(v / max) : 0;
                 const frac = v === 0 ? 0 : 0.12 + intensity * 0.6;
                 const bg = v === 0 ? T.surfaceAlt : neutralHeat(frac);
-                const textColor = v === 0 ? T.muted : frac > 0.5 ? T.surface : T.ink;
+                // One text color across the whole ramp: neutralHeat() is bounded
+                // short of full Infor Purple precisely so the old white-text flip
+                // (which had a band where neither color cleared 4.5:1) can go.
+                const textColor = v === 0 ? T.muted : T.ink;
                 const isSelected = pick && pick.account === account && pick.key === k.key;
                 return (
                   <div
@@ -528,27 +565,27 @@ export function AccountJiraHeatmapBlock({ blockerRows }) {
                       height: 32, display: "flex", alignItems: "center", justifyContent: "center",
                       fontSize: 11, fontWeight: 600, color: textColor, background: bg,
                       border: `1px solid ${T.borderSoft}`,
-                      outline: isSelected ? `2px solid ${T.accent}` : "none", outlineOffset: -1,
-                      borderRadius: 2, cursor: v === 0 ? "default" : "pointer",
+                      outline: isSelected ? `2px solid ${T.vizAccent}` : "none", outlineOffset: -1,
+                      borderRadius: T.radiusSm, cursor: v === 0 ? "default" : "pointer",
                     }}
                   >
                     {v === 0 ? <span style={{ color: T.muted }}>·</span> : v}
                   </div>
                 );
               })}
-              <div className="mono" style={{ ...TOTAL_CELL, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, borderRadius: 2 }}>
+              <div className="mono" style={{ ...TOTAL_CELL, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, borderRadius: T.radiusSm }}>
                 {rowTotals[ri]}
               </div>
             </Fragment>
           ))}
 
-          <div className="mono" style={{ ...TOTAL_CELL, fontSize: 10.5, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}>Total</div>
+          <div className="mono" style={{ ...TOTAL_CELL, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusSm }}>Total</div>
           {colTotals.map((v, i) => (
-            <div key={matrix.keys[i].key} className="mono" style={{ ...TOTAL_CELL, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, borderRadius: 2 }}>
+            <div key={matrix.keys[i].key} className="mono" style={{ ...TOTAL_CELL, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, borderRadius: T.radiusSm }}>
               {v}
             </div>
           ))}
-          <div className="mono" style={{ ...TOTAL_CELL, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10.5, borderRadius: 2 }}>
+          <div className="mono" style={{ ...TOTAL_CELL, height: 26, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, borderRadius: T.radiusSm }}>
             {rowTotals.reduce((s, v) => s + v, 0)}
           </div>
         </div>
@@ -570,7 +607,19 @@ const QUADRANT_ESC_ORDER = [ESC_ESCALATED, ESC_AT_RISK, ESC_WATCH, ESC_NONE];
 const QUADRANT_ESC_LABEL = {
   [ESC_ESCALATED]: "Escalated", [ESC_AT_RISK]: "At-risk", [ESC_WATCH]: "Watch", [ESC_NONE]: "None",
 };
-const QUADRANT_ESC_TONE = { ...ESC_TONE, [ESC_NONE]: T.muted };
+/* Bubble outline per escalation level; the achromatic residual carries "none". */
+const QUADRANT_ESC_TONE = { ...ESC_TONE, [ESC_NONE]: T.categorical[7] };
+
+/* Bubble interior: the next lighter step of the same family, which keeps
+ * overlapping bubbles readable without the decorative alpha() the brand
+ * forbids. Every one of these is under 3:1 on the well, which is exactly why
+ * each Scatter also carries its 1px tone stroke. */
+const QUADRANT_ESC_FILL = {
+  [ESC_ESCALATED]: T.dangerSoft,
+  [ESC_AT_RISK]: T.warnSoft,
+  [ESC_WATCH]: T.vizAccentSoft,
+  [ESC_NONE]: T.surfaceAlt,
+};
 
 /** One bubble per blocking Jira key: how long it's sat idle (x) against how
  *  many open cases it blocks (y). Bubble size is distinct accounts affected;
@@ -603,29 +652,29 @@ export function BlockerQuadrantBlock({ blockerRows }) {
         title="Ticket staleness × blast radius"
         subtitle="Each bubble is a blocking Jira key: days since its last update (right = staler) against open cases it blocks (up = more). Bubble size is distinct accounts affected; color is the worst case escalation behind it. Top-right of the dashed lines is the escalate-today list."
       />
-      <div style={{ height: 320, marginTop: 8 }}>
+      <div style={{ height: 320, marginTop: 8, ...PLOT_WELL }}>
         <ResponsiveContainer>
           <ScatterChart margin={{ top: 16, right: 24, left: 0, bottom: 4 }}>
-            <CartesianGrid stroke={T.borderSoft} />
+            <CartesianGrid stroke={T.vizGrid} />
             <XAxis
               type="number" dataKey="daysSinceUpdate" name="days idle"
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }} tickLine={{ stroke: T.border }}
-              label={{ value: "days since last Jira update", position: "insideBottom", offset: -2, fill: T.muted, fontSize: 11 }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }}
+              label={{ value: "days since last Jira update", position: "insideBottom", offset: -2, fill: T.vizCat, fontSize: 11 }}
             />
             <YAxis
               type="number" dataKey="openCases" name="open cases blocked"
               allowDecimals={false}
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }} tickLine={{ stroke: T.border }}
-              label={{ value: "open cases blocked", angle: -90, position: "insideLeft", fill: T.muted, fontSize: 11 }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }}
+              label={{ value: "open cases blocked", angle: -90, position: "insideLeft", fill: T.vizCat, fontSize: 11 }}
             />
             <ZAxis type="number" dataKey="accounts" range={[60, 400]} name="accounts affected" />
-            <Tooltip content={<QuadrantTip />} cursor={{ strokeDasharray: "3 3", stroke: T.border }} />
-            {medDaysSinceUpdate != null && <ReferenceLine x={medDaysSinceUpdate} stroke={T.muted} strokeDasharray="4 4" strokeWidth={1} />}
-            {medOpenCases != null && <ReferenceLine y={medOpenCases} stroke={T.muted} strokeDasharray="4 4" strokeWidth={1} />}
+            <Tooltip content={<QuadrantTip />} cursor={{ strokeDasharray: "3 3", stroke: T.vizAxis }} />
+            {medDaysSinceUpdate != null && <ReferenceLine x={medDaysSinceUpdate} stroke={T.vizAxis} strokeDasharray="4 4" strokeWidth={1} />}
+            {medOpenCases != null && <ReferenceLine y={medOpenCases} stroke={T.vizAxis} strokeDasharray="4 4" strokeWidth={1} />}
             {groups.map((g) => (
-              <Scatter key={g.level} name={QUADRANT_ESC_LABEL[g.level]} data={g.data} fill={alpha(QUADRANT_ESC_TONE[g.level] || T.muted, 0.6)} stroke={QUADRANT_ESC_TONE[g.level] || T.muted} strokeWidth={1} />
+              <Scatter key={g.level} name={QUADRANT_ESC_LABEL[g.level]} data={g.data} fill={QUADRANT_ESC_FILL[g.level] || T.surfaceAlt} stroke={QUADRANT_ESC_TONE[g.level] || T.categorical[7]} strokeWidth={1} />
             ))}
           </ScatterChart>
         </ResponsiveContainer>
@@ -633,7 +682,7 @@ export function BlockerQuadrantBlock({ blockerRows }) {
       <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
         {QUADRANT_ESC_ORDER.filter((l) => groups.some((g) => g.level === l)).map((l) => (
           <span key={l} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 10, height: 10, borderRadius: "50%", background: QUADRANT_ESC_TONE[l] }} />
+            <span style={{ width: 10, height: 10, borderRadius: "50%", background: QUADRANT_ESC_FILL[l], border: `1px solid ${QUADRANT_ESC_TONE[l]}` }} />
             {QUADRANT_ESC_LABEL[l]}
           </span>
         ))}
@@ -650,7 +699,7 @@ function QuadrantTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12, maxWidth: 260 }}>
+    <div style={{ ...TOOLTIP_STYLE, maxWidth: 260 }}>
       <div className="mono" style={{ fontWeight: 600, color: T.jiraBlue }}>{d.key}</div>
       {d.summary && <div style={{ color: T.sub, marginTop: 2 }}>{d.summary}</div>}
       <div className="mono" style={{ color: T.sub, marginTop: 4 }}>

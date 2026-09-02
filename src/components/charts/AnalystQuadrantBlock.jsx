@@ -3,7 +3,7 @@ import {
   ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip,
   ReferenceLine, ResponsiveContainer, LabelList,
 } from "recharts";
-import { T, alpha } from "../../lib/theme.js";
+import { T, AXIS_TICK, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { analystEfficiency } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
@@ -37,7 +37,7 @@ export function AnalystQuadrantBlock({ members }) {
   if (points.length < 2) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Throughput vs resolution speed</div>
+        <div className="eyebrow">Throughput vs resolution speed</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           Needs at least two analysts with closed cases in the current window.
         </div>
@@ -47,7 +47,7 @@ export function AnalystQuadrantBlock({ members }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Throughput vs resolution speed</div>
+      <div className="eyebrow">Throughput vs resolution speed</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
         Each bubble is an analyst: how many cases they closed in the window (right = more) against
         their median days-to-resolve (down = faster). Bubble size is the open load they're still
@@ -56,42 +56,45 @@ export function AnalystQuadrantBlock({ members }) {
         capacity to check; top-left — few and slow, worth a conversation, not a conclusion. Case
         difficulty is not evenly dealt, so read this next to the priority and category mix.
       </div>
-      <div style={{ height: 340, marginTop: 12 }}>
+      <div style={{ height: 340, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <ScatterChart margin={{ top: 16, right: 30, left: 0, bottom: 4 }}>
-            <CartesianGrid stroke={T.borderSoft} />
+            <CartesianGrid stroke={T.vizGrid} />
             <XAxis
               type="number"
               dataKey="closed"
               name="cases closed"
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               allowDecimals={false}
-              label={{ value: "cases closed", position: "insideBottom", offset: -2, fill: T.muted, fontSize: 11 }}
+              label={{ value: "cases closed", position: "insideBottom", offset: -2, fill: T.vizTick, fontSize: 11 }}
             />
             <YAxis
               type="number"
               dataKey="medianDays"
               name="median days to resolve"
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
-              label={{ value: "median days", angle: -90, position: "insideLeft", fill: T.muted, fontSize: 11 }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
+              label={{ value: "median days", angle: -90, position: "insideLeft", fill: T.vizTick, fontSize: 11 }}
             />
             <ZAxis type="number" dataKey="open" range={[60, 400]} name="open load" />
-            <Tooltip content={<QuadrantTip />} cursor={{ strokeDasharray: "3 3", stroke: T.border }} />
+            <Tooltip content={<QuadrantTip />} cursor={{ stroke: T.vizAxis }} />
             {medClosed != null && (
-              <ReferenceLine x={medClosed} stroke={T.muted} strokeDasharray="4 4" strokeWidth={1} />
+              <ReferenceLine x={medClosed} stroke={T.vizAxis} strokeDasharray="4 4" strokeWidth={1} />
             )}
             {medDays != null && (
-              <ReferenceLine y={medDays} stroke={T.muted} strokeDasharray="4 4" strokeWidth={1} />
+              <ReferenceLine y={medDays} stroke={T.vizAxis} strokeDasharray="4 4" strokeWidth={1} />
             )}
-            <Scatter data={points} fill={alpha(T.accent, 0.55)} stroke={T.accent} strokeWidth={1}>
+            {/* Duotone bubbles: Purple Tint 02 body, Infor Purple outline. The
+                outline is what keeps overlapping bubbles readable now that the
+                fill is a solid ramp step rather than a composited alpha. */}
+            <Scatter data={points} fill={T.categorical[5]} stroke={T.vizAccent} strokeWidth={1}>
               <LabelList
                 dataKey="name"
                 position="top"
-                style={{ fill: T.sub, fontSize: 10 }}
+                style={{ fill: T.vizCat, fontSize: 10 }}
                 formatter={(name) => (labeled.has(name) ? name : "")}
               />
             </Scatter>
@@ -111,7 +114,7 @@ function QuadrantTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{d.name}</div>
       <div className="mono" style={{ color: T.sub }}>{d.closed} closed · median {d.medianDays}d</div>
       <div className="mono" style={{ color: T.muted }}>{d.open} still open · {d.total} total in window</div>

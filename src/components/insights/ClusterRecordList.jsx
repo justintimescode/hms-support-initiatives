@@ -1,6 +1,6 @@
 import { Fragment, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { priorityColor } from "../../lib/format.js";
 import { CopyableNumber } from "../CopyableNumber.jsx";
 import { AliasNote } from "../AliasNote.jsx";
@@ -34,10 +34,10 @@ const TD = { padding: "8px 12px", whiteSpace: "nowrap", verticalAlign: "top" };
 
 function Shell({ title, count, noun, onClose, children }) {
   return (
-    <div style={{ marginTop: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface }}>
+    <div style={{ marginTop: 12, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${T.borderSoft}`, background: T.surfaceAlt }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="eyebrow" style={{ color: T.accent }}>{title}</span>
+          <span className="eyebrow" style={{ color: T.accentDeep }}>{title}</span>
           <span className="mono" style={{ fontSize: 12, color: T.sub }}>
             {count} {noun}{count === 1 ? "" : "s"}
           </span>
@@ -89,7 +89,7 @@ function CaseTable({ cases, highlight }) {
             key={c.number}
             style={{
               borderBottom: `1px solid ${T.borderSoft}`,
-              background: hot.has(c.number) ? alpha(T.accent, 0.05) : "transparent",
+              background: hot.has(c.number) ? T.vizAccentSoft : "transparent",
             }}
           >
             <td className="mono" style={{ ...TD, fontWeight: 600 }}>
@@ -254,7 +254,8 @@ export function JiraCasesRecordList({ title = "Jira tickets", rows, onClose }) {
                   >
                     <td style={{ ...TD, textAlign: "center" }}>
                       <ChevronRight
-                        size={13}
+                        size={14}
+                        strokeWidth={2.25}
                         style={{ color: T.sub, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 120ms" }}
                       />
                     </td>

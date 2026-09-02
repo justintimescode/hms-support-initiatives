@@ -3,7 +3,9 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ReferenceLine, ResponsiveContainer,
 } from "recharts";
-import { T, alpha } from "../../lib/theme.js";
+import {
+  T, AXIS_TICK, BAR_RADIUS_V, LEGEND_STYLE, TOOLTIP_STYLE,
+} from "../../lib/theme.js";
 import { accountPareto } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
@@ -14,6 +16,8 @@ import { Card } from "../layout/Card.jsx";
 // running cumulative share, and both are percentages so they share ONE axis
 // (counts ride in the tooltip). The dashed line marks 80%: the earlier the
 // cumulative curve crosses it, the more concentrated the book of work.
+// One metric, two readings of it, so this is a duotone: Purple Tint 02 bars
+// under the Infor Purple cumulative line, on the Gray Tint plot ground.
 export function AccountParetoBlock({ accountData }) {
   const { items, total, totalAccounts, accountsTo80 } = useMemo(
     () => accountPareto(accountData),
@@ -23,7 +27,7 @@ export function AccountParetoBlock({ accountData }) {
   if (!items.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Account concentration · Pareto</div>
+        <div className="eyebrow">Account concentration · Pareto</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           No account data in the current window.
         </div>
@@ -41,7 +45,7 @@ export function AccountParetoBlock({ accountData }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Account concentration · Pareto</div>
+      <div className="eyebrow">Account concentration · Pareto</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
         Accounts ranked by share of case volume in the current window. Bars are each account's slice of
         the total; the line is the running cumulative share across ALL {totalAccounts} accounts, so it
@@ -53,10 +57,10 @@ export function AccountParetoBlock({ accountData }) {
         {" "}A queue dependent on a few names inherits those customers' release calendars and moods; a long
         flat tail like a dispersed book spreads that risk but resists per-account fixes.
       </div>
-      <div style={{ height: 300, marginTop: 12 }}>
+      <div style={{ height: 300, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <ComposedChart data={items} margin={{ top: 10, right: 30, left: 0, bottom: 46 }}>
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
+            <CartesianGrid stroke={T.vizGrid} vertical={false} />
             <XAxis
               dataKey="name"
               type="category"
@@ -65,22 +69,26 @@ export function AccountParetoBlock({ accountData }) {
               textAnchor="end"
               height={60}
               tick={<AccountTick />}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
             />
             <YAxis
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               tickFormatter={(v) => `${v}%`}
             />
-            <Tooltip content={<ParetoTip />} cursor={{ fill: T.surfaceAlt }} />
-            <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, color: T.sub }} iconType="square" />
-            {show80 && <ReferenceLine y={80} stroke={T.muted} strokeDasharray="4 4" strokeWidth={1} />}
-            <Bar dataKey="sharePct" name="share of cases" fill={alpha(T.accent, 0.7)} radius={[2, 2, 0, 0]} />
+            <Tooltip content={<ParetoTip />} cursor={{ fill: T.vizWell }} />
+            <Legend verticalAlign="top" wrapperStyle={LEGEND_STYLE} iconType="square" />
+            {show80 && <ReferenceLine y={80} stroke={T.vizAxis} strokeDasharray="4 4" strokeWidth={1} />}
+            <Bar
+              dataKey="sharePct" name="share of cases"
+              fill={T.categorical[5]} stroke={T.vizStroke} strokeWidth={1}
+              radius={BAR_RADIUS_V}
+            />
             <Line
               type="monotone" dataKey="cumPct" name="cumulative share"
-              stroke={T.ink} strokeWidth={1.5} dot={{ r: 2 }}
+              stroke={T.vizAccent} strokeWidth={1.5} dot={{ r: 2 }}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -95,7 +103,7 @@ function AccountTick({ x, y, payload }) {
   const name = String(payload.value);
   const short = name.length > 14 ? `${name.slice(0, 13)}…` : name;
   return (
-    <text x={x} y={y} dy={10} fill={T.sub} fontSize={10} textAnchor="end" transform={`rotate(-35, ${x}, ${y})`}>
+    <text x={x} y={y} dy={10} fill={T.vizCat} fontSize={11} textAnchor="end" transform={`rotate(-35, ${x}, ${y})`}>
       {short}
     </text>
   );
@@ -105,7 +113,7 @@ function ParetoTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{d.name}</div>
       <div className="mono" style={{ color: T.sub }}>{d.count} cases · {d.sharePct.toFixed(1)}% of volume</div>
       <div className="mono" style={{ color: T.muted }}>cumulative {d.cumPct.toFixed(1)}%</div>

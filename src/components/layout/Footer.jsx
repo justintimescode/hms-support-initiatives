@@ -19,17 +19,12 @@ export function Footer() {
       }}
     >
       <span className="eyebrow" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span
-          aria-hidden
-          style={{
-            display: "inline-block",
-            width: 8,
-            height: 8,
-            background: T.accent,
-            borderRadius: 2,
-          }}
-        />
-        Infor · Product Support · KPI Analyzer
+        {/* Identity lockup: no improvised bullet-mark, and the only accent is
+            the company name itself. */}
+        <span>
+          <span style={{ color: T.accent }}>Infor</span>
+          <span style={{ color: T.muted }}> · Product Support · KPI Analyzer</span>
+        </span>
       </span>
       <span className="mono">data processed locally · survey module pending ServiceNow access</span>
     </div>

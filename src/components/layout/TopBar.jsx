@@ -78,8 +78,7 @@ export function TopBar({ ctx }) {
                 padding: "8px 34px 8px 34px",
                 background: T.surface,
                 border: `1px solid ${manager !== "__all__" ? T.accent : T.border}`,
-                borderRadius: 8,
-                fontFamily: "Geist, DM Sans, sans-serif",
+                borderRadius: T.radiusSm,
                 fontSize: 13,
                 fontWeight: 500,
                 color: T.ink,
@@ -108,8 +107,7 @@ export function TopBar({ ctx }) {
               padding: "8px 34px 8px 34px",
               background: T.surface,
               border: `1px solid ${T.border}`,
-              borderRadius: 8,
-              fontFamily: "Geist, DM Sans, sans-serif",
+              borderRadius: T.radiusSm,
               fontSize: 13,
               fontWeight: 500,
               color: T.ink,
@@ -137,8 +135,7 @@ export function TopBar({ ctx }) {
               padding: "8px 14px",
               background: T.surface,
               border: `1px solid ${T.border}`,
-              borderRadius: 8,
-              fontFamily: "Geist, DM Sans, sans-serif",
+              borderRadius: T.radiusSm,
               fontSize: 13,
               fontWeight: 500,
               color: T.ink,
@@ -149,7 +146,7 @@ export function TopBar({ ctx }) {
             onMouseEnter={(e) => (e.currentTarget.style.borderColor = T.muted)}
             onMouseLeave={(e) => (e.currentTarget.style.borderColor = T.border)}
           >
-            <Printer size={13} /> Print <span style={{ fontSize: 10, marginLeft: 2, color: T.muted }}>▾</span>
+            <Printer size={14} strokeWidth={2.25} /> Print <span style={{ fontSize: 10, marginLeft: 2, color: T.muted }}>▾</span>
           </button>
           {printMenuOpen && (
             <>
@@ -176,7 +173,7 @@ export function TopBar({ ctx }) {
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   Print team analysis
-                  <div style={{ fontSize: 11.5, color: T.sub, marginTop: 3 }}>All team-wide sections</div>
+                  <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>All team-wide sections</div>
                 </button>
                 <button
                   onClick={() => canPrintIndividual && triggerPrint("individual")}
@@ -190,7 +187,7 @@ export function TopBar({ ctx }) {
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   {canPrintIndividual ? `Print ${analyst}'s analysis` : "Print individual analysis"}
-                  <div style={{ fontSize: 11.5, color: T.sub, marginTop: 3 }}>
+                  <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>
                     {canPrintIndividual ? "Sections filtered to this analyst" : "Select an analyst first"}
                   </div>
                 </button>
@@ -201,7 +198,7 @@ export function TopBar({ ctx }) {
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
                   Monthly summary report
-                  <div style={{ fontSize: 11.5, color: T.sub, marginTop: 3 }}>Period-over-period KPIs with deltas · print-ready</div>
+                  <div style={{ fontSize: 12, color: T.sub, marginTop: 3 }}>Period-over-period KPIs with deltas · print-ready</div>
                 </button>
               </div>
             </>
@@ -222,7 +219,6 @@ function menuItemStyle() {
     padding: "12px 16px",
     background: "transparent",
     border: "none",
-    fontFamily: "Geist, DM Sans, sans-serif",
     fontSize: 13,
     fontWeight: 500,
     cursor: "pointer",

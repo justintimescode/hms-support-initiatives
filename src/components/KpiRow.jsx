@@ -136,12 +136,15 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
               marginTop: 12,
               color: c.accent,
               letterSpacing: "-0.02em",
-              fontFeatureSettings: '"tnum"',
+              // Real tabular figures, so the four KPI values column-align. The
+              // old fontFeatureSettings '"tnum"' asked a single-weight display
+              // serif that ships no tnum table for a feature it never had.
+              fontVariantNumeric: "tabular-nums",
             }}
           >
             {c.value}
           </div>
-          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 10, lineHeight: 1.45 }}>{c.sub}</div>
+          <div style={{ color: T.sub, fontSize: 12, marginTop: 10, lineHeight: 1.45 }}>{c.sub}</div>
           {c.delta && <DeltaLine text={c.delta.text} color={c.delta.color} />}
         </Card>
       ))}

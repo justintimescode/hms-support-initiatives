@@ -43,7 +43,7 @@ export function AnalystCategoryHeatmap({ members }) {
   if (!rows.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Analyst × category</div>
+        <div className="eyebrow">Analyst × category</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>No categorized cases in this view.</div>
       </Card>
     );
@@ -51,7 +51,7 @@ export function AnalystCategoryHeatmap({ members }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Analyst × category</div>
+      <div className="eyebrow">Analyst × category</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 760 }}>
         Which problem areas concentrate on which analyst. Color is relative to each analyst's OWN busiest NAMED
         category (their row) — a specialist stands out even with a light overall caseload, but the printed number is
@@ -74,17 +74,17 @@ export function AnalystCategoryHeatmap({ members }) {
               key={c}
               className="mono"
               title={c}
-              style={{ fontSize: 10, fontWeight: 700, color: T.sub, textAlign: "center", padding: "2px 2px", lineHeight: 1.25, whiteSpace: "normal", wordBreak: "break-word" }}
+              style={{ fontSize: 10, fontWeight: 700, color: T.vizCat, textAlign: "center", padding: "2px 2px", lineHeight: 1.25, whiteSpace: "normal", wordBreak: "break-word" }}
             >
               {c}
             </div>
           ))}
           {categories.includes(ROLLUP) && (
-            <div className="mono" style={{ fontSize: 10, fontWeight: 700, color: T.sub, textAlign: "center", padding: "2px 2px", lineHeight: 1.25, whiteSpace: "normal", wordBreak: "break-word" }}>
+            <div className="mono" style={{ fontSize: 10, fontWeight: 700, color: T.vizCat, textAlign: "center", padding: "2px 2px", lineHeight: 1.25, whiteSpace: "normal", wordBreak: "break-word" }}>
               {ROLLUP}
             </div>
           )}
-          <div className="mono" style={{ fontSize: 10, fontWeight: 700, color: T.sub, textAlign: "center", alignSelf: "center" }}>
+          <div className="mono" style={{ fontSize: 10, fontWeight: 700, color: T.vizCat, textAlign: "center", alignSelf: "center" }}>
             Total
           </div>
 
@@ -93,7 +93,7 @@ export function AnalystCategoryHeatmap({ members }) {
             return (
               <Fragment key={row.name}>
                 <div
-                  style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  style={{ fontSize: 12, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   title={row.name}
                 >
                   {row.name}
@@ -103,7 +103,9 @@ export function AnalystCategoryHeatmap({ members }) {
                   const intensity = v ? Math.sqrt(v / rowMax) : 0;
                   const frac = v === 0 ? 0 : MIN_FRAC + intensity * (MAX_FRAC - MIN_FRAC);
                   const bg = v === 0 ? T.surfaceAlt : neutralHeat(frac);
-                  const textColor = v === 0 ? T.muted : frac > 0.5 ? T.surface : T.ink;
+                  // The heat ramp is bounded short of full Infor Purple, so T.ink
+                  // clears AA on every step — no conditional light-text flip.
+                  const textColor = v === 0 ? T.muted : T.ink;
                   const isSelected = selected && selected.name === row.name && selected.category === c;
                   return (
                     <div
@@ -126,7 +128,7 @@ export function AnalystCategoryHeatmap({ members }) {
                         border: `1px solid ${T.borderSoft}`,
                         outline: isSelected ? `2px solid ${T.accent}` : "none",
                         outlineOffset: -1,
-                        borderRadius: 2,
+                        borderRadius: T.radiusSm,
                         cursor: v === 0 ? "default" : "pointer",
                       }}
                     >
@@ -150,7 +152,7 @@ export function AnalystCategoryHeatmap({ members }) {
                         fontSize: 11, fontWeight: 600, color: v === 0 ? T.muted : T.ink, background: T.surfaceAlt,
                         border: `1px solid ${T.borderSoft}`,
                         outline: isSelected ? `2px solid ${T.accent}` : "none", outlineOffset: -1,
-                        borderRadius: 2, cursor: v === 0 ? "default" : "pointer",
+                        borderRadius: T.radiusSm, cursor: v === 0 ? "default" : "pointer",
                       }}
                     >
                       {v === 0 ? <span style={{ color: T.muted }}>·</span> : v}
@@ -161,7 +163,7 @@ export function AnalystCategoryHeatmap({ members }) {
                   className="mono"
                   style={{
                     height: 32, display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 11, fontWeight: 700, color: T.ink, background: T.surfaceSunk, borderRadius: 2,
+                    fontSize: 11, fontWeight: 700, color: T.ink, background: T.surfaceSunk, borderRadius: T.radiusSm,
                   }}
                 >
                   {row.total}

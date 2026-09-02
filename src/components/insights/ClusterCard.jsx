@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, AlertTriangle, Users } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { Pill } from "../Pill.jsx";
 import { CaseRecordList, JiraRecordList } from "./ClusterRecordList.jsx";
@@ -23,10 +23,13 @@ const JIRA_BROWSE_URL = "https://infor.atlassian.net/browse/";
 const BAND_COLOR = { [BAND_HIGH]: T.danger, [BAND_MEDIUM]: T.warn };
 const bandColor = (band) => BAND_COLOR[band] || T.muted;
 
+/* Escalation in TEXT positions (pill label, "Why" eyebrow). Purple carries the
+ * base stop, Infor Yellow the middle and Infor Red the terminal one, so "watch"
+ * and "escalated" are no longer the same red. */
 const ESC_COLOR = {
   [ESC_ESCALATED]: T.danger,
   [ESC_AT_RISK]: T.warn,
-  [ESC_WATCH]: T.accent,
+  [ESC_WATCH]: T.ok,
 };
 const escColor = (level) => ESC_COLOR[level] || T.muted;
 
@@ -38,11 +41,11 @@ const FLAG_LABEL = {
 function Stat({ label, value, hint, tone }) {
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>{label}</div>
+      <div className="eyebrow">{label}</div>
       <div className="mono" style={{ fontSize: 17, fontWeight: 600, marginTop: 2, color: tone || T.ink }}>
         {value}
       </div>
-      {hint && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 1 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: 10, color: T.muted, marginTop: 1 }}>{hint}</div>}
     </div>
   );
 }
@@ -91,8 +94,8 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
           {c.clusterFlags.length > 0 && (
             <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
               {c.clusterFlags.map((f) => (
-                <span key={f} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: T.danger, background: alpha(T.danger, 0.08), border: `1px solid ${alpha(T.danger, 0.18)}`, borderRadius: 5, padding: "3px 8px" }}>
-                  <AlertTriangle size={11} />
+                <span key={f} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: T.onAccentSoft, background: T.accentTint, border: `1px solid ${T.accentSoft}`, borderRadius: T.radiusSm, padding: "3px 8px" }}>
+                  <AlertTriangle size={14} strokeWidth={2.25} />
                   {FLAG_LABEL[f] || f}
                 </span>
               ))}
@@ -101,9 +104,9 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
         </div>
 
         <div style={{ textAlign: "right", flex: "0 0 auto" }}>
-          <div className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>Impact</div>
+          <div className="eyebrow">Impact</div>
           <div className="display" style={{ fontSize: 34, fontWeight: 500, color: band, lineHeight: 1 }}>{c.score}</div>
-          <div style={{ fontSize: 10.5, color: T.muted }}>of 100</div>
+          <div style={{ fontSize: 10, color: T.muted }}>of 100</div>
         </div>
       </div>
 
@@ -113,7 +116,7 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
           <span
             key={f.label}
             title={f.detail}
-            style={{ display: "inline-flex", alignItems: "baseline", gap: 5, fontSize: 11, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: 5, padding: "3px 8px" }}
+            style={{ display: "inline-flex", alignItems: "baseline", gap: 5, fontSize: 11, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: T.radiusSm, padding: "3px 8px" }}
           >
             {f.label}
             <span className="mono" style={{ fontWeight: 700, color: T.ink }}>+{f.weight}</span>
@@ -172,7 +175,7 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
 
       {/* -------- escalation reasons -------- */}
       {m.escalation.reasons.length > 0 && (
-        <div style={{ padding: "10px 18px", borderTop: `1px solid ${T.borderSoft}`, fontSize: 11.5, color: T.sub }}>
+        <div style={{ padding: "10px 18px", borderTop: `1px solid ${T.borderSoft}`, fontSize: 12, color: T.sub }}>
           <span className="eyebrow" style={{ color: escColor(m.escalation.level), marginRight: 8 }}>Why</span>
           {m.escalation.reasons.join(" · ")}
         </div>
@@ -193,14 +196,14 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "2px 0" }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "none", border: "none", color: T.accentDeep, cursor: "pointer", fontSize: 12, fontWeight: 600, padding: "2px 0" }}
           >
-            {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            {open ? <ChevronDown size={14} strokeWidth={2.25} /> : <ChevronRight size={14} strokeWidth={2.25} />}
             {open ? "Hide records" : `Show ${c.cases.length} case${c.cases.length === 1 ? "" : "s"} and ${c.jira.length} ticket${c.jira.length === 1 ? "" : "s"}`}
           </button>
           {partial && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: T.sub }}>
-              <Users size={11} />
+              <Users size={14} strokeWidth={2.25} />
               {matched.length} of {c.cases.length} cases match your filter — the numbers above describe the whole cluster
             </span>
           )}
@@ -219,10 +222,10 @@ export function ClusterCard({ cluster, matchedCaseNumbers, filterActive }) {
                   onClick={() => setTab(t.k)}
                   aria-pressed={tab === t.k}
                   style={{
-                    fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 6, cursor: "pointer",
+                    fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: T.radiusSm, cursor: "pointer",
                     border: `1px solid ${tab === t.k ? T.accent : T.border}`,
                     background: tab === t.k ? T.accentTint : T.surface,
-                    color: tab === t.k ? T.accentDeep : T.sub,
+                    color: tab === t.k ? T.onAccentSoft : T.sub,
                   }}
                 >
                   {t.label}

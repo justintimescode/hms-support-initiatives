@@ -105,7 +105,7 @@ function ConnectionStrip({ icon: Icon, title, sub, pillTone, pillLabel }) {
     <Card>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <Icon size={14} style={{ color: T.accent, flexShrink: 0 }} />
+          <Icon size={14} strokeWidth={2.25} style={{ color: T.accent, flexShrink: 0 }} />
           <span style={{ fontWeight: 600, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
         </div>
         <Pill color={pillTone}>{pillLabel}</Pill>
@@ -126,7 +126,7 @@ function ShortcutCard({ to, icon: Icon, label, hint }) {
     >
       <Card className="hoverlift" style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Icon size={14} style={{ color: T.accent }} />
+          <Icon size={14} strokeWidth={2.25} style={{ color: T.accent }} />
           <span style={{ fontWeight: 600, fontSize: 14 }}>{label}</span>
         </div>
         <div style={{ color: T.sub, fontSize: 12 }}>{hint}</div>

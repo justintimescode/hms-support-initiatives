@@ -101,8 +101,8 @@ export default function MyDayPage() {
         subtitle="A personal triage view: your overdue updates, SLA pressure, stuck cases, and Jira-blocked work in one screen. Pick who you are to begin — or use the analyst selector in the top bar."
       >
         <Card style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>
-            <UserRound size={12} style={{ verticalAlign: "middle", marginRight: 6, color: T.accent }} />
+          <div className="eyebrow">
+            <UserRound size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 6, color: T.accent }} />
             Whose day?
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -113,9 +113,9 @@ export default function MyDayPage() {
                 className="hoverlift"
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 8,
-                  padding: "8px 12px", borderRadius: 8, cursor: "pointer",
+                  padding: "8px 12px", borderRadius: T.radiusSm, cursor: "pointer",
                   background: T.surface, border: `1px solid ${T.border}`,
-                  color: T.ink, fontSize: 13, fontFamily: "Geist, DM Sans, sans-serif",
+                  color: T.ink, fontSize: 13,
                 }}
               >
                 {name}
@@ -138,8 +138,8 @@ export default function MyDayPage() {
     >
       {/* who + freshness */}
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
-        <Pill color={T.accent}>
-          <Sun size={12} style={{ verticalAlign: "middle", marginRight: 5 }} />
+        <Pill color={T.accentDeep}>
+          <Sun size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 5 }} />
           Viewing as {me}
         </Pill>
         <button
@@ -358,8 +358,8 @@ function StatTile({ to, icon: Icon, label, value, tone, hint }) {
     <FilterLink to={to} style={{ textDecoration: "none", color: T.ink }}>
       <Card className="hoverlift" style={{ cursor: "pointer", display: "flex", flexDirection: "column", gap: 6 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, color: T.sub }}>
-          <Icon size={14} style={{ color: tone }} />
-          <span className="eyebrow" style={{ color: T.muted }}>{label}</span>
+          <Icon size={14} strokeWidth={2.25} style={{ color: tone }} />
+          <span className="eyebrow">{label}</span>
         </div>
         <div className="mono" style={{ fontSize: 30, fontWeight: 600, lineHeight: 1, color: tone }}>{value}</div>
         <div style={{ color: T.sub, fontSize: 12 }}>{hint}</div>
@@ -373,14 +373,14 @@ function ListCard({ icon: Icon, title, count, to, linkLabel, loading, error, emp
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="eyebrow" style={{ color: T.muted, display: "flex", alignItems: "center", gap: 7 }}>
-          <Icon size={13} style={{ color: T.accent }} />
+        <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <Icon size={14} strokeWidth={2.25} style={{ color: T.accent }} />
           {title}
           <span className="mono" style={{ color: count ? T.ink : T.muted, fontWeight: 600, letterSpacing: 0 }}>· {count}</span>
         </div>
         {to && (
-          <FilterLink to={to} style={{ color: T.accent, fontSize: 12, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-            {linkLabel} <ArrowRight size={12} />
+          <FilterLink to={to} style={{ color: T.accentDeep, fontSize: 12, fontWeight: 600, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+            {linkLabel} <ArrowRight size={14} strokeWidth={2.25} />
           </FilterLink>
         )}
       </div>
@@ -399,9 +399,9 @@ function ListCard({ icon: Icon, title, count, to, linkLabel, loading, error, emp
 
 function MoreRow({ n, to }) {
   return (
-    <div style={{ marginTop: 10, textAlign: "center" }}>
+    <div style={{ marginTop: 10 }}>
       <FilterLink to={to} style={{ color: T.sub, fontSize: 12, textDecoration: "none" }}>
-        + {n} more — view all <ArrowRight size={11} style={{ verticalAlign: "middle" }} />
+        + {n} more — view all <ArrowRight size={14} strokeWidth={2.25} style={{ verticalAlign: "middle" }} />
       </FilterLink>
     </div>
   )

@@ -37,10 +37,18 @@ export const FRT_BUCKETS = [
   { name: "3d+",   max: Infinity },
 ];
 
+/* SLA risk ramp. Red is reserved for the terminal "Breached" state, where it
+ * carries meaning; everything else is the Infor Purple ladder plus achromatic
+ * neutrals, so the set is two color families plus a residual rather than the
+ * five (red + orange + yellow + green + olive) it used to be. `color` is read
+ * straight through by the charts (SlaRiskBlock), so the values are theme tokens
+ * resolved by src/index.css and follow the light/dark palette automatically.
+ * The two neutral steps sit under 3:1 on the plot ground and need
+ * `stroke={T.vizStroke}` at the chart callsite. */
 export const SLA_RISK_BUCKETS = [
-  { key: "breached", label: "Breached", desc: "SLA already passed", color: "#A23220" },
-  { key: "due24", label: "Due < 24h", desc: "SLA within next 24h", color: "#B8452C" },
-  { key: "dueWeek", label: "Due this week", desc: "SLA within 1–7 days", color: "#B8801C" },
-  { key: "comfortable", label: "Comfortable", desc: "SLA more than 7 days out", color: "#3D6340" },
-  { key: "noSla", label: "No SLA", desc: "No SLA deadline recorded", color: "#8A8270" },
+  { key: "breached", label: "Breached", desc: "SLA already passed", color: "var(--t-risk-breached)" },
+  { key: "due24", label: "Due < 24h", desc: "SLA within next 24h", color: "var(--t-risk-due24)" },
+  { key: "dueWeek", label: "Due this week", desc: "SLA within 1–7 days", color: "var(--t-risk-dueweek)" },
+  { key: "comfortable", label: "Comfortable", desc: "SLA more than 7 days out", color: "var(--t-risk-comfortable)" },
+  { key: "noSla", label: "No SLA", desc: "No SLA deadline recorded", color: "var(--t-risk-none)" },
 ];

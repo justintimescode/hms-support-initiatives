@@ -4,7 +4,7 @@ import {
   Smile, Meh, Frown, ChevronRight, Download, Siren, Clock, MessageSquareWarning,
   ShieldCheck, ShieldQuestion, ShieldAlert, ShieldOff, CheckCircle2,
 } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T, TOOLTIP_STYLE, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_V } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { Pill } from "../Pill.jsx";
 import { CopyableNumber } from "../CopyableNumber.jsx";
@@ -36,20 +36,22 @@ const BLOCK_STYLE = `
     appearance: none; background: none; border: none; margin: 0;
     font: inherit; color: inherit; cursor: pointer;
     display: inline-flex; align-items: center; gap: 4px;
-    padding: 2px; border-radius: 5px; color: ${T.muted};
+    padding: 2px; border-radius: ${T.radiusSm}px; color: ${T.muted};
   }
-  .sentiment-expand:hover { color: ${T.accent}; }
+  .sentiment-expand:hover { color: ${T.vizAccent}; }
   .sentiment-row { cursor: pointer; transition: background 0.14s ease; }
-  .sentiment-row:hover { background: ${alpha(T.accent, 0.045)}; }
+  .sentiment-row:hover { background: ${T.vizWell}; }
   .sentiment-chev { transition: transform 0.15s ease; }
   .sentiment-seg {
     appearance: none; border: 1px solid ${T.border}; background: ${T.surface};
-    color: ${T.sub}; font: inherit; font-size: 12.5px; font-weight: 600;
+    color: ${T.sub}; font: inherit; font-size: 12px; font-weight: 600;
     padding: 7px 14px; cursor: pointer;
   }
-  .sentiment-seg[aria-pressed="true"] { background: ${alpha(T.accent, 0.12)}; color: ${T.ink}; border-color: ${alpha(T.accent, 0.5)}; }
-  .sentiment-seg:first-child { border-radius: 8px 0 0 8px; }
-  .sentiment-seg:last-child { border-radius: 0 8px 8px 0; }
+  /* Pressed segment is the Infor Purple interactive colorway on real tint
+     tokens — Purple Tint 01 ground, Purple Shade ink, Infor Purple hairline. */
+  .sentiment-seg[aria-pressed="true"] { background: ${T.vizAccentSoft}; color: ${T.vizAccentDeep}; border-color: ${T.vizAccent}; }
+  .sentiment-seg:first-child { border-radius: ${T.radiusSm}px 0 0 ${T.radiusSm}px; }
+  .sentiment-seg:last-child { border-radius: 0 ${T.radiusSm}px ${T.radiusSm}px 0; }
   .sentiment-seg + .sentiment-seg { border-left: none; }
   @media (prefers-reduced-motion: reduce) {
     .sentiment-row, .sentiment-chev { transition: none; }
@@ -58,13 +60,24 @@ const BLOCK_STYLE = `
 
 const fmtH = (h) => (h == null ? "—" : h < 1 ? `${Math.round(h * 60)}m` : `${h.toFixed(1)}h`);
 const fmtPct = (x) => `${Math.round((x || 0) * 100)}%`;
+/* Diverging TEXT scale: Infor Purple (good) / neutral gray (middle) / Infor Red
+ * Shade (bad). T.ok is purple, so no good/bad pairing in this block is ever
+ * red-and-green. Every value here is text-safe; the saturated Infor Green and
+ * Yellow cores are fill-only and never appear as type. */
 const valColor = (v) => (v == null ? T.muted : v > 0 ? T.ok : v < 0 ? T.danger : T.sub);
 const sentColor = (s) => (s === "Positive" ? T.ok : s === "Negative" ? T.danger : T.sub);
+/* Risk ramp, low → high: purple (calm) → neutral (watch) → Infor Yellow Shade
+ * (elevated) → Infor Red Shade (high/escalated). Purple carries the base stop,
+ * so yellow is never red's only partner. */
 const riskColor = (r, escalated) =>
   escalated ? T.danger : r == null ? T.muted : r >= RISK_HIGH ? T.danger : r >= RISK_ELEVATED ? T.warn : r >= 15 ? T.sub : T.ok;
 const SentIcon = ({ s, size = 14 }) =>
-  s === "Positive" ? <Smile size={size} /> : s === "Negative" ? <Frown size={size} /> : <Meh size={size} />;
+  s === "Positive" ? <Smile size={size} strokeWidth={2.25} /> : s === "Negative" ? <Frown size={size} strokeWidth={2.25} /> : <Meh size={size} strokeWidth={2.25} />;
 
+/* Solution-Proposed confirmation states. These colors land on Pill text, a
+ * 22px count and an icon, so every one has to be text-safe: pushback = Infor
+ * Red Shade, conditional = Infor Yellow Shade, silent = neutral,
+ * confirmed = Infor Purple. */
 const CONFIRM_META = {
   pushback: { label: "Pushback", color: T.danger, Icon: ShieldAlert, hint: "customer says the fix doesn't hold — respond before they reopen" },
   conditional: { label: "Verifying", color: T.warn, Icon: ShieldQuestion, hint: "customer is holding the case open to test/confirm" },
@@ -75,9 +88,11 @@ const CONFIRM_META = {
 function Stat({ label, value, sub, color }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>{label}</div>
-      <div className="display mono" style={{ fontSize: 26, lineHeight: 1, color: color || T.ink }}>{value}</div>
-      {sub && <div style={{ color: T.sub, fontSize: 11.5, marginTop: 6, lineHeight: 1.45 }}>{sub}</div>}
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
+      {/* Montserrat 400 + tabular-nums (.display already sets both) — the
+          redundant .mono class was overriding the face at figure rank. */}
+      <div className="display" style={{ fontSize: 26, lineHeight: 1, color: color || T.ink }}>{value}</div>
+      {sub && <div style={{ color: T.sub, fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>{sub}</div>}
     </div>
   );
 }
@@ -86,7 +101,7 @@ function RiskPill({ risk, escalated }) {
   const c = riskColor(risk, escalated);
   if (escalated) {
     return (
-      <Pill color={c}><Siren size={11} /> Escalated</Pill>
+      <Pill color={c}><Siren size={14} strokeWidth={2.25} /> Escalated</Pill>
     );
   }
   if (risk == null) return <span style={{ color: T.muted }}>—</span>;
@@ -94,17 +109,17 @@ function RiskPill({ risk, escalated }) {
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <span className="mono" style={{ fontWeight: 700, color: c, minWidth: 24, textAlign: "right" }}>{risk}</span>
-      <span aria-hidden style={{ width: 44, height: 5, borderRadius: 3, background: alpha(c, 0.18), overflow: "hidden", display: "inline-block" }}>
+      <span aria-hidden style={{ width: 44, height: 5, borderRadius: T.radiusSm, background: T.surfaceAlt, overflow: "hidden", display: "inline-block" }}>
         <span style={{ display: "block", width: `${Math.min(100, risk)}%`, height: "100%", background: c }} />
       </span>
-      <span style={{ fontSize: 11.5, color: c, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 12, color: c, fontWeight: 600 }}>{label}</span>
     </span>
   );
 }
 
 const thStyle = (align = "left") => ({
   padding: "8px 12px", textAlign: align, fontWeight: 600, color: T.sub,
-  borderBottom: `1px solid ${T.borderSoft}`, whiteSpace: "nowrap", fontSize: 12.5,
+  borderBottom: `1px solid ${T.borderSoft}`, whiteSpace: "nowrap", fontSize: 12,
 });
 const tdStyle = { padding: "8px 12px", verticalAlign: "top" };
 
@@ -122,7 +137,9 @@ function CaseRow({ g, cols, colSpan, open, onToggle }) {
   return (
     <>
       <tr className="sentiment-row" onClick={onToggle} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
-        <td className="mono" style={{ ...tdStyle, color: T.accent, whiteSpace: "nowrap" }}>
+        {/* Accent as TEXT is accentDeep — T.accent is a fill role. (CopyableNumber
+            then paints the case number itself in the ServiceNow reference tint.) */}
+        <td className="mono" style={{ ...tdStyle, color: T.accentDeep, whiteSpace: "nowrap" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <button
               type="button"
@@ -131,7 +148,7 @@ function CaseRow({ g, cols, colSpan, open, onToggle }) {
               aria-label={`${open ? "Collapse" : "Expand"} case ${g.number}: details`}
               onClick={toggle}
             >
-              <ChevronRight size={13} aria-hidden className="sentiment-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
+              <ChevronRight size={14} strokeWidth={2.25} aria-hidden className="sentiment-chev" style={{ transform: open ? "rotate(90deg)" : "none" }} />
             </button>
             <span onClick={(e) => e.stopPropagation()}>
               <CopyableNumber value={g.number} />
@@ -145,30 +162,30 @@ function CaseRow({ g, cols, colSpan, open, onToggle }) {
           <td colSpan={colSpan} style={{ padding: "12px 16px" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div style={{ fontSize: 12, color: T.sub }}>
-                <span className="eyebrow" style={{ color: T.muted, marginRight: 8 }}>Account</span>{g.account || "—"}
+                <span className="eyebrow" style={{ marginRight: 8 }}>Account</span>{g.account || "—"}
                 <span className="mono" style={{ marginLeft: 14, color: T.muted }}>
                   · {g.custMsgs ?? "?"} customer / {g.myMsgs ?? "?"} analyst msgs
                   {g.start != null && <> · tone {g.start} → {g.end ?? "—"}</>}
                 </span>
               </div>
               {g.escReason && (
-                <div style={{ fontSize: 12.5, color: T.danger, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 12, color: T.danger, lineHeight: 1.5 }}>
                   <span className="eyebrow" style={{ color: T.danger, marginRight: 8 }}>Escalation</span>{g.escReason}
                 </div>
               )}
               {g.riskFactors && (
-                <div style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
-                  <span className="eyebrow" style={{ color: T.muted, marginRight: 8 }}>Why flagged</span>{g.riskFactors}
+                <div style={{ fontSize: 12, color: T.ink, lineHeight: 1.5 }}>
+                  <span className="eyebrow" style={{ marginRight: 8 }}>Why flagged</span>{g.riskFactors}
                 </div>
               )}
               {g.quote && (
-                <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: `3px solid ${alpha(sentColor(g.sentiment), 0.5)}`, color: T.ink, fontSize: 13, fontStyle: "italic", lineHeight: 1.5 }}>
+                <blockquote style={{ margin: 0, paddingLeft: 12, borderLeft: `3px solid ${sentColor(g.sentiment)}`, color: T.ink, fontSize: 13, fontStyle: "italic", lineHeight: 1.5 }}>
                   “{g.quote}”
                 </blockquote>
               )}
               {g.coachingNote && (
-                <div style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.5 }}>
-                  <span className="eyebrow" style={{ color: T.muted, marginRight: 8 }}>Notes</span>{g.coachingNote}
+                <div style={{ fontSize: 12, color: T.ink, lineHeight: 1.5 }}>
+                  <span className="eyebrow" style={{ marginRight: 8 }}>Notes</span>{g.coachingNote}
                 </div>
               )}
             </div>
@@ -187,7 +204,7 @@ function useExpand() {
 function ShowMore({ total, expanded, onToggle }) {
   if (total <= 12) return null;
   return (
-    <button type="button" onClick={onToggle} style={{ marginTop: 10, background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 12, padding: "4px 2px" }}>
+    <button type="button" onClick={onToggle} style={{ marginTop: 10, background: "none", border: "none", color: T.accentDeep, cursor: "pointer", fontSize: 12, padding: "4px 2px" }}>
       {expanded ? "Show less" : `Show all ${total} cases`}
     </button>
   );
@@ -215,7 +232,7 @@ function EarlyWarningView({ open }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-        <div className="eyebrow" style={{ color: T.muted }}>Escalation risk · open &amp; awaiting-info cases, most urgent first</div>
+        <div className="eyebrow">Escalation risk · open &amp; awaiting-info cases, most urgent first</div>
         <div className="mono" style={{ fontSize: 12, color: T.sub }}>{ranked.length} cases</div>
       </div>
       <div style={{ color: T.sub, fontSize: 12, lineHeight: 1.5, marginBottom: 12, maxWidth: 720 }}>
@@ -249,20 +266,20 @@ function EarlyWarningView({ open }) {
                     <AssigneeCell name={g.assignee} />
                     <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{g.priority || "—"}</td>
                     <td style={{ ...tdStyle, whiteSpace: "nowrap" }}><RiskPill risk={g.risk} escalated={g.escalated} /></td>
-                    <td style={{ ...tdStyle, whiteSpace: "nowrap", color: T.sub, fontSize: 12.5 }}>
+                    <td style={{ ...tdStyle, whiteSpace: "nowrap", color: T.sub, fontSize: 12 }}>
                       {g.unanswered > 0 && (
                         <span style={{ color: T.warn, display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}>
-                          <MessageSquareWarning size={12} /> {g.unanswered} unanswered
+                          <MessageSquareWarning size={14} strokeWidth={2.25} /> {g.unanswered} unanswered
                         </span>
                       )}
                       {g.waitDays != null && g.waitDays >= 1 && (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <Clock size={12} /> {g.waitDays}d
+                          <Clock size={14} strokeWidth={2.25} /> {g.waitDays}d
                         </span>
                       )}
                       {g.unanswered === 0 && (g.waitDays == null || g.waitDays < 1) && "—"}
                     </td>
-                    <td style={{ ...tdStyle, color: T.sub, fontSize: 12.5, whiteSpace: "nowrap" }}>
+                    <td style={{ ...tdStyle, color: T.sub, fontSize: 12, whiteSpace: "nowrap" }}>
                       {g.chases > 0 && <span style={{ marginRight: 8 }}>{g.chases} chase{g.chases > 1 ? "s" : ""}</span>}
                       {g.signals || (g.chases ? "" : "—")}
                     </td>
@@ -307,17 +324,17 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card>
-        <div className="eyebrow" style={{ color: T.muted, marginBottom: 12 }}>Reopen watch · a solution was proposed — did the customer accept it?</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>Reopen watch · a solution was proposed — did the customer accept it?</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 18 }}>
           {["pushback", "conditional", "silent", "confirmed"].map((k) => {
             const m = CONFIRM_META[k];
             return (
               <div key={k} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                <m.Icon size={18} style={{ color: m.color, marginTop: 2, flexShrink: 0 }} />
+                <m.Icon size={18} strokeWidth={1.9} style={{ color: m.color, marginTop: 2, flexShrink: 0 }} />
                 <div>
-                  <div className="mono display" style={{ fontSize: 22, color: counts[k] ? m.color : T.muted, lineHeight: 1 }}>{counts[k]}</div>
+                  <div className="display" style={{ fontSize: 22, color: counts[k] ? m.color : T.muted, lineHeight: 1 }}>{counts[k]}</div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: T.ink, marginTop: 4 }}>{m.label}</div>
-                  <div style={{ fontSize: 11.5, color: T.sub, lineHeight: 1.4, marginTop: 2 }}>{m.hint}</div>
+                  <div style={{ fontSize: 12, color: T.sub, lineHeight: 1.4, marginTop: 2 }}>{m.hint}</div>
                 </div>
               </div>
             );
@@ -327,7 +344,7 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
 
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Cases, most at-risk of reopening first</div>
+          <div className="eyebrow">Cases, most at-risk of reopening first</div>
           <div className="mono" style={{ fontSize: 12, color: T.sub }}>{proposed.length} awaiting confirmation</div>
         </div>
         <div style={{ overflowX: "auto" }} className="scrollbar">
@@ -357,12 +374,12 @@ function SolutionProposedView({ proposed, rowsByNumber }) {
                       <>
                         <AssigneeCell name={g.assignee} />
                         <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                          <Pill color={m.color}><m.Icon size={11} /> {m.label}</Pill>
+                          <Pill color={m.color}><m.Icon size={14} strokeWidth={2.25} /> {m.label}</Pill>
                         </td>
                         <td className="mono" style={{ ...tdStyle, fontWeight: 700, color: riskColor(g.risk, false), whiteSpace: "nowrap" }}>
                           {g.risk ?? "—"}
                         </td>
-                        <td className="mono" style={{ ...tdStyle, color: T.sub, whiteSpace: "nowrap", fontSize: 12.5 }}>
+                        <td className="mono" style={{ ...tdStyle, color: T.sub, whiteSpace: "nowrap", fontSize: 12 }}>
                           {fmtDate(row?._autoCloseAt)}
                         </td>
                         <td style={{ ...tdStyle, color: T.sub, maxWidth: 380, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -399,10 +416,13 @@ function ClosedReviewView({ closed, summary }) {
     const pos = scoreable.filter((g) => g.valence > 0).length;
     const neu = scoreable.filter((g) => g.valence === 0).length;
     const neg = scoreable.filter((g) => g.valence < 0).length;
+    // Chart geometry takes the viz tokens, not the status text tokens: Infor
+    // Red fill for negative, the achromatic categorical residual for neutral,
+    // Infor Purple for positive. Purple + red + neutral = three families.
     return [
-      { name: "Negative", count: neg, color: T.danger },
-      { name: "Neutral", count: neu, color: T.sub },
-      { name: "Positive", count: pos, color: T.ok },
+      { name: "Negative", count: neg, color: T.dangerFill },
+      { name: "Neutral", count: neu, color: T.categorical[7] },
+      { name: "Positive", count: pos, color: T.vizAccent },
     ];
   }, [scoreable]);
 
@@ -418,20 +438,19 @@ function ClosedReviewView({ closed, summary }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card>
-        <div className="eyebrow" style={{ color: T.muted, marginBottom: 12 }}>How closed cases ended · {scoreable.length} with written customer dialogue</div>
+        <div className="eyebrow" style={{ marginBottom: 12 }}>How closed cases ended · {scoreable.length} with written customer dialogue</div>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 1fr) minmax(260px, 1.4fr)", gap: 20, alignItems: "center" }}>
-          <div style={{ height: 150 }}>
+          <div style={{ height: 150, background: T.vizWell, borderRadius: T.radiusMd }}>
             <ResponsiveContainer>
               <BarChart data={dist} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                <CartesianGrid stroke={T.borderSoft} vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: T.sub, fontSize: 12 }} axisLine={{ stroke: T.borderSoft }} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fill: T.sub, fontSize: 12 }} axisLine={false} tickLine={false} width={28} />
-                <Tooltip
-                  cursor={{ fill: alpha(T.accent, 0.06) }}
-                  contentStyle={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12 }}
-                />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {dist.map((d) => <Cell key={d.name} fill={d.color} />)}
+                <CartesianGrid stroke={T.vizGrid} vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK_CAT} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} />
+                <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} width={28} />
+                <Tooltip cursor={{ fill: T.vizWell }} contentStyle={TOOLTIP_STYLE} />
+                <Bar dataKey="count" radius={BAR_RADIUS_V}>
+                  {/* 1px perceivability stroke: the achromatic neutral bar is
+                      under 3:1 against the plot ground. */}
+                  {dist.map((d) => <Cell key={d.name} fill={d.color} stroke={T.vizStroke} strokeWidth={1} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -440,14 +459,14 @@ function ClosedReviewView({ closed, summary }) {
             <Stat label="Ended negative" value={summary.closedNegative} color={summary.closedNegative ? T.danger : T.sub} sub="last customer message still unhappy" />
             <Stat label="Recovered" value={summary.recovered} color={T.ok} sub="frustrated opening → positive close" />
             <Stat label="Declined" value={summary.declined} color={summary.declined ? T.warn : T.sub} sub="tone got worse over the case" />
-            <Stat label="Fix confirmed" value={`${summary.confirmedClose}`} color={T.accent} sub={`${fmtPct(summary.confirmedCloseShare)} closed with written customer confirmation`} />
+            <Stat label="Fix confirmed" value={`${summary.confirmedClose}`} color={T.ok} sub={`${fmtPct(summary.confirmedCloseShare)} closed with written customer confirmation`} />
           </div>
         </div>
       </Card>
 
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Per-case review · worst endings first — activate a row for the quote &amp; notes</div>
+          <div className="eyebrow">Per-case review · worst endings first — activate a row for the quote &amp; notes</div>
           <div className="mono" style={{ fontSize: 12, color: T.sub }}>{scoreable.length} cases</div>
         </div>
         <div style={{ overflowX: "auto" }} className="scrollbar">
@@ -479,13 +498,13 @@ function ClosedReviewView({ closed, summary }) {
                         {g.valence > 0 ? `+${g.valence}` : g.valence}
                       </td>
                       <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                        <Pill color={sentColor(g.sentiment)}><SentIcon s={g.sentiment} size={11} /> {g.sentiment}</Pill>
+                        <Pill color={sentColor(g.sentiment)}><SentIcon s={g.sentiment} size={14} /> {g.sentiment}</Pill>
                       </td>
                       <td style={{ ...tdStyle, color: T.sub, whiteSpace: "nowrap" }}>{g.arc || "—"}</td>
                       <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                         {g.confirmState === "confirmed"
-                          ? <span style={{ color: T.ok, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12.5 }}><CheckCircle2 size={13} /> yes</span>
-                          : <span style={{ color: T.muted, fontSize: 12.5 }}>{g.confirmState === "pushback" ? "pushed back" : "no"}</span>}
+                          ? <span style={{ color: T.ok, display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}><CheckCircle2 size={14} strokeWidth={2.25} /> yes</span>
+                          : <span style={{ color: T.muted, fontSize: 12 }}>{g.confirmState === "pushback" ? "pushed back" : "no"}</span>}
                       </td>
                     </>
                   }
@@ -541,7 +560,7 @@ export function SentimentBlock({ rows }) {
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           <div>
-            <div className="eyebrow" style={{ color: T.accent }}>Customer voice · read on device, no model calls</div>
+            <div className="eyebrow" style={{ color: T.accentDeep }}>Customer voice · read on device, no model calls</div>
             <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 620, lineHeight: 1.5 }}>
               Only what the customer actually wrote is scored — Infor replies, System notes and internal work notes are
               attributed and excluded. Escalation requests and customer priority raises in the journal are surfaced as events.
@@ -556,12 +575,12 @@ export function SentimentBlock({ rows }) {
               style={{
                 display: "inline-flex", alignItems: "center", gap: 7,
                 padding: "7px 13px", background: T.surface, color: T.ink,
-                border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5,
+                border: `1px solid ${T.border}`, borderRadius: T.radiusSm, fontSize: 12,
                 fontWeight: 600, cursor: downloading ? "default" : "pointer",
-                opacity: downloading ? 0.6 : 1, fontFamily: "Geist, DM Sans, sans-serif",
+                opacity: downloading ? 0.6 : 1,
               }}
             >
-              <Download size={14} /> {downloading ? "Preparing…" : "Download workbook"}
+              <Download size={14} strokeWidth={2.25} /> {downloading ? "Preparing…" : "Download workbook"}
             </button>
           </div>
         </div>

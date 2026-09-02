@@ -182,7 +182,7 @@ export default function OperationsPage() {
       subtitle="Linked Jira and ServiceNow ecosystems, ranked by real customer impact rather than ticket age. Every score shows what it is made of, and every number is reproducible from this import. Free-text mentions of a ticket are shown but never counted as blocking — only the cause field and System link notes assert a real linkage."
     >
       {/* data-as-of, stated plainly: one anchor for the whole view */}
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, fontSize: 11.5, color: T.muted }}>
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 14, fontSize: 12, color: T.muted }}>
         <span>
           Cases as of{" "}
           <strong style={{ color: T.sub, fontWeight: 600 }}>
@@ -224,11 +224,11 @@ export default function OperationsPage() {
           { label: "Named risk shapes", value: totals.flagged, hint: "matched a risk cluster", tone: totals.flagged ? T.warn : null },
         ].map((k) => (
           <Card key={k.label}>
-            <div className="eyebrow" style={{ color: T.muted }}>{k.label}</div>
-            <div className="display" style={{ fontSize: 30, fontWeight: 500, marginTop: 4, color: k.tone || T.ink }}>
+            <div className="eyebrow">{k.label}</div>
+            <div className="display" style={{ fontSize: 30, fontWeight: 500, marginTop: 4, color: k.tone || T.ink, fontVariantNumeric: "tabular-nums" }}>
               {k.value.toLocaleString()}
             </div>
-            <div style={{ color: T.sub, fontSize: 11.5, marginTop: 3 }}>{k.hint}</div>
+            <div style={{ color: T.sub, fontSize: 12, marginTop: 3 }}>{k.hint}</div>
           </Card>
         ))}
       </div>
@@ -276,7 +276,7 @@ export default function OperationsPage() {
       {/* ---------- ranked clusters ---------- */}
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginTop: 28, marginBottom: 12, flexWrap: "wrap" }}>
         <div>
-          <div className="eyebrow" style={{ color: T.muted }}>Ranked clusters</div>
+          <div className="eyebrow">Ranked clusters</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
             Highest impact first. Ties break on open cases, then on cluster id, so this order is
             reproducible from the same import.
@@ -284,19 +284,19 @@ export default function OperationsPage() {
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={exportClusters} title="One row per cluster"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-            <Download size={13} /> Clusters CSV
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
+            <Download size={14} strokeWidth={2.25} /> Clusters CSV
           </button>
           <button type="button" onClick={exportCases} title="One row per case"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
-            <Download size={13} /> Cases CSV
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.ink, cursor: "pointer" }}>
+            <Download size={14} strokeWidth={2.25} /> Cases CSV
           </button>
         </div>
       </div>
 
       {shown.length === 0 ? (
         <Card>
-          <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", textAlign: "center", padding: "26px 8px" }}>
+          <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", padding: "26px 8px" }}>
             {all.length === 0
               ? "No ServiceNow case in this import asserts a link to a Jira ticket. Links come from the cause field and the System “Jira Reference ID … linked” note — free-text mentions alone do not create one."
               : "No cluster matches these filters."}
@@ -314,7 +314,7 @@ export default function OperationsPage() {
           ))}
           {shown.length > RENDER_LIMIT && (
             <Card>
-              <div style={{ fontSize: 12, color: T.sub, textAlign: "center", padding: "10px 8px" }}>
+              <div style={{ fontSize: 12, color: T.sub, padding: "10px 8px" }}>
                 Showing the top {RENDER_LIMIT} of {shown.length} clusters. Narrow the filters to see
                 the rest — or use the CSV export, which contains <strong>all {shown.length}</strong>.
               </div>
@@ -326,7 +326,7 @@ export default function OperationsPage() {
       {/* ---------- mention-only disclosure ---------- */}
       {built.mentionOnly.length > 0 && (
         <Card style={{ marginTop: 16 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>
+          <div className="eyebrow">
             Mentioned in prose only — {built.mentionOnly.length} case{built.mentionOnly.length === 1 ? "" : "s"}
           </div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 5, lineHeight: 1.5, maxWidth: 760 }}>
@@ -337,7 +337,7 @@ export default function OperationsPage() {
           </div>
           <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
             {built.mentionOnly.slice(0, 24).map((c) => (
-              <span key={c.number} className="mono" style={{ fontSize: 11, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: 5, padding: "3px 8px" }}>
+              <span key={c.number} className="mono" style={{ fontSize: 11, color: T.sub, background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: T.radiusSm, padding: "3px 8px" }}>
                 {c.number}
                 <span style={{ color: T.muted }}> → {c.mentionedKeys.join(", ")}</span>
               </span>

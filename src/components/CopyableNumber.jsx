@@ -2,39 +2,10 @@ import { useState, useRef, useCallback, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { Check, AlertTriangle } from "lucide-react"
 import { T } from "../lib/theme.js"
-
-/* navigator.clipboard only exists in a secure context — HTTPS or localhost.
- * The dev server is reached over plain http:// on a LAN hostname (see
- * vite.config.js server.allowedHosts), where it is undefined, so the async API
- * alone silently no-ops for every user who isn't on localhost. Fall back to a
- * hidden-textarea execCommand("copy"), which has no secure-context
- * requirement. Returns whether the text actually made it to the clipboard. */
-async function writeToClipboard(text) {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch {
-      // Permission denied or a transient failure — try the fallback below.
-    }
-  }
-  try {
-    const ta = document.createElement("textarea")
-    ta.value = text
-    ta.setAttribute("readonly", "")
-    // Off-screen but still focusable: display:none or visibility:hidden would
-    // make the selection uncopyable.
-    ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0"
-    document.body.appendChild(ta)
-    ta.select()
-    ta.setSelectionRange(0, text.length) // iOS Safari ignores select() alone
-    const ok = document.execCommand("copy")
-    document.body.removeChild(ta)
-    return ok
-  } catch {
-    return false
-  }
-}
+// Shared with the upload screen's "copy the column list" affordance, which needs
+// the same non-secure-context fallback. Kept in lib/ because a component module
+// that also exports a plain function breaks Fast Refresh.
+import { writeToClipboard } from "../lib/clipboard.js"
 
 /* Click a case number to copy it to the clipboard. A small "Copied" toast
  * confirms the copy. stopPropagation keeps it from triggering row clicks
@@ -103,13 +74,13 @@ export function CopyableNumber({ value, style, className }) {
             fontSize: 12,
             fontWeight: 600,
             padding: "8px 12px",
-            borderRadius: 6,
+            borderRadius: T.radiusSm,
             boxShadow: T.shadowMd,
           }}
         >
           {failed
-            ? <><AlertTriangle size={14} /> Couldn’t copy {value} — select it and press Ctrl+C</>
-            : <><Check size={14} /> Copied {value}</>}
+            ? <><AlertTriangle size={14} strokeWidth={2.25} /> Couldn’t copy {value} — select it and press Ctrl+C</>
+            : <><Check size={14} strokeWidth={2.25} /> Copied {value}</>}
         </div>,
         document.body,
       )}

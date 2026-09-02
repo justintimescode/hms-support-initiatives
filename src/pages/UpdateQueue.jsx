@@ -112,7 +112,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
       <Section title={TITLE}>
         <Card>
           <div style={{ color: T.danger, fontSize: 13 }}>
-            <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+            <AlertTriangle size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 6 }} />
             {error?.message || "Failed to compute the queue."}
           </div>
         </Card>
@@ -149,7 +149,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
                   fontSize: 12,
                   fontWeight: 600,
                   padding: "5px 12px",
-                  borderRadius: 6,
+                  borderRadius: T.radiusSm,
                   border: `1px solid ${T.border}`,
                   background: T.surface,
                   color: T.ink,
@@ -157,7 +157,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                <Download size={13} />
+                <Download size={14} strokeWidth={2.25} />
                 Export CSV
               </button>
             </div>
@@ -205,7 +205,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
 function SummaryStat({ label, count, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <span className="display mono" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1 }}>
+      <span className="display" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
         {count}
       </span>
       <span style={{ fontSize: 12, color: T.sub }}>{label}</span>
@@ -246,7 +246,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div>
-            <div className="eyebrow" style={{ color: T.muted }}>{title}</div>
+            <div className="eyebrow">{title}</div>
             {subtitle && <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>{subtitle}</div>}
           </div>
           <div className="mono" style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>0 cases</div>
@@ -264,7 +264,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
-            <span className="eyebrow" style={{ color: T.muted }}>Sort</span>
+            <span className="eyebrow">Sort</span>
             <select
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value)}
@@ -272,7 +272,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
                 fontSize: 12,
                 padding: "4px 8px",
                 border: `1px solid ${T.border}`,
-                borderRadius: 6,
+                borderRadius: T.radiusSm,
                 background: T.surface,
                 color: T.ink,
                 cursor: "pointer",
@@ -312,7 +312,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
               <Fragment key={r.number}>
               {showAssigneeHeader && (
                 <tr style={{ background: T.surfaceSunk }}>
-                  <td colSpan={9} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, color: T.sub, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                  <td colSpan={9} className="eyebrow" style={{ padding: "6px 12px", color: T.sub }}>
                     {r.assignedTo || "Unassigned"}
                   </td>
                 </tr>
@@ -322,7 +322,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
                 className="hoverlift"
                 style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer" }}
               >
-                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accent }}>
+                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accentDeep }}>
                   <CopyableNumber value={r.number} />
                 </td>
                 <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
@@ -377,7 +377,7 @@ function InitialResponseList({ rows }) {
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div className="eyebrow" style={{ color: T.danger }}>
-          <Clock size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+          <Clock size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 4 }} />
           Missed initial response
         </div>
         <div className="mono" style={{ fontSize: 12, color: T.danger, fontWeight: 600 }}>
@@ -402,7 +402,7 @@ function InitialResponseList({ rows }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.number} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
-                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accent }}>
+                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accentDeep }}>
                   <CopyableNumber value={r.number} />
                 </td>
                 <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: priorityColor(r.priority), fontWeight: 600 }}>

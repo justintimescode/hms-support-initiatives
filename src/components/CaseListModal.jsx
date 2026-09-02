@@ -44,19 +44,19 @@ export function CaseListModal({ title, subtitle, rows, onClose }) {
         className="fade-in"
         style={{
           width: "100%", maxWidth: 1080, background: T.bg,
-          border: `1px solid ${T.border}`, borderRadius: T.radiusLg || 12,
+          border: `1px solid ${T.border}`, borderRadius: T.radiusLg,
           boxShadow: T.shadowLg, maxHeight: "calc(100vh - 80px)",
           display: "flex", flexDirection: "column",
         }}
       >
         {/* header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", background: T.surface, borderBottom: `1px solid ${T.border}`, borderRadius: `${T.radiusLg || 12}px ${T.radiusLg || 12}px 0 0` }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "18px 22px", background: T.surface, borderBottom: `1px solid ${T.border}`, borderRadius: `${T.radiusLg}px ${T.radiusLg}px 0 0` }}>
           <div style={{ minWidth: 0 }}>
             <div className="display" style={{ fontSize: 24, color: T.ink, letterSpacing: "-0.015em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
-            {subtitle && <div style={{ color: T.sub, fontSize: 12.5, marginTop: 4 }}>{subtitle}</div>}
+            {subtitle && <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>{subtitle}</div>}
           </div>
-          <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer", flexShrink: 0 }}>
-            <X size={16} />
+          <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", flexShrink: 0 }}>
+            <X size={18} strokeWidth={1.9} />
           </button>
         </div>
 

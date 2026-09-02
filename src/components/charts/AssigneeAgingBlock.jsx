@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { AGING_BUCKETS } from "../../lib/constants.js";
 import { openByAssigneeAge } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
@@ -12,12 +12,12 @@ import { CaseDrilldown } from "../CaseDrilldown.jsx";
  * measure, not just look. A grid lets you scan straight down the 31-90d/90d+
  * columns and see who the stale backlog concentrates on at a glance.
  *
- * Each bucket keeps its own semantic color (ok → danger, same ramp the old bar
- * chart used) and is intensity-scaled against the BUSIEST ROW IN THAT COLUMN,
- * not the grid's global max — a bucket where every analyst carries 1-2 cases
- * would otherwise wash out to nothing next to a busy 0-7d column. Rows stay
- * sorted stale-first (same order `openByAssigneeAge` has always returned). */
-const AGING_STACK_COLORS = [T.ok, T.warn, T.accent, T.danger];
+ * The grid is ONE hue (the ordinal ramp's top step) with intensity as the only
+ * variable, scaled against the BUSIEST ROW IN THAT COLUMN, not the grid's global
+ * max — a bucket where every analyst carries 1-2 cases would otherwise wash out
+ * to nothing next to a busy 0-7d column. Bucket identity rides on the column
+ * label, not on a hue. Rows stay sorted stale-first (same order
+ * `openByAssigneeAge` has always returned). */
 const MIN_FRAC = 0.12;
 const MAX_FRAC = 0.62;
 
@@ -48,7 +48,7 @@ export function AssigneeAgingBlock({ members }) {
   if (!data.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Open cases by assignee · stacked by age</div>
+        <div className="eyebrow">Open cases by assignee · stacked by age</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>No open cases on the team.</div>
       </Card>
     );
@@ -56,7 +56,7 @@ export function AssigneeAgingBlock({ members }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Open cases by assignee · by age</div>
+      <div className="eyebrow">Open cases by assignee · by age</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
         Each analyst's open queue by age. Color intensity is relative to the busiest analyst IN THAT COLUMN, so a
         thinly-spread 31-90d/90d+ problem still stands out. Click any tile to drill into those cases.
@@ -71,7 +71,7 @@ export function AssigneeAgingBlock({ members }) {
           }}
         >
           <div />
-          {AGING_BUCKETS.map((b, i) => (
+          {AGING_BUCKETS.map((b) => (
             <div
               key={b.name}
               className="mono"
@@ -80,22 +80,22 @@ export function AssigneeAgingBlock({ members }) {
                 fontWeight: 700,
                 textAlign: "center",
                 padding: "4px 0",
-                borderRadius: 2,
-                color: AGING_STACK_COLORS[i],
-                background: alpha(AGING_STACK_COLORS[i], 0.12),
+                borderRadius: T.radiusSm,
+                color: T.vizCat,
+                background: T.vizWell,
               }}
             >
               {b.name}
             </div>
           ))}
-          <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: T.sub, textAlign: "center", alignSelf: "center" }}>
+          <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: T.vizCat, textAlign: "center", alignSelf: "center" }}>
             Total
           </div>
 
           {data.map((row) => (
             <Fragment key={row.name}>
               <div
-                style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                style={{ fontSize: 12, fontWeight: 600, color: T.ink, alignSelf: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                 title={row.name}
               >
                 {row.name}
@@ -104,7 +104,12 @@ export function AssigneeAgingBlock({ members }) {
                 const v = row[b.name] || 0;
                 const max = colMax[i];
                 const intensity = max ? Math.sqrt(v / max) : 0;
-                const bg = v === 0 ? T.surfaceAlt : alpha(AGING_STACK_COLORS[i], MIN_FRAC + intensity * (MAX_FRAC - MIN_FRAC));
+                // Data-driven intensity channel: one hue, mixed toward the plot
+                // ground by the same MIN_FRAC/MAX_FRAC/sqrt math as before.
+                const pct = Math.round((MIN_FRAC + intensity * (MAX_FRAC - MIN_FRAC)) * 100);
+                const bg = v === 0
+                  ? T.surfaceAlt
+                  : `color-mix(in srgb, var(--t-viz-r4) ${pct}%, var(--t-viz-well))`;
                 const isSelected = selected && selected.name === row.name && selected.bucketIdx === i;
                 return (
                   <div
@@ -125,9 +130,9 @@ export function AssigneeAgingBlock({ members }) {
                       color: v === 0 ? T.muted : T.ink,
                       background: bg,
                       border: `1px solid ${T.borderSoft}`,
-                      outline: isSelected ? `2px solid ${T.accent}` : "none",
+                      outline: isSelected ? `2px solid ${T.vizAccent}` : "none",
                       outlineOffset: -1,
-                      borderRadius: 2,
+                      borderRadius: T.radiusSm,
                       cursor: v === 0 ? "default" : "pointer",
                     }}
                   >
@@ -139,7 +144,7 @@ export function AssigneeAgingBlock({ members }) {
                 className="mono"
                 style={{
                   height: 32, display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 12, fontWeight: 700, color: T.ink, background: T.surfaceSunk, borderRadius: 2,
+                  fontSize: 12, fontWeight: 700, color: T.ink, background: T.surfaceSunk, borderRadius: T.radiusSm,
                 }}
               >
                 {row.total}

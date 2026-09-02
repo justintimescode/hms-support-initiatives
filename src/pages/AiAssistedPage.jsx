@@ -89,7 +89,7 @@ export default function AiAssistedPage() {
             <AiAnalystAdoptionBlock rows={viewRows} />
           ) : (
             <Card>
-              <div className="eyebrow" style={{ color: T.muted }}>AI tagging adoption by analyst</div>
+              <div className="eyebrow">AI tagging adoption by analyst</div>
               <div style={{ color: T.sub, fontSize: 13, marginTop: 8, maxWidth: 700 }}>
                 Adoption is a team comparison — set the analyst filter to{" "}
                 <strong>All analysts</strong> in the bar above to rank every analyst by how much of

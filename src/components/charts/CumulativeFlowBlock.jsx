@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer,
 } from "recharts";
-import { T, alpha } from "../../lib/theme.js";
+import { T, AXIS_TICK, LEGEND_STYLE, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { cumulativeFlow } from "../../lib/stats.js";
 import { BUCKET_MS, SCOPE_RANGE, timeWindow } from "../../lib/time-axis.js";
 import { Card } from "../layout/Card.jsx";
@@ -14,9 +14,13 @@ import { TimeScopeNote, TimeScopeToggle } from "./TimeScopeToggle.jsx";
 // in the dataset, partitioned each week by where its lifecycle sat (truly open /
 // Solution Proposed / closed). The bands stack to the full case count, so the
 // SHAPE is the story: a fattening open band is backlog growth, a fattening
-// amber band is work parked on customers, and the closed band's slope is real
-// throughput. Historical positions are reconstructed from the export's own
-// timestamps (close time; Solution-Proposed entry via the resolution-notes /
+// Solution-Proposed band is work parked on customers, and the closed band's
+// slope is real throughput. The three bands are steps 1/2/4 of the one ordinal
+// purple ramp, running from the ramp's low step (settled) to its high step
+// (still open) — the luminance direction flips between the light and dark
+// palettes, so the legend, not lightness, is what names a band.
+// Historical positions are reconstructed from the export's own timestamps
+// (close time; Solution-Proposed entry via the resolution-notes /
 // last-Infor-note anchor, same as the auto-close clock).
 export function CumulativeFlowBlock({ rows, dateRange, snapshotMs }) {
   const data = useMemo(
@@ -35,7 +39,7 @@ export function CumulativeFlowBlock({ rows, dateRange, snapshotMs }) {
   if (!data.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Cumulative flow · lifecycle over time</div>
+        <div className="eyebrow">Cumulative flow · lifecycle over time</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           Not enough dated cases to reconstruct a weekly flow.
         </div>
@@ -46,7 +50,7 @@ export function CumulativeFlowBlock({ rows, dateRange, snapshotMs }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <div className="eyebrow" style={{ color: T.muted }}>Cumulative flow · lifecycle over time</div>
+        <div className="eyebrow">Cumulative flow · lifecycle over time</div>
         <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
       </div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
@@ -55,50 +59,50 @@ export function CumulativeFlowBlock({ rows, dateRange, snapshotMs }) {
         while the closed band climbs — an open band that keeps thickening means intake is outrunning
         resolution, whatever any single week's numbers say.
       </div>
-      <div style={{ height: 300, marginTop: 12 }}>
+      <div style={{ height: 300, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <AreaChart data={win.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
+            <CartesianGrid stroke={T.vizGrid} vertical={false} />
             <XAxis
               dataKey="week"
               type="number"
               domain={win.domain}
               tickFormatter={win.tickFormatter}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               ticks={win.ticks}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               allowDecimals={false}
             />
-            <Tooltip content={<FlowTip />} cursor={{ stroke: T.border }} />
+            <Tooltip content={<FlowTip />} cursor={{ fill: T.vizWell }} />
             {/* Explicit payload: recharts 3 otherwise sorts legend items
               * alphabetically instead of matching the stack order. */}
             <Legend
-              wrapperStyle={{ fontSize: 11, color: T.sub }}
+              wrapperStyle={LEGEND_STYLE}
               iconType="square"
               payload={[
-                { value: "closed", type: "square", color: T.ok, id: "closed" },
-                { value: "solution proposed", type: "square", color: T.warn, id: "solutionProposed" },
-                { value: "open", type: "square", color: T.accent, id: "open" },
+                { value: "closed", type: "square", color: T.vizRamp[0], id: "closed" },
+                { value: "solution proposed", type: "square", color: T.vizRamp[1], id: "solutionProposed" },
+                { value: "open", type: "square", color: T.vizRamp[3], id: "open" },
               ]}
             />
             <Area
               type="monotone" dataKey="closed" name="closed" stackId="flow"
-              stroke={T.ok} fill={alpha(T.ok, 0.5)} strokeWidth={1.5}
+              stroke={T.vizStroke} fill={T.vizRamp[0]} strokeWidth={1}
             />
             <Area
               type="monotone" dataKey="solutionProposed" name="solution proposed" stackId="flow"
-              stroke={T.warn} fill={alpha(T.warn, 0.5)} strokeWidth={1.5}
+              stroke={T.vizStroke} fill={T.vizRamp[1]} strokeWidth={1}
             />
             <Area
               type="monotone" dataKey="open" name="open" stackId="flow"
-              stroke={T.accent} fill={alpha(T.accent, 0.5)} strokeWidth={1.5}
+              stroke={T.vizStroke} fill={T.vizRamp[3]} strokeWidth={1}
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -124,7 +128,7 @@ function FlowTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{fmtWeek(d.week)}</div>
       <div className="mono" style={{ color: T.sub }}>open {d.open} · proposed {d.solutionProposed} · closed {d.closed}</div>
       <div className="mono" style={{ color: T.muted }}>{d.total} cases on the books</div>

@@ -1,5 +1,5 @@
 import { Search, X, Info } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { BANDS } from "../../lib/insight-filters.js";
 import { ESCALATION_LEVELS, FLAG_STALE_JIRA_MULTI_CASE, FLAG_URGENCY_SENTIMENT_ESCALATION } from "../../lib/insight-thresholds.js";
@@ -27,24 +27,37 @@ const FLAG_LABEL = {
   [FLAG_URGENCY_SENTIMENT_ESCALATION]: "Urgent + negative + escalated",
 };
 
+/* Chip colorways, each the brand's "core color on Tint 01" pairing: the
+ * saturated value carries the border, its tint carries the fill, and the label
+ * takes whichever value clears AA on that fill (Red Shade 01 on a red tint is
+ * only 4.04, so red chips label in Red Shade 02). Replaces the composited
+ * alpha() fill, which was theme-lucky rather than theme-correct. */
+const CHIP = {
+  danger:  { edge: T.danger, fill: T.dangerSoft,  ink: T.onAccentSoft },
+  warn:    { edge: T.warn,   fill: T.warnSoft,    ink: T.warn },
+  purple:  { edge: T.ok,     fill: T.okSoft,      ink: T.ok },
+  accent:  { edge: T.accent, fill: T.accentTint,  ink: T.onAccentSoft },
+  neutral: { edge: T.sub,    fill: T.surfaceAlt,  ink: T.sub },
+};
+
 const chipStyle = (on, tone) => ({
-  fontSize: 11.5,
+  fontSize: 12,
   fontWeight: 600,
   padding: "4px 10px",
   borderRadius: 999,
   cursor: "pointer",
   whiteSpace: "nowrap",
-  border: `1px solid ${on ? tone : T.border}`,
-  background: on ? alpha(tone, 0.1) : T.surface,
-  color: on ? tone : T.sub,
+  border: `1px solid ${on ? tone.edge : T.border}`,
+  background: on ? tone.fill : T.surface,
+  color: on ? tone.ink : T.sub,
 });
 
 function Group({ label, children, note }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div className="eyebrow" style={{ color: T.muted, fontSize: 9, marginBottom: 6 }}>{label}</div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{label}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>{children}</div>
-      {note && <div style={{ fontSize: 10.5, color: T.muted, marginTop: 5, fontStyle: "italic" }}>{note}</div>}
+      {note && <div style={{ fontSize: 10, color: T.muted, marginTop: 5, fontStyle: "italic" }}>{note}</div>}
     </div>
   );
 }
@@ -62,7 +75,7 @@ export function OperationsFilterBar({
           <Group label="Impact band">
             {BANDS.map((b) => (
               <button key={b} type="button" onClick={() => onToggleBand(b)} aria-pressed={bands.includes(b)}
-                style={chipStyle(bands.includes(b), b === "high" ? T.danger : b === "medium" ? T.warn : T.muted)}>
+                style={chipStyle(bands.includes(b), b === "high" ? CHIP.danger : b === "medium" ? CHIP.warn : CHIP.neutral)}>
                 {b}
               </button>
             ))}
@@ -71,7 +84,7 @@ export function OperationsFilterBar({
           <Group label="Escalation">
             {[...ESCALATION_LEVELS].reverse().map((l) => (
               <button key={l} type="button" onClick={() => onToggleEscalation(l)} aria-pressed={escalation.includes(l)}
-                style={chipStyle(escalation.includes(l), l === "escalated" ? T.danger : l === "at-risk" ? T.warn : l === "watch" ? T.accent : T.muted)}>
+                style={chipStyle(escalation.includes(l), l === "escalated" ? CHIP.danger : l === "at-risk" ? CHIP.warn : l === "watch" ? CHIP.purple : CHIP.neutral)}>
                 {l}
               </button>
             ))}
@@ -80,15 +93,15 @@ export function OperationsFilterBar({
           <Group label="Risk shape">
             {[FLAG_STALE_JIRA_MULTI_CASE, FLAG_URGENCY_SENTIMENT_ESCALATION].map((f) => (
               <button key={f} type="button" onClick={() => onToggleFlag(f)} aria-pressed={flags.includes(f)}
-                style={chipStyle(flags.includes(f), T.danger)}>
+                style={chipStyle(flags.includes(f), CHIP.danger)}>
                 {FLAG_LABEL[f]}
               </button>
             ))}
           </Group>
 
           <Group label="Search">
-            <div style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${T.border}`, borderRadius: 6, background: T.surface, padding: "3px 8px" }}>
-              <Search size={13} style={{ color: T.muted }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: T.surface, padding: "3px 8px" }}>
+              <Search size={14} strokeWidth={2.25} style={{ color: T.muted }} />
               <input
                 value={search}
                 onChange={(e) => onSearch(e.target.value)}
@@ -99,7 +112,7 @@ export function OperationsFilterBar({
               {search && (
                 <button type="button" onClick={() => onSearch("")} aria-label="Clear search"
                   style={{ background: "none", border: "none", cursor: "pointer", color: T.muted, padding: 0, display: "flex" }}>
-                  <X size={12} />
+                  <X size={14} strokeWidth={2.25} />
                 </button>
               )}
             </div>
@@ -117,7 +130,7 @@ export function OperationsFilterBar({
                   {facets.slice(0, 8).map((f) => (
                     <button key={f.value} type="button" onClick={() => onToggleDimension(d.id, f.value)} aria-pressed={chosen.includes(f.value)}
                       title={`${f.clusters} cluster${f.clusters === 1 ? "" : "s"} · ${f.cases} case${f.cases === 1 ? "" : "s"} (${f.openCases} open)`}
-                      style={chipStyle(chosen.includes(f.value), T.accent)}>
+                      style={chipStyle(chosen.includes(f.value), CHIP.accent)}>
                       <span style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", display: "inline-block", verticalAlign: "bottom" }}>
                         {f.value}
                       </span>
@@ -125,7 +138,7 @@ export function OperationsFilterBar({
                     </button>
                   ))}
                   {facets.length > 8 && (
-                    <span style={{ fontSize: 10.5, color: T.muted }}>
+                    <span style={{ fontSize: 10, color: T.muted }}>
                       +{facets.length - 8} more (narrow with search)
                     </span>
                   )}
@@ -138,7 +151,7 @@ export function OperationsFilterBar({
         {/* --- honest absence: what this export cannot support --- */}
         {unavailable.length > 0 && (
           <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 12, display: "flex", gap: 8, alignItems: "flex-start" }}>
-            <Info size={13} style={{ color: T.muted, flex: "0 0 auto", marginTop: 2 }} />
+            <Info size={14} strokeWidth={2.25} style={{ color: T.muted, flex: "0 0 auto", marginTop: 2 }} />
             <div style={{ fontSize: 11, color: T.muted, lineHeight: 1.6 }}>
               <strong style={{ color: T.sub, fontWeight: 600 }}>Not available in this export:</strong>{" "}
               {unavailable.map((d, i) => (
@@ -154,7 +167,7 @@ export function OperationsFilterBar({
         {activeCount > 0 && (
           <div style={{ borderTop: `1px solid ${T.borderSoft}`, paddingTop: 10 }}>
             <button type="button" onClick={onClear}
-              style={{ fontSize: 11.5, fontWeight: 600, color: T.accent, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              style={{ fontSize: 12, fontWeight: 600, color: T.accentDeep, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
               Clear {activeCount} view filter{activeCount === 1 ? "" : "s"}
             </button>
           </div>

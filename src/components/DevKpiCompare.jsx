@@ -1,4 +1,4 @@
-import { T, alpha } from "../lib/theme.js";
+import { T } from "../lib/theme.js";
 import { useQuery } from "../lib/useQuery.js";
 import { getKpis } from "../lib/queries.js";
 import { Card } from "./layout/Card.jsx";
@@ -17,14 +17,14 @@ export function DevKpiCompare({ jsKpis, analyst, manager, dateRange, dbReady }) 
   if (!enabled) return null;
   if (loading) {
     return (
-      <div style={{ marginTop: 12, padding: "8px 12px", border: `1px dashed ${T.warn}`, borderRadius: 4, color: T.muted, fontSize: 11 }}>
+      <div style={{ marginTop: 12, padding: "8px 12px", border: `1px dashed ${T.warn}`, borderRadius: T.radiusSm, color: T.muted, fontSize: 11 }}>
         DEV · loading SQL KPIs…
       </div>
     );
   }
   if (error) {
     return (
-      <div style={{ marginTop: 12, padding: "8px 12px", border: `1px dashed ${T.danger}`, borderRadius: 4, color: T.danger, fontSize: 11 }}>
+      <div style={{ marginTop: 12, padding: "8px 12px", border: `1px dashed ${T.danger}`, borderRadius: T.radiusSm, color: T.danger, fontSize: 11 }}>
         DEV · SQL getKpis failed: {error?.message || String(error)}
       </div>
     );
@@ -67,7 +67,7 @@ export function DevKpiCompare({ jsKpis, analyst, manager, dateRange, dbReady }) 
   const anyDrift = rows.some(([, a, b]) => !closeEnough(a, b));
 
   return (
-    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: alpha(anyDrift ? T.dangerSoft : T.okSoft, 0.2) }}>
+    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: anyDrift ? T.dangerSoft : T.okSoft }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div>
           <div className="eyebrow" style={{ color: anyDrift ? T.danger : T.ok }}>

@@ -15,14 +15,14 @@ function Toggle({ checked, onChange }) {
       role="switch"
       aria-checked={checked}
       style={{
-        flexShrink: 0, width: 46, height: 26, borderRadius: 13, cursor: "pointer",
+        flexShrink: 0, width: 46, height: 26, borderRadius: 999, cursor: "pointer",
         border: `1px solid ${checked ? T.accent : T.border}`,
         background: checked ? T.accent : T.surfaceAlt, position: "relative", transition: "background 0.15s",
       }}
     >
       <span style={{
         position: "absolute", top: 2, left: checked ? 22 : 2, width: 20, height: 20,
-        borderRadius: "50%", background: "#fff", transition: "left 0.15s",
+        borderRadius: "50%", background: checked ? T.onAccent : T.sub, transition: "left 0.15s",
       }} />
     </button>
   )
@@ -53,7 +53,7 @@ export default function SettingsPage() {
         <JiraConnectionCard onChanged={onJiraCredsChanged} />
 
         <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Data retention</div>
+          <div className="eyebrow">Data retention</div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ maxWidth: 420 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Auto-delete old imports</div>
@@ -75,7 +75,7 @@ export default function SettingsPage() {
               onChange={(e) => persist({ days: Math.max(1, Number(e.target.value) || 1) })}
               style={{
                 width: 70, fontSize: 13, padding: "6px 8px", border: `1px solid ${T.border}`,
-                borderRadius: 4, background: T.surface, color: T.ink, fontFamily: "JetBrains Mono, monospace",
+                borderRadius: T.radiusSm, background: T.surface, color: T.ink, fontVariantNumeric: "tabular-nums",
               }}
             />
             <span style={{ fontSize: 13, color: T.sub }}>days</span>
@@ -83,7 +83,7 @@ export default function SettingsPage() {
         </Card>
 
         <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Disk backup</div>
+          <div className="eyebrow">Disk backup</div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ maxWidth: 420 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Back up imports to disk</div>
@@ -102,7 +102,7 @@ export default function SettingsPage() {
         </Card>
 
         <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Jira auto-sync</div>
+          <div className="eyebrow">Jira auto-sync</div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ maxWidth: 420 }}>
               <div style={{ fontSize: 14, fontWeight: 600 }}>Auto-refresh Jira in the background</div>

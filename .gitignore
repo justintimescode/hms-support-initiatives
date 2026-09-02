@@ -45,3 +45,15 @@ release/
 *.sw?
 _sample_validation.xlsx
 *.xlsx
+
+# Local scratch / temp artifacts (dev-only, never committed)
+.brand/
+.brand-grep.sh
+.brand-shot.mjs
+.brand-verify.mjs
+dev-server.pid
+lint-tmp.txt
+shot-log.txt
+shot-tmp.mjs
+shots-tmp/
+verify-tmp.mjs

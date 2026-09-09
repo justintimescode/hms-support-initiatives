@@ -229,10 +229,43 @@ export function useAppData() {
     return [...set]
   }, [rows])
 
+  // Product / region / priority option names for the new dashboard multi-selects,
+  // all from the FULL dataset (same rationale as analyst/manager: an entity
+  // filter must not narrow its own option list, and the URL token must resolve
+  // to the same value whatever else is selected). Blank cells bucket under an
+  // explicit "Unknown …" sentinel that the pipeline filters on verbatim.
+  const productNames = useMemo(() => {
+    if (!rows) return []
+    const set = new Set()
+    for (const r of rows) set.add(r.product_line || "Unknown product")
+    return [...set]
+  }, [rows])
+
+  const regionNames = useMemo(() => {
+    if (!rows) return []
+    const set = new Set()
+    for (const r of rows) set.add(r.region || "Unknown region")
+    return [...set]
+  }, [rows])
+
+  // Priorities carry a natural severity order (Critical → … → Unknown); keep
+  // that order for the dropdown rather than alphabetizing.
+  const priorityNames = useMemo(() => {
+    if (!rows) return []
+    const set = new Set()
+    for (const r of rows) set.add(r.priority || "Unknown priority")
+    return [...set].sort((a, b) => priorityRank(a) - priorityRank(b))
+  }, [rows])
+
   const {
-    analyst, setAnalyst, manager, setManager,
+    analyst, analysts: analystSel, setAnalyst, setAnalysts, toggleAnalyst,
+    manager, managers: managerSel, setManager, setManagers, toggleManager,
+    products: productSel, setProducts, toggleProduct,
+    regions: regionSel, setRegions, toggleRegion,
+    priorities: prioritySel, setPriorities, togglePriority,
+    clearEntityFilters,
     dateRange, setDateRange, compareOn, setCompareOn, buildFilterSearch,
-  } = useFilters({ analystNames, managerNames })
+  } = useFilters({ analystNames, managerNames, productNames, regionNames, priorityNames })
   const navigate = useNavigate()
 
   // team flavor when no analyst selected.
@@ -657,13 +690,14 @@ export function useAppData() {
   // Reset the analyst/date/AI working state — used whenever the active dataset
   // changes (upload or activation) so filters don't carry across datasets.
   const resetWorkingState = useCallback(() => {
-    setManager("__all__")
-    setAnalyst("__all__")
+    // clearEntityFilters drops analyst, manager, product, region and priority
+    // in one param write; date + compare are cleared separately.
+    clearEntityFilters()
     setDateRange({ from: null, to: null, field: "_created" })
     setCompareOn(false)
     setAiState({ loading: false, result: null, error: null })
     setMemberAi({})
-  }, [setManager, setAnalyst, setDateRange, setCompareOn])
+  }, [clearEntityFilters, setDateRange, setCompareOn])
 
   // New upload → a new persistent import, auto-activated. Atomic: on any failure
   // the OPFS blob is cleaned up and nothing half-created remains.
@@ -814,20 +848,58 @@ export function useAppData() {
     return [...set.entries()].sort((a, b) => b[1] - a[1])
   }, [rows])
 
-  // Analysts for the TopBar dropdown, scoped to the selected manager's team so
-  // picking a manager narrows the analyst list to their reports. Token
+  // Analysts for the TopBar dropdown, scoped to the selected manager(s)' teams
+  // so picking managers narrows the analyst list to their reports. Token
   // resolution stays on the unscoped `analystNames` above, so `?a=` URLs keep
-  // meaning the same person whatever the manager filter says.
+  // meaning the same person whatever the manager filter says. When no manager
+  // is selected the list spans everyone.
   const analysts = useMemo(() => {
     if (!rows) return []
+    const managerFilterActive = managerSel.length > 0
+    const managerSet = new Set(managerSel)
     const set = new Map()
     for (const r of rows) {
-      if (manager !== "__all__" && (managerOf(r) || "No manager") !== manager) continue
+      if (managerFilterActive && !managerSet.has(managerOf(r) || "No manager")) continue
       const a = r.assigned_to || "Unassigned"
       set.set(a, (set.get(a) || 0) + 1)
     }
     return [...set.entries()].sort((a, b) => b[1] - a[1])
-  }, [rows, manager])
+  }, [rows, managerSel])
+
+  // Product / region option [name, count] tuples for their dropdowns, from the
+  // full dataset, sorted by count desc. Blank cells bucket under the same
+  // "Unknown …" sentinel used for token resolution.
+  const productsOptions = useMemo(() => {
+    if (!rows) return []
+    const set = new Map()
+    for (const r of rows) {
+      const p = r.product_line || "Unknown product"
+      set.set(p, (set.get(p) || 0) + 1)
+    }
+    return [...set.entries()].sort((a, b) => b[1] - a[1])
+  }, [rows])
+
+  const regionsOptions = useMemo(() => {
+    if (!rows) return []
+    const set = new Map()
+    for (const r of rows) {
+      const g = r.region || "Unknown region"
+      set.set(g, (set.get(g) || 0) + 1)
+    }
+    return [...set.entries()].sort((a, b) => b[1] - a[1])
+  }, [rows])
+
+  // Priorities keep severity order (not count order) so the dropdown reads
+  // Critical → … → Unknown.
+  const prioritiesOptions = useMemo(() => {
+    if (!rows) return []
+    const set = new Map()
+    for (const r of rows) {
+      const q = r.priority || "Unknown priority"
+      set.set(q, (set.get(q) || 0) + 1)
+    }
+    return [...set.entries()].sort((a, b) => priorityRank(a[0]) - priorityRank(b[0]))
+  }, [rows])
 
   // Pass the active import's upload time as the SOP-SLA snapshot anchor so the
   // in-memory pipeline bakes the same cadence-breach verdict as the SQL worker.
@@ -855,18 +927,45 @@ export function useAppData() {
   // deliberately ignore the analyst filter (Monthly Summary, Jira stats,
   // account risk) read enrichedAllJoined and ignore the manager the same way.
   const enrichedManagerAll = useMemo(() => {
-    if (manager === "__all__") return enrichedAllJoined
-    return enrichedAllJoined.filter((r) => (r.manager || "No manager") === manager)
-  }, [enrichedAllJoined, manager])
+    if (managerSel.length === 0) return enrichedAllJoined
+    const set = new Set(managerSel)
+    return enrichedAllJoined.filter((r) => set.has(r.manager || "No manager"))
+  }, [enrichedAllJoined, managerSel])
 
   const enrichedAnalyst = useMemo(() => {
-    if (analyst === "__all__") return enrichedManagerAll
-    return enrichedManagerAll.filter((r) => (r.assigned_to || "Unassigned") === analyst)
-  }, [enrichedManagerAll, analyst])
+    if (analystSel.length === 0) return enrichedManagerAll
+    const set = new Set(analystSel)
+    return enrichedManagerAll.filter((r) => set.has(r.assigned_to || "Unassigned"))
+  }, [enrichedManagerAll, analystSel])
+
+  // Case-attribute filters (product line / region / priority) sit AFTER the
+  // manager→analyst people filters and BEFORE the date filter. They narrow the
+  // primary displayed slice (`enriched`) and the dashboard KPIs without
+  // touching `enrichedManagerAll` / `enrichedAnalyst`, which team-wide and
+  // Monthly-Summary surfaces read as the people-scoped-but-attribute-unfiltered
+  // set. Each is a set-membership test against the same "Unknown …" sentinels
+  // the option lists and URL tokens use. `region` is in-memory only (not baked
+  // into SQL), so the SQL parity path deliberately ignores it — see queries.js.
+  const enrichedAttrs = useMemo(() => {
+    let out = enrichedAnalyst
+    if (productSel.length > 0) {
+      const set = new Set(productSel)
+      out = out.filter((r) => set.has(r.product_line || "Unknown product"))
+    }
+    if (regionSel.length > 0) {
+      const set = new Set(regionSel)
+      out = out.filter((r) => set.has(r.region || "Unknown region"))
+    }
+    if (prioritySel.length > 0) {
+      const set = new Set(prioritySel)
+      out = out.filter((r) => set.has(r.priority || "Unknown priority"))
+    }
+    return out
+  }, [enrichedAnalyst, productSel, regionSel, prioritySel])
 
   const enriched = useMemo(
-    () => filterRowsByDate(enrichedAnalyst, dateRange.from, dateRange.to, dateRange.field),
-    [enrichedAnalyst, dateRange],
+    () => filterRowsByDate(enrichedAttrs, dateRange.from, dateRange.to, dateRange.field),
+    [enrichedAttrs, dateRange],
   )
 
   const compareWindow = useMemo(() => {
@@ -876,8 +975,8 @@ export function useAppData() {
 
   const compareEnriched = useMemo(() => {
     if (!compareWindow) return null
-    return filterRowsByDate(enrichedAnalyst, compareWindow.from, compareWindow.to, dateRange.field)
-  }, [enrichedAnalyst, compareWindow, dateRange.field])
+    return filterRowsByDate(enrichedAttrs, compareWindow.from, compareWindow.to, dateRange.field)
+  }, [enrichedAttrs, compareWindow, dateRange.field])
 
   const kpis = useMemo(() => computeKpis(enriched), [enriched])
   const compareKpis = useMemo(
@@ -1076,9 +1175,21 @@ export function useAppData() {
     imports, activeImport, activeImportUuid, storageBytes, schemaVersion: SCHEMA_VERSION,
     restoringCount,
     activateImport, renameImport, deleteImport, rebuildImport, clearAllImports,
-    // filters (URL-backed)
+    // filters (URL-backed). `analyst`/`manager` are legacy single-value scalars
+    // derived from the multi-selects (sole selection or '__all__'); the arrays
+    // `analystSel`/`managerSel`/`productSel`/`regionSel`/`prioritySel` are the
+    // real source of truth the dashboard filter bar drives.
     analyst, setAnalyst, manager, setManager, dateRange, setDateRange, compareOn, setCompareOn, view,
     analystNames, analysts, managerNames, managers,
+    analystSel, setAnalysts, toggleAnalyst,
+    managerSel, setManagers, toggleManager,
+    productSel, setProducts, toggleProduct, productsOptions,
+    regionSel, setRegions, toggleRegion, regionsOptions,
+    prioritySel, setPriorities, togglePriority, prioritiesOptions,
+    clearEntityFilters,
+    // Bake filters into a search string for callers that change a filter and
+    // navigate in one action (My Day's roster drill-in, drillIntoMember).
+    buildFilterSearch,
     // db / snapshot
     dbReady, snapshotMs, persistence,
     // print

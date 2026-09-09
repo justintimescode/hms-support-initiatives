@@ -20,6 +20,7 @@ export default function Home() {
   const {
     rows, filename, snapshotMs, jiraState, kpis, compareKpis, analyst, manager, dateRange,
     compareWindow, enriched, handleFile, uploading, uploadError, inputRef,
+    analystSel, managerSel, productSel, prioritySel, regionSel,
   } = ctx
   const dr = dateRange || { from: null, to: null, field: "_created" }
   const [showMissedSla, setShowMissedSla] = useState(false)
@@ -29,10 +30,19 @@ export default function Home() {
     () => (enriched || []).filter((r) => r._slaEligible && r._slaBreached),
     [enriched],
   )
-  const kpiSql = useQuery(() => getKpis({ analyst, manager, dateRange: dr }), [analyst, manager, dr.from, dr.to, dr.field], { enabled: !!rows })
+  // Dev-only JS-vs-SQL parity check. Feed it the SAME multi-selects the
+  // in-memory KPIs use so the two agree under multi-select. `region` is
+  // in-memory only (not in the SQL schema), so the SQL side can't apply it —
+  // the DevCompare intentionally diverges while a region filter is active.
+  const selKey = (a) => (a || []).join(".")
+  const kpiSql = useQuery(
+    () => getKpis({ analyst: analystSel, manager: managerSel, product: productSel, priority: prioritySel, dateRange: dr }),
+    [selKey(analystSel), selKey(managerSel), selKey(productSel), selKey(prioritySel), dr.from, dr.to, dr.field],
+    { enabled: !!rows },
+  )
   const cmpSql = useQuery(
-    () => getCompareKpis({ analyst, manager, compareWindow, field: dr.field }),
-    [analyst, manager, compareWindow?.from, compareWindow?.to, dr.field],
+    () => getCompareKpis({ analyst: analystSel, manager: managerSel, product: productSel, priority: prioritySel, compareWindow, field: dr.field }),
+    [selKey(analystSel), selKey(managerSel), selKey(productSel), selKey(prioritySel), compareWindow?.from, compareWindow?.to, dr.field],
     { enabled: !!rows && !!compareWindow },
   )
 

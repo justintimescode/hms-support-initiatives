@@ -1,6 +1,7 @@
-import { User, Users, ListFilter, Printer } from "lucide-react"
+import { User, Users, Printer, Package, Globe, Flag } from "lucide-react"
 import { T } from "../../lib/theme.js"
 import { FilterBar } from "../FilterBar.jsx"
+import { MultiSelect } from "../MultiSelect.jsx"
 import { FreshnessIndicator } from "./FreshnessIndicator.jsx"
 import { useFilterNavigate } from "../../lib/nav.js"
 
@@ -10,8 +11,15 @@ export function TopBar({ ctx }) {
   if (!ctx) return null
   const {
     rows,
-    analyst, setAnalyst, analysts,
-    manager, setManager, managers,
+    analyst, analysts,
+    managers,
+    // multi-select state (source of truth) + toggles/clears
+    analystSel, toggleAnalyst, setAnalysts,
+    managerSel, toggleManager, setManagers,
+    productSel, toggleProduct, setProducts, productsOptions,
+    regionSel, toggleRegion, setRegions, regionsOptions,
+    prioritySel, togglePriority, setPriorities, prioritiesOptions,
+    clearEntityFilters,
     dateRange, setDateRange,
     compareOn, setCompareOn,
     compareWindow,
@@ -37,10 +45,18 @@ export function TopBar({ ctx }) {
     ? (teamMembers || []).reduce((s, m) => s + m.kpis.total, 0)
     : (kpis?.total ?? 0)
 
-  // Only offer the Manager filter when the export actually carries manager
-  // data — an import without the column would render a lone "No manager"
-  // option that filters nothing.
-  const hasManagerData = (managers || []).some(([name]) => name !== "No manager")
+  // Only offer an entity filter when the export actually carries that data —
+  // an import without the column would render a lone "Unknown …" option that
+  // filters nothing. The single "Unknown …"/"No manager" sentinel is the tell.
+  const hasData = (opts, sentinel) => (opts || []).some(([name]) => name !== sentinel)
+  const hasManagerData = hasData(managers, "No manager")
+  const hasProductData = hasData(productsOptions, "Unknown product")
+  const hasRegionData = hasData(regionsOptions, "Unknown region")
+  const hasPriorityData = hasData(prioritiesOptions, "Unknown priority")
+
+  const activeFilterCount =
+    (managerSel?.length || 0) + (analystSel?.length || 0) +
+    (productSel?.length || 0) + (regionSel?.length || 0) + (prioritySel?.length || 0)
 
   return (
     <div
@@ -67,63 +83,88 @@ export function TopBar({ ctx }) {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 14 }}>
         {hasManagerData && (
-          <div style={{ position: "relative" }}>
-            <Users size={14} style={{ position: "absolute", left: 12, top: 11, color: T.muted }} />
-            <select
-              value={manager}
-              onChange={(e) => setManager(e.target.value)}
-              title="Scope every tab to one manager's team"
-              style={{
-                appearance: "none",
-                padding: "8px 34px 8px 34px",
-                background: T.surface,
-                border: `1px solid ${manager !== "__all__" ? T.accent : T.border}`,
-                borderRadius: T.radiusSm,
-                fontSize: 13,
-                fontWeight: 500,
-                color: T.ink,
-                cursor: "pointer",
-                minWidth: 200,
-                boxShadow: T.shadowSm,
-                transition: "border-color 0.15s ease",
-              }}
-            >
-              <option value="__all__">All managers ({(managers || []).reduce((s, [, c]) => s + c, 0)})</option>
-              {(managers || []).map(([name, count]) => (
-                <option key={name} value={name}>{name} ({count})</option>
-              ))}
-            </select>
-            <ListFilter size={14} style={{ position: "absolute", right: 12, top: 11, color: T.muted, pointerEvents: "none" }} />
-          </div>
+          <MultiSelect
+            icon={Users}
+            label="manager"
+            title="Scope every tab to one or more managers' teams"
+            options={managers || []}
+            selected={managerSel || []}
+            onToggle={toggleManager}
+            onClear={() => setManagers([])}
+            minWidth={200}
+          />
         )}
 
-        <div style={{ position: "relative" }}>
-          <User size={14} style={{ position: "absolute", left: 12, top: 11, color: T.muted }} />
-          <select
-            value={analyst}
-            onChange={(e) => setAnalyst(e.target.value)}
+        <MultiSelect
+          icon={User}
+          label="analyst"
+          title="Scope to one or more analysts"
+          options={analysts || []}
+          selected={analystSel || []}
+          onToggle={toggleAnalyst}
+          onClear={() => setAnalysts([])}
+          minWidth={200}
+        />
+
+        {hasProductData && (
+          <MultiSelect
+            icon={Package}
+            label="product"
+            title="Filter to one or more product lines"
+            options={productsOptions || []}
+            selected={productSel || []}
+            onToggle={toggleProduct}
+            onClear={() => setProducts([])}
+            minWidth={180}
+          />
+        )}
+
+        {hasRegionData && (
+          <MultiSelect
+            icon={Globe}
+            label="region"
+            title="Filter to one or more regions"
+            options={regionsOptions || []}
+            selected={regionSel || []}
+            onToggle={toggleRegion}
+            onClear={() => setRegions([])}
+            minWidth={170}
+          />
+        )}
+
+        {hasPriorityData && (
+          <MultiSelect
+            icon={Flag}
+            label="priority"
+            labelPlural="priorities"
+            title="Filter to one or more priorities"
+            options={prioritiesOptions || []}
+            selected={prioritySel || []}
+            onToggle={togglePriority}
+            onClear={() => setPriorities([])}
+            minWidth={170}
+          />
+        )}
+
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            onClick={clearEntityFilters}
+            title="Clear all entity filters"
             style={{
-              appearance: "none",
-              padding: "8px 34px 8px 34px",
-              background: T.surface,
-              border: `1px solid ${T.border}`,
-              borderRadius: T.radiusSm,
-              fontSize: 13,
-              fontWeight: 500,
-              color: T.ink,
+              padding: "8px 12px",
+              background: "none",
+              border: "none",
+              color: T.accent,
+              fontSize: 12,
+              fontWeight: 600,
               cursor: "pointer",
-              minWidth: 220,
-              boxShadow: T.shadowSm,
-              transition: "border-color 0.15s ease",
+              whiteSpace: "nowrap",
             }}
           >
-            <option value="__all__">All analysts ({(analysts || []).reduce((s, [, c]) => s + c, 0)})</option>
-            {(analysts || []).map(([name, count]) => (
-              <option key={name} value={name}>{name} ({count})</option>
-            ))}
-          </select>
-          <ListFilter size={14} style={{ position: "absolute", right: 12, top: 11, color: T.muted, pointerEvents: "none" }} />
-        </div>
+            Clear filters ({activeFilterCount})
+          </button>
+        )}
 
         <div style={{ position: "relative" }}>
           <button

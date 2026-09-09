@@ -6,6 +6,8 @@ import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { DeltaLine } from "../components/KpiRow.jsx"
+import { InfoTip } from "../components/InfoTip.jsx"
+import { METRIC_EXPLAINERS } from "../lib/metricExplainers.jsx"
 import {
   computeKpis, qualityMetrics, computeInteractionStats, backlogForecast, accountChurnRisk,
   openWorkHealth, monthlyScorecard, previousWindow, filterRowsByDate, topCounts,
@@ -152,20 +154,20 @@ export default function MonthlySummaryReport() {
       delta: { text: fmtDeltaCount(k.total, kp.total), color: T.sub } },
     { label: `Cases closed (${win}d)`, value: report.done.toLocaleString(),
       delta: { text: fmtDeltaCount(report.done, report.donePrev), color: deltaColor(report.done - report.donePrev, "up") } },
-    { label: "Net change", value: signed(netNow), hint: "created − closed",
+    { label: "Net change", value: signed(netNow), hint: "created − closed", info: METRIC_EXPLAINERS.netChange,
       accent: netNow > 0 ? T.danger : netNow < 0 ? T.ok : T.muted,
       delta: { text: fmtDeltaCount(netNow, netPrev), color: deltaColor(netNow - netPrev, "down") } },
-    { label: "SLA compliance", value: pct(k.slaRate), accent: SLA_COLOR(k.slaRate),
+    { label: "SLA compliance", value: pct(k.slaRate), accent: SLA_COLOR(k.slaRate), info: METRIC_EXPLAINERS.slaCompliance,
       delta: { text: fmtDeltaPct(k.slaRate, kp.slaRate), color: deltaColor((k.slaRate ?? 0) - (kp.slaRate ?? 0), "up") } },
-    { label: "Median resolution", value: fmtDuration(k.resP50),
+    { label: "Median resolution", value: fmtDuration(k.resP50), info: METRIC_EXPLAINERS.medianResolution,
       delta: { text: fmtDeltaDuration(k.resP50, kp.resP50), color: deltaColor((k.resP50 ?? 0) - (kp.resP50 ?? 0), "down") } },
-    { label: "p90 resolution", value: fmtDuration(k.resP90), hint: "the slowest 10% start here",
+    { label: "p90 resolution", value: fmtDuration(k.resP90), hint: "the slowest 10% start here", info: METRIC_EXPLAINERS.p90Resolution,
       delta: { text: fmtDeltaDuration(k.resP90, kp.resP90), color: deltaColor((k.resP90 ?? 0) - (kp.resP90 ?? 0), "down") } },
-    { label: "Avg first response", value: fmtDuration(k.avgFrt),
+    { label: "Avg first response", value: fmtDuration(k.avgFrt), info: METRIC_EXPLAINERS.avgFirstResponse,
       delta: { text: fmtDeltaDuration(k.avgFrt, kp.avgFrt), color: deltaColor((k.avgFrt ?? 0) - (kp.avgFrt ?? 0), "down") } },
-    { label: "First-contact resolution", value: pct(q.fcrRate),
+    { label: "First-contact resolution", value: pct(q.fcrRate), info: METRIC_EXPLAINERS.firstContactResolution,
       delta: { text: fmtDeltaPct(q.fcrRate, qp.fcrRate), color: deltaColor((q.fcrRate ?? 0) - (qp.fcrRate ?? 0), "up") } },
-    { label: "Reopen rate", value: pct(q.reopenRate),
+    { label: "Reopen rate", value: pct(q.reopenRate), info: METRIC_EXPLAINERS.reopenRate,
       delta: { text: fmtDeltaPct(q.reopenRate, qp.reopenRate), color: deltaColor((q.reopenRate ?? 0) - (qp.reopenRate ?? 0), "down") } },
   ]
 
@@ -243,7 +245,10 @@ export default function MonthlySummaryReport() {
         {metrics.map((m) => (
           <Card key={m.label} className="msr-card" style={{ position: "relative", overflow: "hidden", padding: "16px 18px 18px" }}>
             <div aria-hidden style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: m.accent || T.ink }} />
-            <div className="eyebrow">{m.label}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <div className="eyebrow">{m.label}</div>
+              {m.info && <span className="no-print"><InfoTip label={m.label} side="left" width={m.info === METRIC_EXPLAINERS.slaCompliance ? 320 : 260}>{m.info}</InfoTip></span>}
+            </div>
             <div className="display" style={{ fontSize: 34, lineHeight: 1.05, marginTop: 8, color: m.accent || T.ink, letterSpacing: "-0.02em", fontVariantNumeric: "tabular-nums" }}>{m.value}</div>
             {m.hint && <div style={{ color: T.muted, fontSize: 11, marginTop: 4 }}>{m.hint}</div>}
             <DeltaLine text={m.delta.text} color={m.delta.color} />

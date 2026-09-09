@@ -23,6 +23,7 @@ import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { JiraKpiCard, JiraSyncControls, JiraIssueDetail } from "../components/jira/JiraAnalysisBlock.jsx"
 import { CopyableNumber } from "../components/CopyableNumber.jsx"
+import { METRIC_EXPLAINERS } from "../lib/metricExplainers.jsx"
 
 // Page-local fixed window for the "Composition" section. NOT the global filter
 // — the user wants a stable recent-mix snapshot. Change here to retune.
@@ -474,7 +475,7 @@ function KpiStrip({ issues }) {
     { label: "Created · 90d", value: created90d },
     { label: "Currently open", value: s.open, sub: `${s.openHighPriority} high-priority`, warn: s.openHighPriority > 0 },
     { label: "Resolved · 30d", value: s.resolved30d },
-    { label: "Median resolve · 30d", value: medianResolveMs != null ? fmtDuration(medianResolveMs) : "—", mono: true },
+    { label: "Median resolve · 30d", value: medianResolveMs != null ? fmtDuration(medianResolveMs) : "—", mono: true, info: METRIC_EXPLAINERS.medianResolveJira },
   ]
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 8 }}>

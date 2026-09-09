@@ -2,6 +2,8 @@ import { ClipboardList, CheckCircle2, Clock, AlertTriangle } from "lucide-react"
 import { T, alpha } from "../lib/theme.js";
 import { fmtDuration, deltaColor, fmtDeltaCount, fmtDeltaPct, fmtDeltaDuration } from "../lib/format.js";
 import { Card } from "./layout/Card.jsx";
+import { InfoTip } from "./InfoTip.jsx";
+import { METRIC_EXPLAINERS } from "../lib/metricExplainers.jsx";
 
 /* ================= KPI Row ================= */
 // "higher is better" by default. For metrics where lower is better, color flips.
@@ -42,6 +44,7 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
     },
     {
       label: "SLA compliance",
+      info: METRIC_EXPLAINERS.slaCompliance,
       value: kpis.slaRate == null ? "—" : `${kpis.slaRate.toFixed(1)}%`,
       sub: kpis.slaEligible ? `${kpis.slaMet} / ${kpis.slaEligible} within SLA` : "no data",
       icon: <CheckCircle2 size={14} />,
@@ -52,6 +55,7 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
     },
     {
       label: "Median resolution",
+      info: METRIC_EXPLAINERS.medianResolution,
       value: fmtDuration(kpis.resP50),
       sub: `p90 ${fmtDuration(kpis.resP90)} · avg ${fmtDuration(kpis.avgRes)}`,
       icon: <Clock size={14} />,
@@ -60,6 +64,7 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
     },
     {
       label: "Open at risk",
+      info: METRIC_EXPLAINERS.openAtRisk,
       value: (kpis.atRisk.length + kpis.breached.length).toString(),
       sub: `${kpis.breached.length} breached · ${kpis.atRisk.length} due in 24h`,
       icon: <AlertTriangle size={14} />,
@@ -112,7 +117,10 @@ export function KpiRow({ kpis, compareKpis, onSlaClick }) {
             }}
           />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div className="eyebrow" style={{ color: T.muted }}>{c.label}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <div className="eyebrow" style={{ color: T.muted }}>{c.label}</div>
+              {c.info && <InfoTip label={c.label} side="left" width={c.info === METRIC_EXPLAINERS.slaCompliance ? 320 : 260}>{c.info}</InfoTip>}
+            </div>
             <span
               style={{
                 color: c.accent,

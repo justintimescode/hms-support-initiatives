@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { percentile } from "../../lib/stats.js";
 import { fmtDuration } from "../../lib/format.js";
 import { rowOutcome, isTagged } from "../../lib/ai-tags.js";
@@ -125,7 +125,7 @@ export function AiEffectivenessBlock({ rows }) {
 
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>Did AI-assisted cases go better?</div>
+      <div className="eyebrow">Did AI-assisted cases go better?</div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 760 }}>
         Median (and 90th-percentile) outcomes for the three cohorts, on whatever measures this
         export supports. <strong>Correlation only.</strong> Analysts pick which cases to try AI on
@@ -142,7 +142,7 @@ export function AiEffectivenessBlock({ rows }) {
           <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
             {cohorts.map((c) => (
               <span key={c.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ width: 12, height: 10, background: c.color, border: `1px solid ${alpha(T.ink, 0.12)}`, borderRadius: 2 }} />
+                <span style={{ width: 12, height: 10, background: c.color, border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />
                 {c.label}
                 <span className="mono" style={{ color: T.muted }}>{c.rows.length.toLocaleString()}</span>
               </span>
@@ -153,9 +153,14 @@ export function AiEffectivenessBlock({ rows }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr style={{ background: T.surfaceAlt }}>
-                  <th style={th}>Measure</th>
+                  <th className="eyebrow" style={th}>Measure</th>
                   {cohorts.map((c) => (
-                    <th key={c.id} style={{ ...th, color: c.color }}>{c.label}</th>
+                    <th key={c.id} className="eyebrow" style={th}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 12, height: 12, background: c.color, border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />
+                        {c.label}
+                      </span>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -246,11 +251,7 @@ export function AiEffectivenessBlock({ rows }) {
 const th = {
   textAlign: "left",
   padding: "8px 12px",
-  color: T.sub,
-  fontWeight: 600,
-  fontSize: 11,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
+  color: T.vizCat,
   borderBottom: `1px solid ${T.border}`,
   whiteSpace: "nowrap",
 };

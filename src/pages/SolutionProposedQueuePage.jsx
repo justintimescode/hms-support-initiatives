@@ -129,7 +129,7 @@ export default function SolutionProposedQueuePage() {
       <Section title={TITLE}>
         <Card>
           <div style={{ color: T.danger, fontSize: 13 }}>
-            <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+            <AlertTriangle size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 6 }} />
             {error?.message || "Failed to compute the auto-close countdown."}
           </div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 8 }}>
@@ -169,7 +169,7 @@ export default function SolutionProposedQueuePage() {
                 fontSize: 12,
                 fontWeight: 600,
                 padding: "5px 12px",
-                borderRadius: 6,
+                borderRadius: T.radiusSm,
                 border: `1px solid ${T.border}`,
                 background: T.surface,
                 color: sorted.length ? T.ink : T.muted,
@@ -177,7 +177,7 @@ export default function SolutionProposedQueuePage() {
                 whiteSpace: "nowrap",
               }}
             >
-              <Download size={13} />
+              <Download size={14} strokeWidth={2.25} />
               Export CSV
             </button>
           </div>
@@ -189,8 +189,8 @@ export default function SolutionProposedQueuePage() {
         {sorted.length === 0 ? (
           <Card>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Timer size={15} color={T.ok} />
-              <div className="eyebrow" style={{ color: T.muted }}>No Solution Proposed cases</div>
+              <Timer size={14} strokeWidth={2.25} color={T.ok} />
+              <div className="eyebrow">No Solution Proposed cases</div>
             </div>
             <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 10 }}>
               {analyst && analyst !== "__all__"
@@ -202,8 +202,8 @@ export default function SolutionProposedQueuePage() {
           <Card>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div>
-                <div className="eyebrow" style={{ color: T.muted }}>
-                  <Timer size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                <div className="eyebrow">
+                  <Timer size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 4 }} />
                   Time until 90-day auto-close
                 </div>
                 <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
@@ -265,7 +265,7 @@ export default function SolutionProposedQueuePage() {
 function SummaryStat({ label, count, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <span className="display mono" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1 }}>
+      <span className="display" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
         {count}
       </span>
       <span style={{ fontSize: 12, color: T.sub }}>{label}</span>

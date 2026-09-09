@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { T } from "../../lib/theme.js";
+import {
+  T, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_H, TOOLTIP_STYLE,
+} from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 
 /* ================= Interaction Quality Block ================= */
@@ -48,30 +50,30 @@ export function InteractionQualityBlock({ members }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {chartData.length > 0 && (
         <Card>
-          <div className="eyebrow" style={{ color: T.muted, marginBottom: 12 }}>Avg turns per case by analyst</div>
+          <div className="eyebrow" style={{ marginBottom: 12 }}>Avg turns per case by analyst</div>
           {!hasClassified && (
             <div style={{ color: T.sub, fontSize: 12, marginBottom: 8 }}>
               work_notes entries could not be classified — showing total turn counts only
             </div>
           )}
-          <div style={{ height: Math.max(180, chartData.length * 36) }}>
+          <div style={{ height: Math.max(180, chartData.length * 36), background: T.vizWell, borderRadius: T.radiusMd }}>
             <ResponsiveContainer>
               <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 24, left: 8, bottom: 0 }}>
-                <CartesianGrid stroke={T.borderSoft} horizontal={false} />
-                <XAxis type="number" tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }} axisLine={{ stroke: T.border }} tickLine={{ stroke: T.border }} allowDecimals />
-                <YAxis type="category" dataKey="name" tick={{ fill: T.ink, fontSize: 12 }} width={140} interval={0} axisLine={{ stroke: T.border }} tickLine={{ stroke: T.border }} />
+                <CartesianGrid stroke={T.vizGrid} horizontal={false} />
+                <XAxis type="number" tick={AXIS_TICK} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} allowDecimals />
+                <YAxis type="category" dataKey="name" tick={AXIS_TICK_CAT} width={140} interval={0} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} />
                 <Tooltip
-                  cursor={{ fill: T.surfaceAlt }}
+                  cursor={{ fill: T.vizWell }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     const total = payload.reduce((s, p) => s + (p.value || 0), 0)
                     return (
-                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+                      <div style={TOOLTIP_STYLE}>
                         <div style={{ fontWeight: 600 }}>{label}</div>
                         <div className="mono" style={{ color: T.sub, marginBottom: 4 }}>{total.toFixed(1)} avg turns</div>
                         {payload.filter((p) => p.value > 0).map((p) => (
                           <div key={p.dataKey} className="mono" style={{ color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ width: 8, height: 8, background: p.color, borderRadius: 2 }} />
+                            <span style={{ width: 8, height: 8, background: p.color, borderRadius: T.radiusChart }} />
                             {p.dataKey}: {p.value}
                           </div>
                         ))}
@@ -81,19 +83,19 @@ export function InteractionQualityBlock({ members }) {
                 />
                 {hasClassified ? (
                   <>
-                    <Bar dataKey="customer" stackId="ix" fill={T.accent}    name="customer" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="analyst"  stackId="ix" fill={T.ok}        name="analyst"  radius={[0, 2, 2, 0]} />
+                    <Bar dataKey="customer" stackId="ix" fill={T.vizAccent} name="customer" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="analyst"  stackId="ix" fill={T.categorical[5]} stroke={T.vizStroke} strokeWidth={1} name="analyst"  radius={BAR_RADIUS_H} />
                   </>
                 ) : (
-                  <Bar dataKey="customer" stackId="ix" fill={T.accent} name="turns" radius={[0, 2, 2, 0]} />
+                  <Bar dataKey="customer" stackId="ix" fill={T.vizAccent} name="turns" radius={BAR_RADIUS_H} />
                 )}
               </BarChart>
             </ResponsiveContainer>
           </div>
           {hasClassified && (
             <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12 }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 10, background: T.accent, borderRadius: 2 }} />Customer turns</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 10, background: T.ok, borderRadius: 2 }} />Analyst turns</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 10, background: T.vizAccent, border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />Customer turns</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 12, height: 10, background: T.categorical[5], border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />Analyst turns</span>
             </div>
           )}
         </Card>
@@ -111,7 +113,7 @@ export function InteractionQualityBlock({ members }) {
                     style={{ padding: "10px 14px", textAlign: h.align, fontWeight: 600, color: T.sub, cursor: "pointer", whiteSpace: "nowrap", borderBottom: `1px solid ${T.borderSoft}` }}
                   >
                     {h.label}
-                    {sort.key === h.key && <span style={{ marginLeft: 4, color: T.accent }}>{sort.dir === "asc" ? "▲" : "▼"}</span>}
+                    {sort.key === h.key && <span style={{ marginLeft: 4, color: T.vizAccent }}>{sort.dir === "asc" ? "▲" : "▼"}</span>}
                   </th>
                 ))}
               </tr>

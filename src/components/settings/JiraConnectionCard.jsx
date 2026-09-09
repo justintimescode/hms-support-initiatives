@@ -221,7 +221,7 @@ const Spinner = () => <Loader2 size={13} style={{ animation: "spin 1s linear inf
 
 const input = {
   fontSize: 13, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 5,
-  background: T.surface, color: T.ink, fontFamily: "DM Sans, sans-serif", width: "100%",
+  background: T.surface, color: T.ink, width: "100%",
   boxSizing: "border-box",
 }
 
@@ -237,7 +237,6 @@ function btn(disabled, primary) {
     color: primary && !disabled ? T.onAccent : disabled ? T.muted : T.sub,
     border: `1px solid ${primary && !disabled ? T.accent : T.border}`,
     borderRadius: 6, fontSize: 13, fontWeight: 500,
-    fontFamily: "DM Sans, sans-serif",
     cursor: disabled ? "not-allowed" : "pointer",
   }
 }

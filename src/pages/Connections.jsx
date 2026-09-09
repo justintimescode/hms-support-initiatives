@@ -63,8 +63,8 @@ function JiraCard({ jiraState, onSync, jiraCreds }) {
     <Card style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <ExternalLink size={16} style={{ color: T.accent }} />
-          <span className="display" style={{ fontSize: 16, fontWeight: 600 }}>Jira (Atlassian)</span>
+          <ExternalLink size={18} strokeWidth={1.9} style={{ color: T.accent }} />
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Jira (Atlassian)</span>
         </div>
         <Pill color={pillTone}>{pillLabel}</Pill>
       </div>
@@ -81,7 +81,7 @@ function JiraCard({ jiraState, onSync, jiraCreds }) {
           {syncedAt && <div>Synced {syncedAt}</div>}
           {meta.cacheSaved === false && (
             <div style={{ color: T.warn, display: "flex", alignItems: "center", gap: 6 }}>
-              <AlertTriangle size={12} /> cache did not persist
+              <AlertTriangle size={14} strokeWidth={2.25} /> cache did not persist
             </div>
           )}
         </div>
@@ -100,7 +100,7 @@ function JiraCard({ jiraState, onSync, jiraCreds }) {
         {needsCreds && status !== "ready" ? (
           <FilterLink to="/settings" style={{ textDecoration: "none" }}>
             <span style={{ ...btnPrimary(false), display: "inline-flex" }}>
-              <Settings size={13} /> Connect Jira in Settings
+              <Settings size={14} strokeWidth={2.25} /> Connect Jira in Settings
             </span>
           </FilterLink>
         ) : (
@@ -143,11 +143,11 @@ function JiraSyncProgress({ status, progress }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ fontSize: 12, color: T.sub }}>{label}</div>
-      <div style={{ position: "relative", height: 6, background: T.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ position: "relative", height: 6, background: T.surfaceAlt, borderRadius: T.radiusSm, overflow: "hidden" }}>
         {determinate ? (
-          <div style={{ height: "100%", width: `${pct}%`, background: T.accent, borderRadius: 3, transition: "width 0.3s ease" }} />
+          <div style={{ height: "100%", width: `${pct}%`, background: T.accent, borderRadius: T.radiusSm, transition: "width 0.3s ease" }} />
         ) : (
-          <div style={{ position: "absolute", top: 0, bottom: 0, width: "45%", background: T.accent, borderRadius: 3, animation: "indeterminate 1.2s linear infinite" }} />
+          <div style={{ position: "absolute", top: 0, bottom: 0, width: "45%", background: T.accent, borderRadius: T.radiusSm, animation: "indeterminate 1.2s linear infinite" }} />
         )}
       </div>
     </div>
@@ -156,11 +156,11 @@ function JiraSyncProgress({ status, progress }) {
 
 function PlaceholderCard({ title, icon: Icon, subtitle }) {
   return (
-    <Card style={{ background: T.surfaceAlt, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 10, opacity: 0.85 }}>
+    <Card style={{ background: T.surfaceAlt, borderStyle: "dashed", display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Icon size={16} style={{ color: T.muted }} />
-          <span className="display" style={{ fontSize: 16, fontWeight: 600, color: T.sub }}>{title}</span>
+          <Icon size={18} strokeWidth={1.9} style={{ color: T.muted }} />
+          <span style={{ fontSize: 16, fontWeight: 600, color: T.sub }}>{title}</span>
         </div>
         <Pill color={T.muted}>coming soon</Pill>
       </div>
@@ -173,12 +173,12 @@ function PlaceholderCard({ title, icon: Icon, subtitle }) {
           background: "transparent",
           color: T.muted,
           border: `1px solid ${T.border}`,
-          borderRadius: 6,
+          borderRadius: T.radiusSm,
           fontSize: 13,
           cursor: "not-allowed",
         }}
       >
-        <Plug size={13} style={{ verticalAlign: "middle", marginRight: 4 }} /> Configure
+        <Plug size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 4 }} /> Configure
       </button>
     </Card>
   )
@@ -189,10 +189,10 @@ function btnPrimary(disabled) {
     display: "inline-flex", alignItems: "center", gap: 6,
     padding: "8px 14px",
     background: disabled ? T.surfaceAlt : T.accent,
-    color: disabled ? T.muted : T.surface,
+    color: disabled ? T.muted : T.onAccent,
     border: `1px solid ${disabled ? T.border : T.accent}`,
-    borderRadius: 6,
-    fontSize: 13, fontWeight: 500,
+    borderRadius: T.radiusSm,
+    fontSize: 13, fontWeight: 600,
     cursor: disabled ? "not-allowed" : "pointer",
   }
 }
@@ -203,8 +203,8 @@ function btnSecondary(disabled) {
     background: "transparent",
     color: disabled ? T.muted : T.sub,
     border: `1px solid ${T.border}`,
-    borderRadius: 6,
-    fontSize: 13, fontWeight: 500,
+    borderRadius: T.radiusSm,
+    fontSize: 13, fontWeight: 600,
     cursor: disabled ? "not-allowed" : "pointer",
   }
 }

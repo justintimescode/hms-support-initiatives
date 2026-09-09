@@ -9,9 +9,20 @@ export const fmtDuration = (ms) => {
   return `${(h / 24).toFixed(1)}d`;
 };
 
+/* Priority color for TEXT positions (labels, pills, dots, table cells). All
+ * four tiers are text-safe in both palettes; charts want priorityFill(). */
 export const priorityColor = (p) => {
   const r = priorityRank(p);
   return [null, T.priorityCritical, T.priorityMajor, T.priorityMedium, T.priorityStandard][r] || T.muted;
+};
+
+/* Priority color for CHART GEOMETRY (bars, slices, area fills) — the saturated
+ * members of the same ramp, which are deliberately not text-safe. Same arity
+ * and same fallback as priorityColor(); a separate export so no existing text
+ * callsite changes color. */
+export const priorityFill = (p) => {
+  const r = priorityRank(p);
+  return [null, T.priorityCriticalFill, T.priorityMajorFill, T.priorityMediumFill, T.priorityStandardFill][r] || T.vizCat;
 };
 
 export const isoFromMs = (ms) => {
@@ -31,15 +42,22 @@ export const msFromIso = (iso, endOfDay = false) => {
   return endOfDay ? dt.getTime() + 864e5 - 1 : dt.getTime();
 };
 
+/* SLA compliance-rate color, TEXT positions only (the rate figures and their
+ * pills). Three status tokens, all text-safe: T.ok is Infor Purple rather than
+ * green, so the good/bad ends of this ramp are no longer the prohibited
+ * red-and-green pairing. Chart geometry must not read this — it uses the
+ * viz and cat tokens. */
 export const SLA_COLOR = (rate) =>
   rate == null ? T.muted : rate >= 95 ? T.ok : rate >= 85 ? T.warn : T.danger;
 
 // "higher is better" by default. For metrics where lower is better, color flips.
+// Good is the Infor Purple data-viz accent (the brand's prioritized accent),
+// bad is Red Shade 02 — one purple, one red, never green beside red.
 export const deltaColor = (diff, betterDir = "up") => {
   if (diff == null || diff === 0) return T.muted;
   const positive = diff > 0;
   const good = betterDir === "up" ? positive : !positive;
-  return good ? T.ok : T.danger;
+  return good ? T.vizAccent : T.danger;
 };
 
 export const fmtDeltaCount = (cur, prev) => {

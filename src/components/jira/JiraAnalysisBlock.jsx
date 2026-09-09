@@ -7,6 +7,7 @@ import { fetchIssueDetail, PROJECT_KEY, FULL_SYNC_DAYS } from "../../lib/jira-cl
 import { jiraSummary, recentlyCreated, recentlyResolved } from "../../lib/jira-enrich.js";
 import { Card } from "../layout/Card.jsx";
 import { FilterLink } from "../FilterLink.jsx";
+import { InfoTip } from "../InfoTip.jsx";
 
 /* ================= Jira Analysis (live project) ================= */
 
@@ -15,7 +16,6 @@ const jiraBtn = (primary, disabled) => ({
   borderRadius: 4,
   fontSize: 12,
   fontWeight: 600,
-  fontFamily: "DM Sans, sans-serif",
   cursor: disabled ? "default" : "pointer",
   opacity: disabled ? 0.55 : 1,
   border: `1px solid ${primary ? T.accent : T.border}`,
@@ -53,10 +53,13 @@ export function JiraSyncControls({ meta, onSync }) {
   )
 }
 
-export function JiraKpiCard({ label, value, sub, mono, warn }) {
+export function JiraKpiCard({ label, value, sub, mono, warn, info }) {
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <div className="eyebrow" style={{ color: T.muted }}>{label}</div>
+        {info && <InfoTip label={label} side="left">{info}</InfoTip>}
+      </div>
       <div className={mono ? "mono" : "display"}
         style={{ fontSize: mono ? 22 : 30, fontWeight: 500, marginTop: 4, color: warn ? T.warn : T.ink }}>
         {value}
@@ -217,7 +220,7 @@ function JiraIssueList({ issues, mode }) {
           value={query}
           onChange={(e) => { setQuery(e.target.value); setShowAll(false); setExpandedKey(null) }}
           placeholder="Search key or summary…"
-          style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 220, fontFamily: "DM Sans, sans-serif" }}
+          style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 220 }}
         />
       </div>
       <div style={{ overflowX: "auto" }} className="scrollbar">
@@ -338,6 +341,7 @@ function JiraAnalysisReady({ issues, meta, onSync, scopeNote }) {
         <JiraKpiCard label="Created" value={summary.created30d} sub={`${summary.created7d} in last 7d`} />
         <JiraKpiCard label="Resolved" value={summary.resolved30d} sub={`${summary.resolved7d} in last 7d`} />
         <JiraKpiCard label="Median time to resolve" value={fmtDuration(summary.lead.median)}
+          info="The middle time from creation to resolution across resolved Jiras (the 50th percentile) — half resolved faster, half slower. The sub-line adds p85, where the slowest 15% begin."
           sub={`p85 ${fmtDuration(summary.lead.p85)}`} mono />
         <JiraKpiCard label="Open high-priority" value={summary.openHighPriority} sub="needs attention"
           warn={summary.openHighPriority > 0} />

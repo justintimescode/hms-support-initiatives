@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Legend,
 } from "recharts"
 import { AlertTriangle } from "lucide-react"
-import { T } from "../lib/theme.js"
+import { T, AXIS_TICK, AXIS_TICK_CAT, TOOLTIP_STYLE, LEGEND_STYLE, BAR_RADIUS_V } from "../lib/theme.js"
 import { fmtDuration, priorityColor, fmtFullDateTime } from "../lib/format.js"
 import { fetchIssueDetail } from "../lib/jira-client.js"
 import {
@@ -17,30 +17,32 @@ import {
   blastRadius, blastRadiusSummary, openCasesHistogram,
   resolutionStatsByPriority, staleWithImpact, fixVersionPipeline,
 } from "../lib/jira-stats.js"
+import { AliasNote } from "../components/AliasNote.jsx"
 import { Section } from "../components/layout/Section.jsx"
 import { Card } from "../components/layout/Card.jsx"
 import { EmptyState } from "../components/EmptyState.jsx"
 import { JiraKpiCard, JiraSyncControls, JiraIssueDetail } from "../components/jira/JiraAnalysisBlock.jsx"
 import { CopyableNumber } from "../components/CopyableNumber.jsx"
+import { METRIC_EXPLAINERS } from "../lib/metricExplainers.jsx"
 
 // Page-local fixed window for the "Composition" section. NOT the global filter
 // — the user wants a stable recent-mix snapshot. Change here to retune.
 const COMPOSITION_WINDOW_DAYS = 14
 
 export default function JiraStatsPage() {
-  const { jiraState, syncJira, rows, enrichedAllJoined, jiraCreds } = useOutletContext()
+  const { jiraState, syncJira, rows, enrichedAllJoined, jiraCreds, snapshotMs } = useOutletContext()
   const issues = useMemo(() => jiraState?.issues || [], [jiraState?.issues])
   const ready = jiraState?.status === "ready" && issues.length > 0
-  const jiraIssueMap = useMemo(() => {
-    const m = new Map()
-    for (const it of issues) m.set(it.key, it)
-    return m
-  }, [issues])
   // Blast radius is shared by the cross-source section and the lifecycle
   // section (stale-with-impact, fix-version impact). Computed once here.
+  //
+  // `blastRadius` now projects the shared correlation engine and normalizes the
+  // join keys itself, so the local raw-keyed issue map this used to build is
+  // gone (it was the half of CODEREVIEW(5-31).md P1 #2 on the Jira side).
+  // Snapshot-anchored: "days idle" and "days open" measure against the import.
   const blast = useMemo(
-    () => (rows ? blastRadius(enrichedAllJoined, jiraIssueMap).filter((b) => b.openCount > 0) : []),
-    [rows, enrichedAllJoined, jiraIssueMap],
+    () => (rows ? blastRadius(enrichedAllJoined, issues, snapshotMs).filter((b) => b.openCount > 0) : []),
+    [rows, enrichedAllJoined, issues, snapshotMs],
   )
 
   if (!ready) {
@@ -104,7 +106,7 @@ function CrossSource({ blast, hasSn }) {
 
   const heading = (
     <>
-      <div className="eyebrow" style={{ color: T.muted, marginTop: 32, marginBottom: 4 }}>Blast radius · open ServiceNow cases per Jira</div>
+      <div className="eyebrow" style={{ marginTop: 32, marginBottom: 4 }}>Blast radius · open ServiceNow cases per Jira</div>
       <div style={{ color: T.sub, fontSize: 12, marginBottom: 12 }}>
         Which Jira tickets are gating the most open customer cases right now. Counts use the live case register — not affected by the date filter.
       </div>
@@ -116,7 +118,7 @@ function CrossSource({ blast, hasSn }) {
       <div>
         {heading}
         <Card style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <AlertTriangle size={16} style={{ color: T.warn }} />
+          <AlertTriangle size={18} strokeWidth={1.9} style={{ color: T.warn }} />
           <span style={{ fontSize: 13, color: T.sub }}>
             Blast radius needs ServiceNow cases. Upload a case export on the Connections page to see which Jiras are driving open cases.
           </span>
@@ -180,7 +182,7 @@ function CrossSource({ blast, hasSn }) {
         </SummaryPill>
         {summary.staleImpact > 0 && (
           <SummaryPill tone="warn">
-            <AlertTriangle size={13} style={{ color: T.warn }} /> <strong style={{ color: T.ink }}>{summary.staleImpact}</strong> of those {summary.staleImpact === 1 ? "Jira hasn't" : "Jiras haven't"} been updated in {STALE_DAYS}+ days
+            <AlertTriangle size={14} strokeWidth={2.25} style={{ color: T.warn }} /> <strong style={{ color: T.ink }}>{summary.staleImpact}</strong> of those {summary.staleImpact === 1 ? "Jira hasn't" : "Jiras haven't"} been updated in {STALE_DAYS}+ days
           </SummaryPill>
         )}
       </div>
@@ -208,7 +210,7 @@ function CrossSource({ blast, hasSn }) {
                     <React.Fragment key={b.key}>
                       <tr onClick={() => expandRow(b)} className="hoverlift"
                         style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer", background: isExpanded ? T.surfaceAlt : "transparent" }}>
-                        <td className="mono" style={{ padding: "9px 12px", color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}</td>
+                        <td className="mono" style={{ padding: "9px 12px", color: T.jiraBlue, fontWeight: 600, whiteSpace: "nowrap" }}>{b.key}<AliasNote keys={b.aliasedFrom} /></td>
                         <td style={{ padding: "9px 12px", maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: T.ink }} title={b.summary}>{b.summary || (b.hasLive ? "" : "(not in synced project)")}</td>
                         <td style={{ padding: "9px 12px", color: T.sub, whiteSpace: "nowrap" }}>{b.issueType}</td>
                         <td style={{ padding: "9px 12px", whiteSpace: "nowrap", color: priorityColor(b.priority), fontWeight: 600 }}>{b.priority || "—"}</td>
@@ -234,7 +236,7 @@ function CrossSource({ blast, hasSn }) {
           {sorted.length > BLAST_TOP_N && (
             <div style={{ padding: "10px 12px", borderTop: `1px solid ${T.borderSoft}` }}>
               <button onClick={() => setShowAll((v) => !v)}
-                style={{ background: "none", border: "none", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "DM Sans, sans-serif" }}>
+                style={{ background: "none", border: "none", color: T.accentDeep, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 {showAll ? "Show top 25" : `Show all ${sorted.length}`}
               </button>
             </div>
@@ -242,16 +244,16 @@ function CrossSource({ blast, hasSn }) {
         </Card>
 
         <Card>
-          <div className="eyebrow" style={{ color: T.muted }}>Open cases per Jira</div>
+          <div className="eyebrow">Open cases per Jira</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>Is the pain concentrated in a few tickets or spread across many?</div>
-          <div style={{ height: 240, marginTop: 12 }}>
+          <div style={{ height: 240, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
             <ResponsiveContainer>
               <BarChart data={histo} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-                <CartesianGrid stroke={T.borderSoft} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: T.muted }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: T.muted }} />
-                <Tooltip cursor={{ fill: T.surfaceAlt }} contentStyle={tipStyle} formatter={(v) => [`${v} Jiras`, "count"]} />
-                <Bar dataKey="count" fill={T.accent} radius={[2, 2, 0, 0]} />
+                <CartesianGrid stroke={T.vizGrid} vertical={false} />
+                <XAxis dataKey="name" tick={AXIS_TICK_CAT} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} />
+                <YAxis allowDecimals={false} tick={AXIS_TICK} axisLine={{ stroke: T.vizAxis }} tickLine={{ stroke: T.vizAxis }} />
+                <Tooltip cursor={{ fill: T.vizWell }} contentStyle={TOOLTIP_STYLE} formatter={(v) => [`${v} Jiras`, "count"]} />
+                <Bar dataKey="count" fill={T.vizAccent} radius={BAR_RADIUS_V} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -270,7 +272,7 @@ function LinkedCases({ cases, openCount, totalCount }) {
   }
   return (
     <div style={{ padding: "12px 4px 4px" }}>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 8 }}>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>
         Linked ServiceNow cases · {totalCount} total · {openCount} open
       </div>
       <div className="scrollbar" style={{ maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
@@ -279,7 +281,7 @@ function LinkedCases({ cases, openCount, totalCount }) {
             <span title={c.isClosed ? "Closed" : "Open"}
               style={{ width: 7, height: 7, borderRadius: "50%", background: c.isClosed ? T.muted : T.warn, flex: "0 0 auto" }} />
             <CopyableNumber value={c.number} className="mono"
-              style={{ color: c.isClosed ? T.muted : T.accent, fontWeight: 600 }} />
+              style={{ color: c.isClosed ? T.muted : T.accentDeep, fontWeight: 600 }} />
             <span style={{ color: c.isClosed ? T.muted : T.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
               title={`${c.shortDescription}${c.account ? " · " + c.account : ""}`}>
               {c.shortDescription || "—"}{c.account ? <span style={{ color: T.muted }}> · {c.account}</span> : null}
@@ -301,7 +303,7 @@ function SummaryPill({ children, tone }) {
       fontSize: 13, color: T.sub,
       background: tone === "warn" ? T.warnSoft : T.surface,
       border: `1px solid ${tone === "warn" ? T.warn : T.border}`,
-      borderRadius: 20, padding: "6px 14px",
+      borderRadius: T.radiusLg, padding: "6px 14px",
     }}>
       {children}
     </div>
@@ -322,7 +324,7 @@ function Lifecycle({ issues, blast, hasSn }) {
 
   return (
     <div style={{ marginTop: 32 }}>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 12 }}>Lifecycle & health</div>
+      <div className="eyebrow" style={{ marginBottom: 12 }}>Lifecycle & health</div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: 12 }}>
         <Card>
@@ -473,7 +475,7 @@ function KpiStrip({ issues }) {
     { label: "Created · 90d", value: created90d },
     { label: "Currently open", value: s.open, sub: `${s.openHighPriority} high-priority`, warn: s.openHighPriority > 0 },
     { label: "Resolved · 30d", value: s.resolved30d },
-    { label: "Median resolve · 30d", value: medianResolveMs != null ? fmtDuration(medianResolveMs) : "—", mono: true },
+    { label: "Median resolve · 30d", value: medianResolveMs != null ? fmtDuration(medianResolveMs) : "—", mono: true, info: METRIC_EXPLAINERS.medianResolveJira },
   ]
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 8 }}>

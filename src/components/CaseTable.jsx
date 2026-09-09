@@ -71,10 +71,9 @@ export function CaseTable({ rows }) {
           onChange={(e) => setQuery(e.target.value)}
           style={{
             border: `1px solid ${T.border}`,
-            borderRadius: 4,
+            borderRadius: T.radiusSm,
             padding: "7px 10px",
             fontSize: 13,
-            fontFamily: "DM Sans, sans-serif",
             background: T.surface,
             color: T.ink,
             width: 280,
@@ -89,15 +88,11 @@ export function CaseTable({ rows }) {
               {cols.map((c) => (
                 <th
                   key={c.key}
+                  className="eyebrow"
                   onClick={() => toggleSort(c.key)}
                   style={{
                     textAlign: "left",
                     padding: "10px 14px",
-                    fontFamily: "JetBrains Mono, monospace",
-                    fontSize: 10,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.12em",
-                    color: T.muted,
                     cursor: "pointer",
                     borderBottom: `1px solid ${T.border}`,
                     userSelect: "none",
@@ -135,10 +130,10 @@ export function CaseTable({ rows }) {
                   }
                 >
                   {!r._slaEligible ? "—" : !r._slaBreached ? (
-                    <CheckCircle2 size={14} style={{ color: T.ok }} />
+                    <CheckCircle2 size={14} strokeWidth={2.25} style={{ color: T.ok }} />
                   ) : (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <XCircle size={14} style={{ color: T.danger, flexShrink: 0 }} />
+                      <XCircle size={14} strokeWidth={2.25} style={{ color: T.danger, flexShrink: 0 }} />
                       <span style={{ fontSize: 11, color: T.muted, whiteSpace: "nowrap" }}>
                         {r._slaBreachReason === "initial" ? "first response" : "cadence"}
                       </span>

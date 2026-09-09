@@ -9,7 +9,7 @@ export default function NotFoundPage() {
       <Card>
         <div style={{ fontSize: 14, color: T.sub }}>
           The page you tried to open doesn't exist. Head back to the{" "}
-          <FilterLink to="/" style={{ color: T.accent, fontWeight: 600 }}>Dashboard</FilterLink>.
+          <FilterLink to="/" style={{ color: T.accentDeep, fontWeight: 600 }}>Dashboard</FilterLink>.
         </div>
       </Card>
     </Section>

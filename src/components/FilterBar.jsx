@@ -31,10 +31,10 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
     border: `1px solid ${T.border}`,
     background: T.surface,
     color: T.ink,
-    borderRadius: 6,
+    borderRadius: T.radiusSm,
     padding: "6px 10px",
     fontSize: 12,
-    fontFamily: "JetBrains Mono, monospace",
+    fontVariantNumeric: "tabular-nums",
     transition: "border-color 0.15s ease, box-shadow 0.15s ease",
   };
 
@@ -55,14 +55,13 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
         fontSize: 12,
       }}
     >
-      <span className="eyebrow" style={{ color: T.muted }}>Filter</span>
+      <span className="eyebrow">Filter</span>
 
       <select
         value={range.preset}
         onChange={(e) => setPreset(e.target.value)}
         style={{
           ...inputStyle,
-          fontFamily: "Geist, DM Sans, sans-serif",
           padding: "6px 12px",
           cursor: "pointer",
           fontWeight: 500,
@@ -83,7 +82,7 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
           display: "inline-flex",
           background: T.surfaceAlt,
           border: `1px solid ${T.borderSoft}`,
-          borderRadius: 7,
+          borderRadius: T.radiusMd,
           padding: 2,
         }}
       >
@@ -98,8 +97,7 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
                 background: active ? T.surface : "transparent",
                 color: active ? T.ink : T.sub,
                 border: "none",
-                borderRadius: 5,
-                fontFamily: "Geist, DM Sans, sans-serif",
+                borderRadius: T.radiusSm,
                 fontSize: 12,
                 fontWeight: active ? 600 : 500,
                 cursor: "pointer",
@@ -120,7 +118,7 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
           gap: 7,
           color: compareDisabled ? T.muted : T.ink,
           cursor: compareDisabled ? "not-allowed" : "pointer",
-          fontSize: 12.5,
+          fontSize: 12,
         }}
       >
         <input
@@ -155,7 +153,6 @@ export function FilterBar({ range, onRangeChange, compareOn, onCompareChange, co
             height: 6,
             borderRadius: "50%",
             background: T.accent,
-            opacity: 0.7,
           }}
         />
         <span className="mono" style={{ fontWeight: 600, color: T.ink }}>

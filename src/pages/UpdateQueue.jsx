@@ -14,33 +14,25 @@ import { CopyableNumber } from "../components/CopyableNumber.jsx";
 // injection guard in csv-export.js before RFC-4180 quoting.
 import { rowsToCsv, downloadCsv, csvTimestamp } from "../lib/csv-export.js";
 
-function exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs }) {
+function exportUpdateQueueCsv({ overdue, dueSoon, devOverdue, devDueSoon, initialResponseMisses, snapshotMs }) {
   const queueHeaders = ["Queue", "Case", "Type/Priority", "State", "Status", "Assignee", "Last Update", "Threshold", "Account", "Description"];
+  const queueRow = (label) => (r) => [
+    label,
+    r.number,
+    r.caseType === "development" ? "dev" : (r.priority || ""),
+    r.state || "",
+    r.status || "",
+    r.assignedTo || "Unassigned",
+    r.noInforUpdateYet ? "no analyst update yet" : `${fmtDuration(r.elapsedMs)} ago`,
+    r.thresholdMs == null ? "" : fmtDuration(r.thresholdMs),
+    r.account || "",
+    r.shortDescription || "",
+  ];
   const queueRows = [
-    ...overdue.map((r) => [
-      "Overdue",
-      r.number,
-      r.caseType === "development" ? "dev" : (r.priority || ""),
-      r.state || "",
-      r.status || "",
-      r.assignedTo || "Unassigned",
-      r.noInforUpdateYet ? "no analyst update yet" : `${fmtDuration(r.elapsedMs)} ago`,
-      r.thresholdMs == null ? "" : fmtDuration(r.thresholdMs),
-      r.account || "",
-      r.shortDescription || "",
-    ]),
-    ...dueSoon.map((r) => [
-      "Due Soon",
-      r.number,
-      r.caseType === "development" ? "dev" : (r.priority || ""),
-      r.state || "",
-      r.status || "",
-      r.assignedTo || "Unassigned",
-      r.noInforUpdateYet ? "no analyst update yet" : `${fmtDuration(r.elapsedMs)} ago`,
-      r.thresholdMs == null ? "" : fmtDuration(r.thresholdMs),
-      r.account || "",
-      r.shortDescription || "",
-    ]),
+    ...overdue.map(queueRow("Overdue")),
+    ...dueSoon.map(queueRow("Due Soon")),
+    ...devOverdue.map(queueRow("Development Researching - Overdue")),
+    ...devDueSoon.map(queueRow("Development Researching - Due Soon")),
   ];
 
   const irHeaders = ["Case", "Priority", "State", "Status", "Assignee", "Age", "Target", "Account", "Description"];
@@ -75,6 +67,22 @@ function exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapsho
  * Proposed cases are NOT here — they no longer owe cadence updates and live on
  * the /solution-proposed auto-close countdown (see enrich.js v10). */
 const TITLE = "Update Queue";
+
+/* "Development Researching" cases are gated by engineering, not analyst
+ * capacity — they still owe the dev cadence but the intervention is a Jira
+ * chase, not a customer answer. Split them into their own section so the main
+ * queue is the work an analyst can actually action right now. The marker lives
+ * in the export's `Status` field (see enrich.js `classifyCase`). */
+const DEV_RESEARCHING_STATUS = "development researching";
+const isDevResearching = (r) =>
+  (r.status || "").toLowerCase().includes(DEV_RESEARCHING_STATUS);
+
+function partition(rows, pred) {
+  const yes = [], no = [];
+  for (const r of rows) (pred(r) ? yes : no).push(r);
+  return [yes, no];
+}
+
 const SUBTITLE =
   "Open cases overdue for an Infor-authored customer-facing update, plus initial-response misses. SOP-driven, computed against the data-as-of snapshot below.";
 
@@ -85,7 +93,10 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
     [analyst, manager, snapshotMs],
     { enabled }
   );
+  // The drilldown renders inline beneath the group that opened it, so each
+  // section keeps its own selection rather than scrolling the user away.
   const [selected, setSelected] = useState(null);
+  const [devSelected, setDevSelected] = useState(null);
 
   if (!enabled) {
     return (
@@ -112,7 +123,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
       <Section title={TITLE}>
         <Card>
           <div style={{ color: T.danger, fontSize: 13 }}>
-            <AlertTriangle size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />
+            <AlertTriangle size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 6 }} />
             {error?.message || "Failed to compute the queue."}
           </div>
         </Card>
@@ -121,7 +132,10 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
   }
   if (!data) return null;
 
-  const { overdue, dueSoon, initialResponseMisses, summary } = data;
+  const { overdue: allOverdue, dueSoon: allDueSoon, initialResponseMisses, summary } = data;
+  const [devOverdue, overdue] = partition(allOverdue, isDevResearching);
+  const [devDueSoon, dueSoon] = partition(allDueSoon, isDevResearching);
+  const devCount = devOverdue.length + devDueSoon.length;
 
   return (
     <>
@@ -129,8 +143,9 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
         {/* Summary counts */}
         <Card>
           <div style={{ display: "flex", alignItems: "baseline", gap: 24, flexWrap: "wrap" }}>
-            <SummaryStat label="overdue" count={summary.overdue} accent={T.danger} />
-            <SummaryStat label="due soon" count={summary.dueSoon} accent={T.warn} />
+            <SummaryStat label="overdue" count={overdue.length} accent={T.danger} />
+            <SummaryStat label="due soon" count={dueSoon.length} accent={T.warn} />
+            <SummaryStat label="in development researching" count={devCount} accent={devCount ? T.accent : T.sub} />
             <SummaryStat
               label="missed initial response"
               count={summary.initialMisses}
@@ -141,7 +156,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
                 data as of {fmtFullDate(snapshotMs)}
               </div>
               <button
-                onClick={() => exportUpdateQueueCsv({ overdue, dueSoon, initialResponseMisses, snapshotMs })}
+                onClick={() => exportUpdateQueueCsv({ overdue, dueSoon, devOverdue, devDueSoon, initialResponseMisses, snapshotMs })}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -149,7 +164,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
                   fontSize: 12,
                   fontWeight: 600,
                   padding: "5px 12px",
-                  borderRadius: 6,
+                  borderRadius: T.radiusSm,
                   border: `1px solid ${T.border}`,
                   background: T.surface,
                   color: T.ink,
@@ -157,7 +172,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                <Download size={13} />
+                <Download size={14} strokeWidth={2.25} />
                 Export CSV
               </button>
             </div>
@@ -168,7 +183,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
           <QueueGroup
             title="Overdue"
-            subtitle="Past their SOP cadence. Update with a customer-facing comment now."
+            subtitle="Past their SOP cadence. Update with a customer-facing comment now. Development Researching cases are listed separately below."
             rows={overdue}
             tone="danger"
             onPick={setSelected}
@@ -195,6 +210,47 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
         )}
       </Section>
 
+      <Section
+        title="Development Researching"
+        subtitle="Open cases handed to engineering and awaiting research. They still owe the dev cadence, but the next action is a Jira chase for an engineering update rather than an answer the analyst can write alone."
+      >
+        {devCount === 0 ? (
+          <Card>
+            <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic" }}>
+              No Development Researching cases are overdue or due soon.
+            </div>
+          </Card>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <QueueGroup
+              title="Overdue"
+              subtitle="Past the dev cadence. Chase engineering and post the customer a status update."
+              rows={devOverdue}
+              tone="danger"
+              onPick={setDevSelected}
+              snapshotMs={snapshotMs}
+              emptyMsg="No overdue Development Researching cases."
+            />
+            <QueueGroup
+              title="Due Soon"
+              subtitle={`Within the final ${Math.round((1 - WARN_FRACTION) * 100)}% of the dev cadence deadline.`}
+              rows={devDueSoon}
+              tone="warn"
+              onPick={setDevSelected}
+              snapshotMs={snapshotMs}
+              emptyMsg="Nothing due soon."
+            />
+            {devSelected && (
+              <CaseDrilldown
+                title={`Case ${devSelected.number}`}
+                rows={[caseAsDrilldownRow(devSelected)]}
+                onClose={() => setDevSelected(null)}
+              />
+            )}
+          </div>
+        )}
+      </Section>
+
       <Section title="Initial Response Misses" subtitle="Open cases that have no first response logged AND have been open longer than the priority's initial-response target.">
         <InitialResponseList rows={initialResponseMisses} />
       </Section>
@@ -205,7 +261,7 @@ export function UpdateQueue({ analyst, manager, snapshotMs, dbReady }) {
 function SummaryStat({ label, count, accent }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <span className="display mono" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1 }}>
+      <span className="display" style={{ fontSize: 28, fontWeight: 500, color: accent, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
         {count}
       </span>
       <span style={{ fontSize: 12, color: T.sub }}>{label}</span>
@@ -246,7 +302,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div>
-            <div className="eyebrow" style={{ color: T.muted }}>{title}</div>
+            <div className="eyebrow">{title}</div>
             {subtitle && <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>{subtitle}</div>}
           </div>
           <div className="mono" style={{ fontSize: 12, color: T.muted, fontWeight: 600 }}>0 cases</div>
@@ -264,7 +320,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
-            <span className="eyebrow" style={{ color: T.muted }}>Sort</span>
+            <span className="eyebrow">Sort</span>
             <select
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value)}
@@ -272,7 +328,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
                 fontSize: 12,
                 padding: "4px 8px",
                 border: `1px solid ${T.border}`,
-                borderRadius: 6,
+                borderRadius: T.radiusSm,
                 background: T.surface,
                 color: T.ink,
                 cursor: "pointer",
@@ -312,7 +368,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
               <Fragment key={r.number}>
               {showAssigneeHeader && (
                 <tr style={{ background: T.surfaceSunk }}>
-                  <td colSpan={9} style={{ padding: "6px 12px", fontSize: 11, fontWeight: 600, color: T.sub, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                  <td colSpan={9} className="eyebrow" style={{ padding: "6px 12px", color: T.sub }}>
                     {r.assignedTo || "Unassigned"}
                   </td>
                 </tr>
@@ -322,7 +378,7 @@ function QueueGroup({ title, subtitle, rows, tone, onPick, emptyMsg }) {
                 className="hoverlift"
                 style={{ borderBottom: `1px solid ${T.borderSoft}`, cursor: "pointer" }}
               >
-                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accent }}>
+                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accentDeep }}>
                   <CopyableNumber value={r.number} />
                 </td>
                 <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
@@ -377,7 +433,7 @@ function InitialResponseList({ rows }) {
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div className="eyebrow" style={{ color: T.danger }}>
-          <Clock size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+          <Clock size={14} strokeWidth={2.25} style={{ verticalAlign: "middle", marginRight: 4 }} />
           Missed initial response
         </div>
         <div className="mono" style={{ fontSize: 12, color: T.danger, fontWeight: 600 }}>
@@ -402,7 +458,7 @@ function InitialResponseList({ rows }) {
           <tbody>
             {rows.map((r) => (
               <tr key={r.number} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
-                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accent }}>
+                <td className="mono" style={{ padding: "8px 12px", whiteSpace: "nowrap", fontWeight: 600, color: T.accentDeep }}>
                   <CopyableNumber value={r.number} />
                 </td>
                 <td style={{ padding: "8px 12px", whiteSpace: "nowrap", color: priorityColor(r.priority), fontWeight: 600 }}>

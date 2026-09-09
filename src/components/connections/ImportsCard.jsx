@@ -153,9 +153,9 @@ export function ImportsCard(ctx) {
       {showControls && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search imports…"
-            style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 200, fontFamily: "DM Sans, sans-serif" }} />
+            style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 200 }} />
           <select value={sort} onChange={(e) => setSort(e.target.value)}
-            style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, fontFamily: "DM Sans, sans-serif" }}>
+            style={{ fontSize: 12, padding: "6px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink }}>
             {SORT_OPTIONS.map((o) => <option key={o.key} value={o.key}>Sort: {o.label}</option>)}
           </select>
         </div>
@@ -200,7 +200,7 @@ export function ImportsCard(ctx) {
                       <input autoFocus value={editing.value}
                         onChange={(e) => setEditing({ ...editing, value: e.target.value })}
                         onKeyDown={(e) => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setEditing(null) }}
-                        style={{ fontSize: 13, padding: "4px 8px", border: `1px solid ${T.accent}`, borderRadius: 4, background: T.surface, color: T.ink, fontFamily: "DM Sans, sans-serif", minWidth: 240 }} />
+                        style={{ fontSize: 13, padding: "4px 8px", border: `1px solid ${T.accent}`, borderRadius: 4, background: T.surface, color: T.ink, minWidth: 240 }} />
                       <button onClick={submitRename} style={iconBtn} title="Save"><Check size={14} /></button>
                     </div>
                   ) : (
@@ -390,7 +390,7 @@ function MenuItem({ icon: Icon, label, onClick, danger, disabled, title, last })
       style={{
         display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
         padding: "9px 12px", background: "transparent", border: "none",
-        borderBottom: last ? "none" : `1px solid ${T.borderSoft}`, fontFamily: "DM Sans, sans-serif", fontSize: 13,
+        borderBottom: last ? "none" : `1px solid ${T.borderSoft}`, fontSize: 13,
         color: disabled ? T.muted : danger ? T.danger : T.ink, cursor: disabled ? "not-allowed" : "pointer",
       }}
       onMouseEnter={(e) => !disabled && (e.currentTarget.style.background = T.surfaceAlt)}
@@ -422,12 +422,12 @@ function ConfirmDialog({ target, onCancel, onConfirm }) {
         </div>
         {needsType && (
           <input autoFocus value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Type DELETE to confirm"
-            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, marginBottom: 14, fontFamily: "DM Sans, sans-serif" }} />
+            style={{ width: "100%", boxSizing: "border-box", fontSize: 13, padding: "8px 10px", border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface, color: T.ink, marginBottom: 14 }} />
         )}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button onClick={onCancel} style={{ ...iconBtn, padding: "8px 14px", border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 13 }}>Cancel</button>
           <button onClick={canConfirm ? onConfirm : undefined} disabled={!canConfirm}
-            style={{ padding: "8px 14px", background: canConfirm ? T.danger : T.surfaceAlt, color: canConfirm ? T.onAccent : T.muted, border: `1px solid ${canConfirm ? T.danger : T.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: canConfirm ? "pointer" : "not-allowed", fontFamily: "DM Sans, sans-serif" }}>
+            style={{ padding: "8px 14px", background: canConfirm ? T.danger : T.surfaceAlt, color: canConfirm ? T.onAccent : T.muted, border: `1px solid ${canConfirm ? T.danger : T.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: canConfirm ? "pointer" : "not-allowed" }}>
             {isAll ? "Clear all" : "Delete"}
           </button>
         </div>
@@ -444,8 +444,7 @@ const uploadBtn = {
 const iconBtn = {
   display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 8px",
   background: "transparent", color: T.sub, border: "none", borderRadius: 4,
-  cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-}
+  cursor: "pointer",}
 const dotBtn = {
   display: "inline-flex", alignItems: "center", justifyContent: "center",
   padding: 0, background: "transparent", color: T.muted, border: "none",
@@ -454,8 +453,7 @@ const dotBtn = {
 const clearAllBtn = {
   display: "inline-flex", alignItems: "center", padding: "6px 12px",
   background: "transparent", color: T.danger, border: `1px solid ${T.danger}`,
-  borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "DM Sans, sans-serif",
-}
+  borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",}
 const warnBanner = {
   display: "flex", alignItems: "flex-start", gap: 8,
   background: T.warnSoft, border: `1px solid ${T.warn}`,

@@ -3,7 +3,7 @@ import {
   Area, AreaChart, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend,
 } from "recharts";
-import { T } from "../../lib/theme.js";
+import { T, AXIS_TICK, LEGEND_STYLE, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { fmtFullDate } from "../../lib/format.js";
 import { DOD_PARENT_ACCOUNTS, weeklyDodParentVolume, cumulativeDodParentVolume } from "../../lib/dod.js";
 import { BUCKET_MS, SCOPE_RANGE, timeWindow } from "../../lib/time-axis.js";
@@ -15,7 +15,11 @@ import { TimeScopeNote, TimeScopeToggle } from "./TimeScopeToggle.jsx";
  * Only the four branches are plotted; other / no parent-account cases are
  * excluded by design. Week grid is anchored to the data snapshot so it lines up
  * with the other trend charts, and both charts zoom to the active date filter
- * rather than shading it — see time-axis.js. */
+ * rather than shading it — see time-axis.js.
+ *
+ * Branch colors come from dod.js — four steps of one Infor Purple ladder — so
+ * the stacked bands read as shares of a single family and need no opacity to
+ * separate. */
 
 // Module scope, so the emptiness-test key list is a stable reference and the
 // timeWindow memos below don't re-run on every render.
@@ -49,7 +53,7 @@ export function ParentAccountTrendBlock({ rows, dateRange, snapshotMs }) {
   if (!weekly.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>DoD parent accounts over time</div>
+        <div className="eyebrow" style={{ textAlign: "left" }}>DoD parent accounts over time</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 8 }}>
           No dated cases from the four DoD branch parent accounts in this view. (Older imports without
           the Parent Account field will be empty until re-uploaded from a current export.)
@@ -62,36 +66,36 @@ export function ParentAccountTrendBlock({ rows, dateRange, snapshotMs }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Weekly case volume by DoD parent account</div>
+          <div className="eyebrow" style={{ textAlign: "left" }}>Weekly case volume by DoD parent account</div>
           <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
         </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>
           New cases created each week (Monday-anchored), stacked by branch. Band height is total DoD
           intake; each colored layer is one branch's share.
         </div>
-        <div style={{ height: 280, marginTop: 12 }}>
+        <div style={{ height: 280, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <AreaChart data={volWin.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
               <XAxis
                 dataKey="week"
                 type="number"
                 domain={volWin.domain}
                 tickFormatter={volWin.tickFormatter}
-                tick={{ fill: T.sub, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 ticks={volWin.ticks}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
-              <Tooltip content={<VolumeTip />} cursor={{ fill: T.surfaceAlt }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} iconType="square" />
+              <Tooltip content={<VolumeTip />} cursor={{ fill: T.vizWell }} />
+              <Legend wrapperStyle={LEGEND_STYLE} iconType="square" />
               {DOD_PARENT_ACCOUNTS.map((b) => (
                 <Area
                   key={b.id}
@@ -101,7 +105,6 @@ export function ParentAccountTrendBlock({ rows, dateRange, snapshotMs }) {
                   name={b.label}
                   stroke={b.color}
                   fill={b.color}
-                  fillOpacity={0.55}
                   strokeWidth={1.5}
                 />
               ))}
@@ -113,7 +116,7 @@ export function ParentAccountTrendBlock({ rows, dateRange, snapshotMs }) {
 
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Cumulative cases by DoD parent account</div>
+          <div className="eyebrow" style={{ textAlign: "left" }}>Cumulative cases by DoD parent account</div>
           <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
         </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>
@@ -121,29 +124,29 @@ export function ParentAccountTrendBlock({ rows, dateRange, snapshotMs }) {
           a zoomed view starts at each branch's standing total rather than at zero. Steeper slope = a
           branch generating cases faster; a flattening line = intake slowing.
         </div>
-        <div style={{ height: 260, marginTop: 12 }}>
+        <div style={{ height: 260, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <LineChart data={cumWin.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
               <XAxis
                 dataKey="week"
                 type="number"
                 domain={cumWin.domain}
                 tickFormatter={cumWin.tickFormatter}
-                tick={{ fill: T.sub, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 ticks={cumWin.ticks}
                 interval="preserveStartEnd"
               />
               <YAxis
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
-              <Tooltip content={<CumulativeTip />} cursor={{ stroke: T.border }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} iconType="plainline" />
+              <Tooltip content={<CumulativeTip />} cursor={{ stroke: T.vizAxis }} />
+              <Legend wrapperStyle={LEGEND_STYLE} iconType="plainline" />
               {DOD_PARENT_ACCOUNTS.map((b) => (
                 <Line key={b.id} type="monotone" dataKey={b.id} name={b.label} stroke={b.color} strokeWidth={2} dot={false} />
               ))}
@@ -160,11 +163,11 @@ function VolumeTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>Week of {fmtFullDate(d.week)}</div>
       {DOD_PARENT_ACCOUNTS.map((b) => (
         <div key={b.id} className="mono" style={{ color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 9, height: 9, background: b.color, borderRadius: 2, display: "inline-block" }} />
+          <span style={{ width: 9, height: 9, background: b.color, borderRadius: T.radiusChart, display: "inline-block" }} />
           {b.label}: {d[b.id]}
         </div>
       ))}
@@ -177,11 +180,11 @@ function CumulativeTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>Through {fmtFullDate(d.week)}</div>
       {DOD_PARENT_ACCOUNTS.map((b) => (
         <div key={b.id} className="mono" style={{ color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 9, height: 9, background: b.color, borderRadius: 2, display: "inline-block" }} />
+          <span style={{ width: 9, height: 9, background: b.color, borderRadius: T.radiusChart, display: "inline-block" }} />
           {b.label}: {d[b.id]}
         </div>
       ))}

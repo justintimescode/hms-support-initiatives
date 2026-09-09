@@ -3,7 +3,7 @@ import {
   Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Line, ComposedChart, Legend,
 } from "recharts";
-import { T } from "../../lib/theme.js";
+import { T, AXIS_TICK, BAR_RADIUS_V, LEGEND_STYLE, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { fmtFullDate } from "../../lib/format.js";
 import { dailyTrajectory, weeklyIntakeResolved } from "../../lib/stats.js";
 import { BUCKET_MS, SCOPE_RANGE, liveGridEnd, timeWindow } from "../../lib/time-axis.js";
@@ -60,46 +60,48 @@ export function TrajectoryBlock({ rows, dateRange, snapshotMs }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Backlog trajectory · daily</div>
+          <div className="eyebrow" style={{ textAlign: "left" }}>Backlog trajectory · daily</div>
           <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
         </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>
           Open-case count per day. Faint bars behind the line show how many new cases were created that day. Rising line + steady bars = backlog growing; falling line = catching up.
         </div>
-        <div style={{ height: 280, marginTop: 12 }}>
+        <div style={{ height: 280, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <ComposedChart data={dayWin.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
               <XAxis
                 dataKey="date"
                 type="number"
                 domain={dayWin.domain}
                 tickFormatter={dayWin.tickFormatter}
-                tick={{ fill: T.sub, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 ticks={dayWin.ticks}
                 interval="preserveStartEnd"
               />
               <YAxis
                 yAxisId="left"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
-              <Tooltip content={<TrajectoryTip />} cursor={{ fill: T.surfaceAlt }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} iconType="square" />
-              <Bar yAxisId="right" dataKey="created" name="new cases created that day (right axis)" fill="#2563EB" fillOpacity={0.55} radius={[2, 2, 0, 0]} />
-              <Line yAxisId="left" type="monotone" dataKey="open" name="open backlog (left axis)" stroke={T.accent} strokeWidth={2} dot={false} />
+              <Tooltip content={<TrajectoryTip />} cursor={{ fill: T.vizWell }} />
+              <Legend wrapperStyle={LEGEND_STYLE} iconType="square" />
+              {/* Duotone: purple-tint companion bars behind the purple lead line.
+                * The tint is under 3:1 on the well, so it carries a 1px stroke. */}
+              <Bar yAxisId="right" dataKey="created" name="new cases created that day (right axis)" fill={T.categorical[1]} stroke={T.vizStroke} strokeWidth={1} radius={BAR_RADIUS_V} />
+              <Line yAxisId="left" type="monotone" dataKey="open" name="open backlog (left axis)" stroke={T.vizAccent} strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -108,46 +110,56 @@ export function TrajectoryBlock({ rows, dateRange, snapshotMs }) {
 
       <Card>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-          <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Weekly intake vs. resolved</div>
+          <div className="eyebrow" style={{ textAlign: "left" }}>Weekly intake vs. resolved</div>
           <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
         </div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left" }}>
           Cases created and cases resolved per week (Monday-anchored). The line is a rolling 4-week net (created − resolved): above zero = backlog growing, below zero = shrinking.
         </div>
-        <div style={{ height: 260, marginTop: 12 }}>
+        <div style={{ height: 260, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <ComposedChart data={weekWin.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke={T.borderSoft} vertical={false} />
+              <CartesianGrid stroke={T.vizGrid} vertical={false} />
               <XAxis
                 dataKey="week"
                 type="number"
                 domain={weekWin.domain}
                 tickFormatter={weekWin.tickFormatter}
-                tick={{ fill: T.sub, fontSize: 11 }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 ticks={weekWin.ticks}
                 interval="preserveStartEnd"
               />
               <YAxis
                 yAxisId="left"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
                 allowDecimals={false}
               />
               <YAxis
                 yAxisId="right"
                 orientation="right"
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
               />
-              <Tooltip content={<WeeklyTip />} cursor={{ fill: T.surfaceAlt }} />
-              <Legend wrapperStyle={{ fontSize: 11, color: T.sub }} />
-              <Bar yAxisId="left" dataKey="created" name="created" fill={T.accent} radius={[2, 2, 0, 0]} />
-              <Bar yAxisId="left" dataKey="resolved" name="resolved" fill={T.ok} radius={[2, 2, 0, 0]} />
-              <Line yAxisId="right" type="monotone" dataKey="rollingNet" name="rolling net (4wk avg)" stroke={T.ink} strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
+              <Tooltip content={<WeeklyTip />} cursor={{ fill: T.vizWell }} />
+              {/* Pinned payload: recharts 3 alphabetizes a composed legend, which
+                * would put the net line between the two bars. */}
+              <Legend
+                wrapperStyle={LEGEND_STYLE}
+                iconType="square"
+                payload={[
+                  { value: "created", type: "square", color: T.vizAccent, id: "created" },
+                  { value: "resolved", type: "square", color: T.categorical[1], id: "resolved" },
+                  { value: "rolling net (4wk avg)", type: "plainline", color: T.vizCat, id: "rollingNet", payload: { strokeDasharray: "4 3" } },
+                ]}
+              />
+              <Bar yAxisId="left" dataKey="created" name="created" fill={T.vizAccent} radius={BAR_RADIUS_V} />
+              <Bar yAxisId="left" dataKey="resolved" name="resolved" fill={T.categorical[1]} stroke={T.vizStroke} strokeWidth={1} radius={BAR_RADIUS_V} />
+              <Line yAxisId="right" type="monotone" dataKey="rollingNet" name="rolling net (4wk avg)" stroke={T.vizCat} strokeWidth={1.5} dot={false} strokeDasharray="4 3" />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -161,7 +173,7 @@ function TrajectoryTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{fmtFullDate(d.date)}</div>
       <div className="mono" style={{ color: T.sub }}>{d.open} open</div>
       {d.stale ? (
@@ -180,7 +192,7 @@ function WeeklyTip({ active, payload }) {
   const d = payload[0].payload;
   const netColor = d.net > 0 ? T.danger : d.net < 0 ? T.ok : T.muted;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>Week of {fmtFullDate(d.week)}</div>
       <div className="mono" style={{ color: T.sub }}>{d.created} created · {d.resolved} resolved</div>
       <div className="mono" style={{ color: netColor }}>net {d.net > 0 ? "+" : ""}{d.net} · 4wk avg {d.rollingNet > 0 ? "+" : ""}{d.rollingNet}</div>

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
-import { T } from "../../lib/theme.js";
+import { T, AXIS_TICK, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { workloadConcentration, workloadStats } from "../../lib/stats.js";
 import { Card } from "../layout/Card.jsx";
 
@@ -13,7 +13,7 @@ export function WorkloadDistributionBlock({ members }) {
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <div className="eyebrow" style={{ color: T.muted, textAlign: "left" }}>Workload concentration</div>
+          <div className="eyebrow" style={{ textAlign: "left" }}>Workload concentration</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4, textAlign: "left", maxWidth: 600 }}>
             How evenly cases are distributed across the team. The dashed diagonal is perfect equality; the further the curve sags below it, the more concentrated the workload — meaning a few analysts carry most of the cases.
           </div>
@@ -28,19 +28,19 @@ export function WorkloadDistributionBlock({ members }) {
         </div>
       </div>
       {stats.n > 0 && <StatTiles stats={stats} />}
-      <div style={{ height: 280, marginTop: 12 }}>
+      <div style={{ height: 280, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <LineChart margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={T.borderSoft} />
+            <CartesianGrid stroke={T.vizGrid} />
             <XAxis
               type="number"
               dataKey="x"
               domain={[0, 1]}
               ticks={[0, 0.25, 0.5, 0.75, 1]}
               tickFormatter={(v) => `${Math.round(v * 100)}%`}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
             />
             <YAxis
               type="number"
@@ -48,15 +48,17 @@ export function WorkloadDistributionBlock({ members }) {
               domain={[0, 1]}
               ticks={[0, 0.25, 0.5, 0.75, 1]}
               tickFormatter={(v) => `${Math.round(v * 100)}%`}
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
             />
-            <Tooltip content={<LorenzTip total={lorenz.totalCases} />} />
+            <Tooltip content={<LorenzTip total={lorenz.totalCases} />} cursor={{ stroke: T.vizAxis }} />
+            {/* Duotone: the achromatic reference mark carries the equality
+                diagonal, Infor Purple carries the measured curve. */}
             <Line
               data={[{ x: 0, y: 0 }, { x: 1, y: 1 }]}
               dataKey="y"
-              stroke={T.muted}
+              stroke={T.vizCat}
               strokeWidth={1}
               strokeDasharray="4 4"
               dot={false}
@@ -66,7 +68,7 @@ export function WorkloadDistributionBlock({ members }) {
             <Line
               data={lorenz.points}
               dataKey="y"
-              stroke={T.accent}
+              stroke={T.vizAccent}
               strokeWidth={2}
               type="monotone"
               dot={false}
@@ -107,12 +109,12 @@ function StatTiles({ stats }) {
           key={t.label}
           style={{
             border: `1px solid ${T.borderSoft}`,
-            borderRadius: 4,
+            borderRadius: T.radiusSm,
             padding: "8px 10px",
             background: T.surface,
           }}
         >
-          <div className="eyebrow" style={{ color: T.muted, fontSize: 10, textAlign: "left" }}>
+          <div className="eyebrow" style={{ textAlign: "left" }}>
             {t.label}
           </div>
           <div
@@ -137,7 +139,7 @@ function LorenzTip({ active, payload, total }) {
   const xPct = (d.x * 100).toFixed(0);
   const yPct = (d.y * 100).toFixed(0);
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       {d.name && <div style={{ fontWeight: 600 }}>{d.name}</div>}
       <div className="mono" style={{ color: T.sub }}>Bottom {xPct}% of analysts</div>
       <div className="mono" style={{ color: T.sub }}>handle {yPct}% of cases</div>

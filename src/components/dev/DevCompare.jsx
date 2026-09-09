@@ -1,11 +1,11 @@
 import { useEffect } from "react"
-import { T, alpha } from "../../lib/theme.js"
+import { T } from "../../lib/theme.js"
 import { Card } from "../layout/Card.jsx"
 import { closeEnough } from "./devCompareUtils.js"
 
 /* Generalized dev-only side-by-side validator for the DuckDB migration.
  * The page computes BOTH the old in-memory value and the new SQL value for the
- * same filters and passes them in as metrics; this renders a green/red diff
+ * same filters and passes them in as metrics; this renders a purple/red diff
  * table and console.tables it. Dev-only — deleted in Phase 5 with the
  * in-memory pipeline. Replaces the single-purpose DevKpiCompare.
  * Pure helpers (closeEnough/flattenByKey/kpiMetrics) live in devCompareUtils.js. */
@@ -41,9 +41,13 @@ export function DevCompare({ label, metrics, eps = 0.05, note }) {
       const delta = typeof m.js === "number" && typeof m.sql === "number" ? m.sql - m.js : null
       table[m.name] = { js: m.js, sql: m.sql, delta, ok: closeEnough(m.js, m.sql, eps) }
     }
+    // THE ONE SANCTIONED RAW HEX IN src/: console `%c` CSS is evaluated by
+    // devtools, outside the document, so it cannot resolve var(--t-*). These are
+    // Infor Red (drift) and Infor Charcoal (match) as literals — do not "fix"
+    // them to tokens, and do not copy the pattern into rendered markup.
     console.log(
       `%cDevCompare · ${label}${note ? " · " + note : ""} · ${anyDrift ? "DRIFT" : "match"}`,
-      `color:${anyDrift ? "#A23220" : "#3D6340"};font-weight:600`,
+      `color:${anyDrift ? "#ED0C0C" : "#15262E"};font-weight:600`,
     )
     console.table(table)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -52,7 +56,7 @@ export function DevCompare({ label, metrics, eps = 0.05, note }) {
   if (!DEV || !rows.length) return null
 
   return (
-    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: alpha(anyDrift ? T.dangerSoft : T.okSoft, 0.2) }}>
+    <Card style={{ marginTop: 12, border: `2px dashed ${anyDrift ? T.danger : T.ok}`, background: anyDrift ? T.dangerSoft : T.okSoft }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div className="eyebrow" style={{ color: anyDrift ? T.danger : T.ok }}>
           DEV · {label} {anyDrift ? "· drift detected" : "· match"}

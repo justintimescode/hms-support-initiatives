@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { T, alpha } from "../../lib/theme.js";
+import {
+  T, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_H, TOOLTIP_STYLE,
+} from "../../lib/theme.js";
 import { OUTCOME_CLASSES, aiTagSummary, unrecognizedTags } from "../../lib/ai-tags.js";
 import { OUTCOME_COLOR, UNTAGGED_COLOR } from "../../lib/ai-tag-colors.js";
 import { Card } from "../layout/Card.jsx";
@@ -70,7 +72,7 @@ export function AiTagSummaryBlock({ rows, onSelect }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>AI tagging headline</div>
+        <div className="eyebrow">AI tagging headline</div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 760 }}>
           Every figure names its own denominator. Coverage is a <em>compliance</em> measure — how
           much of the book carries a tag at all. The rates below it describe only the cases where
@@ -88,7 +90,7 @@ export function AiTagSummaryBlock({ rows, onSelect }) {
             label="Tagging coverage"
             value={pct(s.coveragePct)}
             sub={`${n(s.tagged)} of ${n(s.total)} cases in view carry a tag`}
-            color={T.accent}
+            color={T.vizAccent}
             onClick={onSelect ? () => onSelect("view:tagged") : undefined}
           />
           <Stat
@@ -133,14 +135,14 @@ export function AiTagSummaryBlock({ rows, onSelect }) {
       </Card>
 
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>Outcome mix · both denominators</div>
+        <div className="eyebrow">Outcome mix · both denominators</div>
         <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 760 }}>
           The top bar is the whole book, so the untagged share is visible rather than hidden. The
           bottom bar rescales to the cases where AI was attempted — the same segments, honest
           denominator. One case, one segment.
         </div>
         <Legend counts={mix[0].counts} total={s.total} />
-        <div style={{ height: 130, marginTop: 8 }}>
+        <div style={{ height: 130, marginTop: 8, background: T.vizWell, borderRadius: T.radiusMd }}>
           <ResponsiveContainer>
             <BarChart data={mix} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }} barSize={26}>
               <XAxis
@@ -148,28 +150,30 @@ export function AiTagSummaryBlock({ rows, onSelect }) {
                 domain={[0, 100]}
                 ticks={[0, 25, 50, 75, 100]}
                 tickFormatter={(v) => `${v}%`}
-                tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                tick={AXIS_TICK}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
               />
               <YAxis
                 type="category"
                 dataKey="name"
                 width={110}
-                tick={{ fill: T.ink, fontSize: 12 }}
+                tick={AXIS_TICK_CAT}
                 interval={0}
-                axisLine={{ stroke: T.border }}
-                tickLine={{ stroke: T.border }}
+                axisLine={{ stroke: T.vizAxis }}
+                tickLine={{ stroke: T.vizAxis }}
               />
-              <Tooltip content={<MixTip />} cursor={{ fill: T.surfaceAlt }} />
-              {/* 2px surface-colored gaps keep adjacent fills from reading as one
-                  segment — the warn/danger pair especially. */}
+              <Tooltip content={<MixTip />} cursor={{ fill: T.vizWell }} />
+              {/* 2px stroked gaps keep adjacent fills from reading as one segment.
+                  The chromatic fills separate against a surface-colored gap; the two
+                  achromatic ones (not required, untagged) sit under 3:1 against the
+                  plot ground and take T.vizStroke instead, or they vanish into it. */}
               <Bar stackId="mix" dataKey="helpful" name="Helped" fill={OUTCOME_COLOR.helpful} stroke={T.surface} strokeWidth={2} />
               <Bar stackId="mix" dataKey="unhelpful" name="Didn't help" fill={OUTCOME_COLOR.unhelpful} stroke={T.surface} strokeWidth={2} />
               <Bar stackId="mix" dataKey="harmful" name="Hallucinated" fill={OUTCOME_COLOR.harmful} stroke={T.surface} strokeWidth={2} />
               <Bar stackId="mix" dataKey="unclassified" name="Other tag" fill={OUTCOME_COLOR.unclassified} stroke={T.surface} strokeWidth={2} />
-              <Bar stackId="mix" dataKey="notApplicable" name="Not required" fill={OUTCOME_COLOR.notApplicable} stroke={T.surface} strokeWidth={2} />
-              <Bar stackId="mix" dataKey="untagged" name="Untagged" fill={UNTAGGED_COLOR} stroke={T.surface} strokeWidth={2} />
+              <Bar stackId="mix" dataKey="notApplicable" name="Not required" fill={OUTCOME_COLOR.notApplicable} stroke={T.vizStroke} strokeWidth={2} />
+              <Bar stackId="mix" dataKey="untagged" name="Untagged" fill={UNTAGGED_COLOR} stroke={T.vizStroke} strokeWidth={2} radius={BAR_RADIUS_H} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -224,7 +228,7 @@ function Stat({ label, value, sub, color, onClick }) {
         cursor: interactive ? "pointer" : "default",
       }}
     >
-      <div className="eyebrow" style={{ color: T.muted }}>{label}</div>
+      <div className="eyebrow">{label}</div>
       <div className="mono" style={{ fontSize: 22, fontWeight: 700, color, marginTop: 4 }}>{value}</div>
       <div style={{ fontSize: 11, color: T.sub, marginTop: 4, lineHeight: 1.4 }}>{sub}</div>
     </div>
@@ -241,7 +245,7 @@ function Legend({ counts }) {
     <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
       {LEGEND_ORDER.filter((l) => counts[l.id] > 0).map((l) => (
         <span key={l.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 12, height: 10, background: l.color, border: `1px solid ${alpha(T.ink, 0.12)}`, borderRadius: 2 }} />
+          <span style={{ width: 12, height: 10, background: l.color, border: `1px solid ${T.border}`, borderRadius: T.radiusChart }} />
           {l.label}
           <span className="mono" style={{ color: T.muted }}>{counts[l.id].toLocaleString()}</span>
         </span>
@@ -254,7 +258,7 @@ function MixTip({ active, payload }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{d.name}</div>
       <div className="mono" style={{ color: T.muted, marginBottom: 4 }}>
         denominator: {d.denom.toLocaleString()} case{d.denom === 1 ? "" : "s"}
@@ -263,7 +267,7 @@ function MixTip({ active, payload }) {
         .filter((p) => p.value > 0)
         .map((p) => (
           <div key={p.dataKey} className="mono" style={{ color: T.sub, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 8, height: 8, background: p.color, borderRadius: 2 }} />
+            <span style={{ width: 8, height: 8, background: p.color, borderRadius: T.radiusChart }} />
             {p.name}: {d.counts[p.dataKey].toLocaleString()} ({p.value.toFixed(1)}%)
           </div>
         ))}

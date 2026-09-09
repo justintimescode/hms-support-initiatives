@@ -32,21 +32,90 @@ function pushManagerCond(conds, params, manager) {
   }
 }
 
+// Normalize a filter arg that may be a single scalar ('__all__' or a name) or
+// an array of names into a clean list of concrete names. '__all__', null and
+// empty arrays all mean "no filter" → [].
+function toList(value) {
+  if (value == null || value === '__all__') return []
+  const arr = Array.isArray(value) ? value : [value]
+  return arr.filter((v) => v != null && v !== '__all__')
+}
+
+// Push an `IN (?, ?, …)` condition for a set of manager names. The blank
+// sentinel ("No manager") maps to the NULL/'' SQL test and is OR-ed with any
+// concrete names so a mixed selection ("No manager" + real managers) works.
+function pushManagersCond(conds, params, managers) {
+  const list = toList(managers)
+  if (list.length === 0) return
+  const parts = []
+  const concrete = list.filter((m) => m !== NO_MANAGER)
+  if (list.includes(NO_MANAGER)) parts.push(SQL_NO_MANAGER)
+  if (concrete.length) {
+    parts.push(`manager IN (${concrete.map(() => '?').join(', ')})`)
+    params.push(...concrete)
+  }
+  if (parts.length) conds.push(parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0])
+}
+
+// Push an `IN (?, ?, …)` condition for a plain string column, mapping a blank
+// sentinel to the NULL/'' test so "Unknown …" selections match empty cells.
+function pushInCond(conds, params, column, values, unknownSentinel) {
+  const list = toList(values)
+  if (list.length === 0) return
+  const parts = []
+  const concrete = unknownSentinel ? list.filter((v) => v !== unknownSentinel) : list
+  if (unknownSentinel && list.includes(unknownSentinel)) {
+    parts.push(`(${column} IS NULL OR ${column} = '')`)
+  }
+  if (concrete.length) {
+    parts.push(`${column} IN (${concrete.map(() => '?').join(', ')})`)
+    params.push(...concrete)
+  }
+  if (parts.length) conds.push(parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0])
+}
+
 /**
+ * Build a parameterized WHERE clause. Every entity arg accepts EITHER a single
+ * scalar ('__all__' or a name — the legacy shape most pages still pass) OR an
+ * array of names (the multi-select shape the dashboard passes). Region is NOT
+ * baked into the SQL schema (in-memory only), so there is deliberately no
+ * region arg here — the SQL parity path ignores region.
+ *
  * @param {object} args
- * @param {string|null} [args.analyst]
- * @param {string|null} [args.manager]  '__all__', 'No manager', or an exact manager
+ * @param {string|string[]|null} [args.analyst]   scalar or array of assignees
+ * @param {string|string[]|null} [args.manager]   scalar or array; 'No manager' allowed
+ * @param {string|string[]|null} [args.product]   scalar or array of product lines
+ * @param {string|string[]|null} [args.priority]  scalar or array of priorities
  * @param {{from:number|null,to:number|null,field:string}|null} [args.dateRange]
  * @returns {{ sql: string, params: any[] }}
  */
-export function buildWhere({ analyst, manager, dateRange } = {}) {
+// Push the people scope (assignee + manager team) shared by buildWhere and the
+// Update Queue. Both accept a scalar ('__all__' or one name) or an array.
+function pushPeopleConds(conds, params, { analyst, manager } = {}) {
+  const analystList = toList(analyst)
+  // Single analyst keeps the original `= ?` form (matches the historical SQL
+  // exactly so nothing regresses); multiple use IN (…).
+  if (analystList.length === 1) {
+    conds.push('assigned_to = ?')
+    params.push(analystList[0])
+  } else if (analystList.length > 1) {
+    conds.push(`assigned_to IN (${analystList.map(() => '?').join(', ')})`)
+    params.push(...analystList)
+  }
+  // Managers: a lone scalar keeps the original single-manager form; an array
+  // (or 'No manager') routes through the IN builder.
+  if (Array.isArray(manager) || (typeof manager === 'string' && manager !== '__all__' && manager)) {
+    if (Array.isArray(manager)) pushManagersCond(conds, params, manager)
+    else pushManagerCond(conds, params, manager)
+  }
+}
+
+export function buildWhere({ analyst, manager, product, priority, dateRange } = {}) {
   const conds = []
   const params = []
-  if (analyst && analyst !== '__all__') {
-    conds.push('assigned_to = ?')
-    params.push(analyst)
-  }
-  pushManagerCond(conds, params, manager)
+  pushPeopleConds(conds, params, { analyst, manager })
+  pushInCond(conds, params, 'product_line', product, 'Unknown product')
+  pushInCond(conds, params, 'priority', priority, 'Unknown priority')
   const dr = dateRange || {}
   if (dr.from != null || dr.to != null) {
     const field = dr.field === '_closed' ? 'closed_at' : 'created_at'
@@ -125,9 +194,9 @@ export async function getKpis({ analyst, manager, dateRange } = {}) {
 }
 
 /** getKpis over the comparison window. Returns null when there's no window. */
-export async function getCompareKpis({ analyst, manager, compareWindow, field } = {}) {
+export async function getCompareKpis({ analyst, manager, product, priority, compareWindow, field } = {}) {
   if (!compareWindow || compareWindow.from == null || compareWindow.to == null) return null
-  return getKpis({ analyst, manager, dateRange: { from: compareWindow.from, to: compareWindow.to, field } })
+  return getKpis({ analyst, manager, product, priority, dateRange: { from: compareWindow.from, to: compareWindow.to, field } })
 }
 
 /**
@@ -262,7 +331,10 @@ export async function getUpdateQueue({ analyst, manager, snapshotMs } = {}) {
   const snapshotIso = new Date(snapshotMs).toISOString()
 
   // Row filters shared by both queries, composed as a list so the WHERE clause
-  // builds cleanly no matter which are active. The snapshot `?` lives in each
+  // builds cleanly no matter which are active. `analyst` and `manager` each take
+  // a scalar or an array (My Day's manager view passes the whole manager
+  // multi-select, so the SQL queue and the in-memory rollup cover the same
+  // people). The snapshot `?` lives in each
   // SELECT (before the WHERE), so these params bind right after it. Date filter
   // is NOT applied — the queue is always "right now" against the snapshot.
   // Scoped to TRULY-open cases via the state-derived `SQL_OPEN`: Solution-Proposed
@@ -270,11 +342,7 @@ export async function getUpdateQueue({ analyst, manager, snapshotMs } = {}) {
   // /solution-proposed auto-close countdown, not here.
   const filterConds = [SQL_OPEN]
   const filterParams = []
-  if (analyst && analyst !== '__all__') {
-    filterConds.push('assigned_to = ?')
-    filterParams.push(analyst)
-  }
-  pushManagerCond(filterConds, filterParams, manager)
+  pushPeopleConds(filterConds, filterParams, { analyst, manager })
   const whereClause = `WHERE ${filterConds.join(' AND ')}`
 
   // Bucket SQL — fed snapshotMs (as TIMESTAMP) plus WARN_FRACTION and

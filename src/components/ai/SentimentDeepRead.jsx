@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Info, Sparkles, Loader2, AlertTriangle } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { Card } from "../layout/Card.jsx";
 import { aiClient } from "../../lib/ai-client.js";
 import { scrubForAi } from "../../lib/ai-scrub.js";
@@ -23,20 +23,19 @@ const btnPrimary = {
   background: T.accent,
   color: T.onAccent,
   border: `1px solid ${T.accentDeep}`,
-  borderRadius: 8,
+  borderRadius: T.radiusSm,
   fontSize: 13,
   fontWeight: 600,
   cursor: "pointer",
-  fontFamily: "Geist, DM Sans, sans-serif",
 };
 
 function NotConfiguredCard() {
   return (
     <Card>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <Info size={18} style={{ color: T.accent, flex: "0 0 auto", marginTop: 2 }} />
+        <Info size={18} strokeWidth={1.9} style={{ color: T.accentDeep, flex: "0 0 auto", marginTop: 2 }} />
         <div>
-          <div className="display" style={{ fontSize: 18, fontWeight: 500 }}>
+          <div style={{ fontSize: "var(--fs-subhead)", fontWeight: 600 }}>
             Claude deep-read is not configured
           </div>
           <div style={{ color: T.sub, fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
@@ -96,7 +95,7 @@ export function SentimentDeepRead({ scoreable, rows }) {
     return (
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0" }}>
-          <Loader2 size={20} style={{ color: T.accent, animation: "spin 1s linear infinite" }} />
+          <Loader2 size={18} strokeWidth={1.9} style={{ color: T.accentDeep, animation: "spin 1s linear infinite" }} />
           <div>
             <div style={{ fontWeight: 600 }}>Deep-reading {n} negative case{n === 1 ? "" : "s"}…</div>
             <div style={{ color: T.sub, fontSize: 13, marginTop: 2 }}>Anonymized and sent through the AI proxy.</div>
@@ -110,7 +109,7 @@ export function SentimentDeepRead({ scoreable, rows }) {
     return (
       <Card>
         <div style={{ color: T.danger, fontSize: 13, marginBottom: 10 }}>
-          <AlertTriangle size={14} style={{ verticalAlign: "middle" }} /> {state.error}
+          <AlertTriangle size={14} strokeWidth={2.25} style={{ verticalAlign: "middle" }} /> {state.error}
         </div>
         <button onClick={run} style={btnPrimary}>Try again</button>
       </Card>
@@ -120,11 +119,11 @@ export function SentimentDeepRead({ scoreable, rows }) {
   const notes = Array.isArray(state.result?.notes) ? state.result.notes : null;
 
   return (
-    <Card style={{ background: T.surfaceAlt, borderStyle: "dashed" }}>
+    <Card style={{ background: T.surfaceAlt, borderStyle: "dashed", borderColor: T.border }}>
       <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 280 }}>
-          <div className="display" style={{ fontSize: 18, fontWeight: 500 }}>Optional · Claude deep-read</div>
-          <div style={{ color: T.sub, fontSize: 12.5, marginTop: 6, lineHeight: 1.55 }}>
+          <div style={{ fontSize: "var(--fs-subhead)", fontWeight: 600 }}>Optional · Claude deep-read</div>
+          <div style={{ color: T.sub, fontSize: 12, marginTop: 6, lineHeight: 1.55 }}>
             The grades above are exact on coverage, responsiveness and hygiene, and directional on tone — with a
             <em> templated</em> coaching note. For prose coaching on the cases that matter, send <strong>only
             the{n === 1 ? "" : `se ${n}`} negative case{n === 1 ? "" : "s"}</strong> (anonymized) through the
@@ -136,7 +135,7 @@ export function SentimentDeepRead({ scoreable, rows }) {
           disabled={!n}
           style={{ ...btnPrimary, ...(n ? {} : { opacity: 0.5, cursor: "not-allowed" }) }}
         >
-          <Sparkles size={14} /> Deep-read {n} negative{n === 1 ? "" : "s"}
+          <Sparkles size={14} strokeWidth={2.25} /> Deep-read {n} negative{n === 1 ? "" : "s"}
         </button>
       </div>
 
@@ -152,7 +151,7 @@ export function SentimentDeepRead({ scoreable, rows }) {
           {notes.map((note, i) => {
             const g = negatives[note?.ref] || negatives[i];
             return (
-              <div key={i} style={{ borderLeft: `3px solid ${alpha(T.accent, 0.5)}`, paddingLeft: 12 }}>
+              <div key={i} style={{ borderLeft: `3px solid ${T.accentSoft}`, paddingLeft: 12 }}>
                 {g && (
                   <div className="mono" style={{ fontSize: 12, marginBottom: 4 }}>
                     <CopyableNumber value={g.number} style={{ fontSize: 12 }} />

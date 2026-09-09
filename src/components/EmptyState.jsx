@@ -1,6 +1,6 @@
 import { FilterLink } from "./FilterLink.jsx"
 import { Database } from "lucide-react"
-import { T, alpha } from "../lib/theme.js"
+import { T } from "../lib/theme.js"
 import { Card } from "./layout/Card.jsx"
 
 /* Shared "no data loaded" state used by every analytical page. `to` lets a page
@@ -13,8 +13,9 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
       style={{
         display: "flex",
         flexDirection: "column",
-        alignItems: "center",
-        textAlign: "center",
+        // Type is always left-aligned. This is the empty state for every
+        // analytical page, so it is also the widest-reach alignment fix.
+        alignItems: "flex-start",
         padding: "64px 32px",
         gap: 14,
         borderStyle: "dashed",
@@ -23,26 +24,16 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
         boxShadow: "none",
       }}
     >
-      <div
-        style={{
-          width: 56,
-          height: 56,
-          borderRadius: 14,
-          background: T.accentTint,
-          color: T.accent,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          border: `1px solid ${alpha(T.accent, 0.13)}`,
-          marginBottom: 4,
-        }}
-      >
-        <Database size={24} strokeWidth={1.75} />
+      {/* Standalone icon, no medallion: the brand's boxed "UI box" colorway is
+          for creative/marketing use, and web/app icons sit unboxed. That also
+          removes the ad-hoc alpha() border the box needed. */}
+      <div style={{ color: T.accent, display: "flex", marginBottom: 2 }}>
+        <Database size={28} strokeWidth={1.75} />
       </div>
-      <div className="display" style={{ fontSize: 28, color: T.ink, letterSpacing: "-0.015em" }}>
+      <div className="display" style={{ fontSize: "var(--fs-h2-dense)", color: T.ink, letterSpacing: "-0.01em" }}>
         {title}
       </div>
-      <div style={{ color: T.sub, fontSize: 13.5, maxWidth: 520, lineHeight: 1.6 }}>
+      <div style={{ color: T.sub, fontSize: 14, maxWidth: 520, lineHeight: 1.6 }}>
         {message ||
           "Upload a ServiceNow case export to populate this page. Everything else flows from that one file."}
       </div>
@@ -54,21 +45,20 @@ export function EmptyState({ title = "No data loaded yet", message, cta = "Go to
           background: T.accent,
           color: T.onAccent,
           border: `1px solid ${T.accentDeep}`,
-          borderRadius: 8,
+          borderRadius: T.radiusSm,
           fontSize: 13,
           fontWeight: 600,
           textDecoration: "none",
-          boxShadow: `0 1px 0 ${T.accentDeep}, 0 4px 12px ${alpha(T.accent, 0.25)}`,
-          transition: "transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
-          fontFamily: "Geist, DM Sans, sans-serif",
+          // No shadow on a resting control, and no colored glow — the brand
+          // permits shadow only, never a glow, and the previous value was a
+          // 12px red halo at 25%. Hover moves the fill, not the elevation.
+          transition: "background 0.15s ease",
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.background = T.accentDeep
-          e.currentTarget.style.transform = "translateY(-1px)"
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.background = T.accent
-          e.currentTarget.style.transform = "translateY(0)"
         }}
       >
         {cta}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileSpreadsheet, Cloud, Loader2 } from "lucide-react";
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { fmtAgo } from "../../lib/format.js";
 
 /* Always-visible top-right indicator showing the freshness of the two data
@@ -40,12 +40,11 @@ function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone, busy }) {
           height: 7,
           borderRadius: "50%",
           background: color,
-          boxShadow: fresh ? `0 0 0 3px ${alpha(color, 0.13)}` : "none",
           animation: fresh ? "pulse-dot 2.4s ease-in-out infinite" : "none",
           flexShrink: 0,
         }}
       />
-      <Icon size={12} style={{ color: T.muted }} />
+      <Icon size={14} strokeWidth={2.25} style={{ color: T.muted }} />
       <span style={{ color: T.muted, fontWeight: 500 }}>{label}</span>
       <span
         className="mono"
@@ -55,7 +54,8 @@ function Pill({ icon: Icon, label, ts, now, missingLabel, missingTone, busy }) {
       </span>
       {busy && (
         <Loader2
-          size={11}
+          size={14}
+          strokeWidth={2.25}
           aria-label="syncing"
           style={{ color: T.muted, animation: "spin 0.8s linear infinite", flexShrink: 0 }}
         />

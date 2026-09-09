@@ -1,11 +1,19 @@
 // Aggregation helpers for the Jira Statistics page. Pure functions, no React,
 // no network. Complements jira-enrich.js (issue shape + the single-issue
-// metrics) with page-level rollups, including the cross-source "blast radius"
-// join that counts ServiceNow cases per Jira key.
+// metrics) with page-level rollups.
 //
 // The SN->Jira link is NOT a queryable DuckDB column — it's parsed in JS by
-// enrich.js (parseJiraRefs) into row._jiraTickets[{ id, ... }]. So the join
-// here iterates enriched SN rows in memory rather than running SQL.
+// enrich.js (parseJiraRefs) into row._jiraTickets[{ id, ... }], so the join runs
+// over enriched SN rows in memory rather than in SQL.
+//
+// `blastRadius` USED TO BE that join, implemented here. It is now a thin
+// PROJECTION over the shared correlation engine (correlate.js + insight-*.js) —
+// see the note on the function. The impact ranking that JiraDashboard used to
+// compute with its own private formula now comes from the same engine, so the
+// Blockers page and the Jira Statistics page can no longer disagree.
+
+import { percentile } from "./stats.js"
+import { buildInsights, blockersByJira } from "./insight-rank.js"
 
 const DAY = 864e5
 export const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -19,12 +27,6 @@ const startOfMonday = (d) => {
   const x = startOfDay(d)
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7)) // Mon=0 … Sun=6
   return x
-}
-
-const percentile = (sorted, p) => {
-  if (!sorted.length) return null
-  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
-  return sorted[idx]
 }
 
 /* ------------------------------- volume ---------------------------------- */
@@ -124,70 +126,93 @@ export function resolutionStatsByPriority(issues, days = 90) {
 /* --------------------------- cross-source join --------------------------- */
 
 /**
- * Blast radius: for every Jira key referenced by a ServiceNow case, count how
- * many cases reference it and how many of those are still open. Merges live
- * Jira display fields by key when available.
+ * Blast radius: for every Jira key referenced by a ServiceNow case, how many
+ * cases reference it and how many of those are still open.
+ *
+ * NOW A PROJECTION, not an implementation. The per-key grouping, the
+ * mention-exclusion rule, the live-issue join and the ranking all live in the
+ * shared engine (`buildInsights` -> `blockersByJira`); this function reshapes one
+ * `blockersByJira` row into the exact legacy field names so
+ * `blastRadiusSummary`, `openCasesHistogram`, `staleWithImpact` and
+ * `fixVersionPipeline` keep working untouched.
+ *
+ * Three deliberate changes from the hand-rolled version it replaces:
+ *
+ *  1. SNAPSHOT-ANCHORED. `daysOpen` and `daysSinceUpdate` are measured against
+ *     the import's upload time, not the wall clock, so a given import always
+ *     renders identically. Both were `Date.now()`-based before, and
+ *     `daysSinceUpdate` additionally trusted `enrichIssue`'s cached age
+ *     (CODEREVIEW(5-31).md P1 #5).
+ *  2. NORMALIZED JOIN KEYS on both sides (P1 #2).
+ *  3. A STABLE TIEBREAK. The old sort was `openCount desc, totalCount desc` with
+ *     no final tiebreak, so tied rows fell back to Map insertion order — i.e.
+ *     row order. Ties now break on `key`, which is what makes a screenshot or a
+ *     CSV export reproducible. Tied rows may therefore appear in a different
+ *     order than before; no count changes.
  *
  * @param {object[]} rows  enriched SN rows (enrichedAll / enrichedAllJoined)
- * @param {Map<string,object>} jiraIssueMap  key → enrichIssue() output
+ * @param {Map<string,object>|object[]} issues  enriched Jira issues, or the
+ *   `jiraIssueMap` keyed by raw `issue.key` (re-keyed normalized internally)
+ * @param {number|null} snapshotMs  the active import's upload time
  * @returns rows sorted by open count desc → [{
- *   key, openCount, totalCount, issue, summary, issueType, priority, status,
- *   statusCategory, fixVersions, url, updated, daysSinceUpdate, hasLive }]
+ *   key, openCount, totalCount, cases, issue, summary, issueType, priority,
+ *   status, statusCategory, fixVersions, url, updated, daysSinceUpdate, hasLive,
+ *   score, factors, band, clusterId, isAtlassian, aliasedFrom }]
  */
-export function blastRadius(rows, jiraIssueMap) {
-  const now = Date.now()
-  const counts = new Map()
-  for (const r of rows || []) {
-    const seen = new Set() // a case counts once per distinct key
-    for (const t of r._jiraTickets || []) {
-      // Free-text mentions are not blockers — a prose name-drop must not count
-      // the case as "blocked by" the ticket in the impact rankings.
-      if (t.source === 'mention') continue
-      if (!t.id || seen.has(t.id)) continue
-      seen.add(t.id)
-      const e = counts.get(t.id) || { total: 0, open: 0, cases: [] }
-      e.total++
-      // "open impact" = TRULY-open cases only. A Solution-Proposed case (awaiting
-      // customer) is no longer active engineering-blocked work. `isClosed` stays
-      // truly-closed so the drilldown never labels a Resolved case "Closed".
-      if (r._isOpen) e.open++
-      e.cases.push({
-        number: r.number || "",
-        isClosed: !!r._isClosed,
-        account: r.account || "",
-        shortDescription: r.short_description || "",
-        daysOpen: r._created ? Math.floor((now - r._created.getTime()) / DAY) : null,
-      })
-      counts.set(t.id, e)
-    }
-  }
-  return [...counts.entries()]
-    .map(([key, c]) => {
-      const issue = jiraIssueMap?.get(key) || null
-      const updated = issue?.updated || null
-      // Open cases first (the actionable ones), then by case number.
-      const cases = c.cases.sort((a, b) =>
-        a.isClosed !== b.isClosed ? (a.isClosed ? 1 : -1) : String(a.number).localeCompare(String(b.number)),
-      )
+export function blastRadius(rows, issues, snapshotMs) {
+  const { clusters } = buildInsights(rows, issues, snapshotMs)
+  return blockersByJira(clusters, snapshotMs)
+    .map((b) => {
+      const j = b.jira
       return {
-        key,
-        openCount: c.open,
-        totalCount: c.total,
-        cases,
-        issue,
-        summary: issue?.summary || "",
-        issueType: issue?.issueType || "—",
-        priority: issue?.priority || null,
-        status: issue?.status || "—",
-        statusCategory: issue?.statusCategory || null,
-        fixVersions: issue?.fixVersions || [],
-        url: issue?.url || null,
-        updated,
-        daysSinceUpdate: updated ? Math.floor((now - updated.getTime()) / DAY) : null,
-        hasLive: !!issue,
+        key: b.key,
+        openCount: b.metrics.volume.openCases,
+        totalCount: b.metrics.volume.totalCases,
+        // Open cases first (the actionable ones), then by case number — the
+        // legacy order, preserved.
+        cases: b.cases
+          .map((c) => ({
+            number: c.number || "",
+            isClosed: c.isClosed,
+            account: c.account || "",
+            shortDescription: c.shortDescription || "",
+            daysOpen: c.ageDays,
+          }))
+          .sort((x, y) =>
+            x.isClosed !== y.isClosed
+              ? (x.isClosed ? 1 : -1)
+              : String(x.number).localeCompare(String(y.number)),
+          ),
+        issue: j.issue,
+        summary: j.summary || "",
+        issueType: j.issueType || "—",
+        priority: j.priority || null,
+        status: j.status || "—",
+        statusCategory: j.statusCategory || null,
+        fixVersions: j.fixVersions || [],
+        url: j.url || null,
+        updated: j.updated || null,
+        daysSinceUpdate: j.daysSinceUpdate,
+        hasLive: j.hasLive,
+        // Additive: the shared explainable score, so this table and the Blockers
+        // panel rank by the same numbers.
+        score: b.score,
+        factors: b.factors,
+        band: b.band,
+        clusterId: b.clusterId,
+        isAtlassian: j.isAtlassian,
+        // The `RN-` refs that resolved onto this key — display-only provenance,
+        // so the ref an analyst read in the work notes is still findable now that
+        // it no longer has a row of its own. See `buildAliasMap`.
+        aliasedFrom: j.aliasedFrom,
       }
     })
-    .sort((a, b) => b.openCount - a.openCount || b.totalCount - a.totalCount)
+    .sort(
+      (a, b) =>
+        b.openCount - a.openCount ||
+        b.totalCount - a.totalCount ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    )
 }
 
 /** Headline numbers for the blast-radius summary band. `staleDays` flags

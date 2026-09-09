@@ -35,7 +35,7 @@ export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
           fontWeight: 600,
         }}
       >
-        <Database size={12} style={{ color: T.accent }} />
+        <Database size={14} strokeWidth={2.25} style={{ color: T.accent }} />
         <span>Data stored locally</span>
       </div>
       <div style={{ color: T.sub, fontSize: 11, marginTop: 6 }}>
@@ -52,13 +52,11 @@ export function DataRetentionNotice({ importCount = 0, storageBytes = 0 }) {
         style={{
           display: "block",
           marginTop: 10,
-          textAlign: "center",
           padding: "6px 10px",
           background: T.surface,
           color: T.ink,
           border: `1px solid ${T.border}`,
-          borderRadius: 6,
-          fontFamily: "Geist, DM Sans, sans-serif",
+          borderRadius: T.radiusSm,
           fontSize: 11,
           fontWeight: 600,
           textDecoration: "none",

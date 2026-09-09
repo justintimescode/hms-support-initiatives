@@ -2,10 +2,19 @@ import { useState, useMemo } from "react";
 import { Download } from "lucide-react";
 import { T, alpha } from "../../lib/theme.js";
 import { fmtDuration, fmtDate, priorityColor } from "../../lib/format.js";
-import { priorityRank, isDevStatus, statusOf } from "../../lib/enrich.js";
+import { isDevStatus, statusOf } from "../../lib/enrich.js";
+// The SHARED correlation + ranking engine. This component used to compute its
+// own `ticketGroups` impact score here (`cases.length * 2 + priorityWeight +
+// min(20, oldestDays / 7)`), which meant the Blockers page and the Jira
+// Statistics blast-radius table could rank the same tickets differently. Both
+// now read one engine, so they cannot disagree.
+import { buildInsights, blockersByJira, effectiveTicketStatus } from "../../lib/insight-rank.js";
+import { daysLinkedOf, daysBetween } from "../../lib/insight-metrics.js";
+import { MULTI_CASE_MIN } from "../../lib/insight-thresholds.js";
 // SECURITY #7 — rowsToCsv passes every exported cell through the formula-
 // injection guard in csv-export.js before RFC-4180 quoting.
 import { rowsToCsv, downloadCsv, csvTimestamp } from "../../lib/csv-export.js";
+import { AliasNote } from "../AliasNote.jsx";
 import { Card } from "../layout/Card.jsx";
 import { CopyableNumber } from "../CopyableNumber.jsx";
 
@@ -84,12 +93,14 @@ function JiraStatusBadge({ status, label: labelOverride }) {
   )
 }
 
-function JiraCaseDetail({ row, onClose }) {
-  const daysOpen = row._created ? Math.floor((Date.now() - row._created.getTime()) / 86400000) : null
+function JiraCaseDetail({ row, onClose, snapshotMs }) {
+  // Anchored to the import, like every other figure on this page.
+  const daysOpen = daysBetween(row._created ? row._created.getTime() : null, snapshotMs)
   const fmtTicketDate = (d) => d ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"
   const fmtRelDays = (d) => {
     if (!d) return ""
-    const days = Math.floor((Date.now() - d.getTime()) / 86400000)
+    const days = daysBetween(d.getTime(), snapshotMs)
+    if (days == null) return ""
     if (days === 0) return "today"
     if (days === 1) return "1 day ago"
     return `${days} days ago`
@@ -198,7 +209,7 @@ function JiraCaseDetail({ row, onClose }) {
   )
 }
 
-export function JiraDashboard({ rows, jiraConnected = false }) {
+export function JiraDashboard({ rows, jiraConnected = false, jiraIssues = null, snapshotMs = null, aliasRows = null }) {
   const [sort, setSort] = useState({ key: "daysLinked", dir: "desc" })
   const [selectedNumber, setSelectedNumber] = useState(null)
 
@@ -220,9 +231,14 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
         mentionOnly++
       }
       if (r._jiraMismatch) mismatched++
-      if (r._jiraDaysSinceLinked != null) {
-        totalDays += r._jiraDaysSinceLinked
-        if (r._jiraDaysSinceLinked > maxDays) maxDays = r._jiraDaysSinceLinked
+      // Snapshot-anchored, NOT the row's `_jiraDaysSinceLinked` — that field is
+      // derived from the wall clock in enrich.js, so it drifts for any import
+      // older than today. Same anchor as the table and the ranking below, so the
+      // page can never show two different "days linked" for one case.
+      const linked = daysLinkedOf(r, snapshotMs)
+      if (linked != null) {
+        totalDays += linked
+        if (linked > maxDays) maxDays = linked
         withDays++
       }
     }
@@ -237,7 +253,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
       maxDays,
       uniqueActive: activeTicketSet.size,
     }
-  }, [rows])
+  }, [rows, snapshotMs])
 
   // SN cases still open whose every linked live Jira ticket is Done — the
   // join's headline signal: these cases are very likely closeable.
@@ -246,7 +262,7 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
   const tableRows = useMemo(() => {
     return rows.map((r) => {
       const tickets = r._jiraTickets || []
-      const daysOpen = r._created ? Math.floor((Date.now() - r._created.getTime()) / 86400000) : null
+      const daysOpen = daysBetween(r._created ? r._created.getTime() : null, snapshotMs)
       const liveTicket = tickets.find((t) => t.jira) || null
       return {
         raw: r,
@@ -262,11 +278,11 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
         category: r._category || "",
         // null = no System "Jira Reference ID … linked" note found in the
         // journal — rendered as "Not linked", never as a fake 0 days.
-        daysLinked: r._jiraDaysSinceLinked ?? null,
+        daysLinked: daysLinkedOf(r, snapshotMs),
         daysOpen: daysOpen ?? 0,
       }
     })
-  }, [rows])
+  }, [rows, snapshotMs])
 
   const sorted = useMemo(() => {
     return [...tableRows].sort((a, b) => {
@@ -323,38 +339,27 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
     downloadCsv(`jira-cases-${csvTimestamp()}.csv`, rowsToCsv(headers, data))
   }
 
-  // Group tickets across cases — surface blockers affecting multiple cases,
-  // ranked by the aggregate open-case impact one fix would unblock.
-  const ticketGroups = useMemo(() => {
-    const groups = {}
-    for (const r of rows) {
-      for (const t of (r._jiraTickets || [])) {
-        // Prose mentions don't block — only linked tickets count toward the
-        // "Tickets blocking multiple cases" impact ranking.
-        if (t.source === "mention") continue
-        if (!groups[t.id]) {
-          groups[t.id] = { id: t.id, status: jiraTicketStatusOf(t), clickable: t.clickable, jira: t.jira || null, cases: [], accounts: new Set() }
-        }
-        groups[t.id].cases.push(r)
-        if (r.account) groups[t.id].accounts.add(r.account)
-        if (jiraTicketStatusOf(t) === "active") groups[t.id].status = "active"
-        if (t.jira) groups[t.id].jira = t.jira
-      }
-    }
-    return Object.values(groups)
-      .filter((g) => g.cases.length >= 2)
-      .map((g) => {
-        // null when no case in the group has a System link note — shown as "—",
-        // not a fake 0 (same contract as the Days-linked column above).
-        const linkedDays = g.cases.map((c) => c._jiraDaysSinceLinked).filter((d) => d != null)
-        const oldestDays = linkedDays.length ? Math.max(...linkedDays) : null
-        // Impact = cases blocked (weighted) + priority pressure + an age factor.
-        const priorityWeight = g.cases.reduce((s, c) => s + (5 - Math.min(4, priorityRank(c.priority))), 0)
-        const impact = g.cases.length * 2 + priorityWeight + Math.min(20, (oldestDays ?? 0) / 7)
-        return { ...g, accountsArr: [...g.accounts], oldestDays, impact }
-      })
-      .sort((a, b) => b.impact - a.impact)
-  }, [rows])
+  // Tickets blocking multiple cases, ranked by the SHARED engine.
+  //
+  // This memo used to build its own per-ticket groups and score them with a
+  // private formula. It now correlates through `buildInsights` and projects
+  // per-Jira-key via `blockersByJira`, which scores each key with the same
+  // `scoreCluster` the new Operations view uses. Consequences, all intended:
+  //   * the ranking is explainable — every row carries `factors`;
+  //   * volume can no longer swamp escalation, sentiment and age (each term is
+  //     capped), so the ORDER of this table differs from before;
+  //   * ages are snapshot-anchored, and join keys are normalized on both sides.
+  const ticketGroups = useMemo(
+    () =>
+      blockersByJira(
+        // `rows` here is a filtered slice; the `RN-` alias map must still come
+        // from the whole import so this table and Operations name one defect the
+        // same way. See `correlateSources`.
+        buildInsights(rows, jiraIssues, snapshotMs, { aliasRows: aliasRows || rows }).clusters,
+        snapshotMs,
+      ).filter((b) => b.cases.length >= MULTI_CASE_MIN),
+    [rows, jiraIssues, snapshotMs, aliasRows],
+  )
 
   if (rows.length === 0) {
     return (
@@ -550,14 +555,14 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
       {/* Selected case detail */}
       {selectedNumber && (() => {
         const selectedRow = rows.find((r) => r.number === selectedNumber)
-        return selectedRow ? <JiraCaseDetail row={selectedRow} onClose={() => setSelectedNumber(null)} /> : null
+        return selectedRow ? <JiraCaseDetail row={selectedRow} onClose={() => setSelectedNumber(null)} snapshotMs={snapshotMs} /> : null
       })()}
 
       {/* Tickets blocking multiple cases */}
       {ticketGroups.length > 0 && (
         <Card>
           <div className="eyebrow" style={{ color: T.muted }}>Tickets blocking multiple cases</div>
-          <div style={{ color: T.sub, fontSize: 12, marginTop: 4, marginBottom: 12 }}>Ranked by aggregate impact — open cases blocked, weighted by priority and age. One fix at the top unblocks the most.</div>
+          <div style={{ color: T.sub, fontSize: 12, marginTop: 4, marginBottom: 12 }}>Ranked by the shared impact score — open cases blocked, accounts affected, escalation, customer sentiment and age, each capped so no single signal dominates. Hover a score to see what it is made of. One fix at the top unblocks the most.</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr style={{ background: T.surfaceAlt }}>
@@ -566,24 +571,32 @@ export function JiraDashboard({ rows, jiraConnected = false }) {
                 <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.sub, borderBottom: `1px solid ${T.borderSoft}` }}>Cases blocked</th>
                 <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.sub, borderBottom: `1px solid ${T.borderSoft}` }}>Oldest (days)</th>
                 <th style={{ padding: "8px 12px", textAlign: "left", fontWeight: 600, color: T.sub, borderBottom: `1px solid ${T.borderSoft}` }}>Accounts affected</th>
+                <th style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600, color: T.sub, borderBottom: `1px solid ${T.borderSoft}` }}>Impact</th>
               </tr>
             </thead>
             <tbody>
               {ticketGroups.map((g) => (
-                <tr key={g.id} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
+                <tr key={g.key} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
                   <td className="mono" style={{ padding: "8px 12px" }}>
-                    {g.clickable ? (
-                      <a href={JIRA_BROWSE_URL + g.id} target="_blank" rel="noopener noreferrer" style={{ color: T.jiraBlue, textDecoration: "none" }}>{g.id}</a>
+                    {g.jira.isAtlassian ? (
+                      <a href={JIRA_BROWSE_URL + g.key} target="_blank" rel="noopener noreferrer" style={{ color: T.jiraBlue, textDecoration: "none" }}>{g.key}</a>
                     ) : (
-                      <span style={{ color: T.jiraBlue }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{g.id}</span>
+                      <span style={{ color: T.jiraBlue }} title="ServiceNow Resolution Notes reference — not a Jira ticket">{g.key}</span>
                     )}
+                    <AliasNote keys={g.jira.aliasedFrom} />
                   </td>
                   <td style={{ padding: "8px 12px" }}>
-                    {g.jira ? <JiraLiveStatusBadge jira={g.jira} /> : <JiraStatusBadge status={g.status} />}
+                    {g.jira.hasLive
+                      ? <JiraLiveStatusBadge jira={g.jira} />
+                      : <JiraStatusBadge status={effectiveTicketStatus(g.jira)} />}
                   </td>
                   <td className="mono" style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600 }}>{g.cases.length}</td>
-                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: g.oldestDays > 60 ? T.danger : g.oldestDays > 30 ? T.warn : T.ink }}>{g.oldestDays ?? "—"}</td>
-                  <td style={{ padding: "8px 12px", color: T.sub, fontSize: 12 }}>{g.accountsArr.join(", ") || "—"}</td>
+                  {/* null (no System link note anywhere in the group) renders "—", never a fake 0. */}
+                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: g.oldestDaysLinked > 60 ? T.danger : g.oldestDaysLinked > 30 ? T.warn : T.ink }}>{g.oldestDaysLinked ?? "—"}</td>
+                  <td style={{ padding: "8px 12px", color: T.sub, fontSize: 12 }}>{g.accounts.join(", ") || "—"}</td>
+                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right" }} title={g.factors.map((f) => `${f.label} +${f.weight} (${f.detail})`).join(" · ")}>
+                    {g.score}
+                  </td>
                 </tr>
               ))}
             </tbody>

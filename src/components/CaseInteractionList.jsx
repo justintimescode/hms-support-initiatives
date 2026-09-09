@@ -19,7 +19,7 @@ export function CaseInteractionList({ rows }) {
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
         <div>
-          <div className="eyebrow" style={{ color: T.muted }}>Interaction breakdown · per case</div>
+          <div className="eyebrow">Interaction breakdown · per case</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4 }}>
             Sorted by total turns. Cases with more back-and-forth may indicate complexity or unclear resolution paths.
           </div>
@@ -44,12 +44,12 @@ export function CaseInteractionList({ rows }) {
           <tbody>
             {visible.map((r) => (
               <tr key={r.number} style={{ borderBottom: `1px solid ${T.borderSoft}` }}>
-                <td className="mono" style={{ padding: "8px 12px", color: T.accent }}><CopyableNumber value={r.number} /></td>
+                <td className="mono" style={{ padding: "8px 12px", color: T.accentDeep }}><CopyableNumber value={r.number} /></td>
                 <td style={{ padding: "8px 12px" }}>{r.priority || "—"}</td>
                 <td style={{ padding: "8px 12px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.account || "—"}</td>
                 <td className="mono" style={{ padding: "8px 12px", textAlign: "right", fontWeight: 600 }}>{r._interactionCount || 0}</td>
                 {hasClassified && <>
-                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: T.accent }}>{r._customerTurns || 0}</td>
+                  <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: T.accentDeep }}>{r._customerTurns || 0}</td>
                   <td className="mono" style={{ padding: "8px 12px", textAlign: "right", color: T.ok }}>{r._analystTurns || 0}</td>
                 </>}
                 <td style={{ padding: "8px 12px", color: r._isClosed ? T.muted : T.ink }}>{r._lifecycle === "closed" ? "Closed" : r._lifecycle === "solution_proposed" ? "Solution Proposed" : "Open"}</td>
@@ -61,7 +61,7 @@ export function CaseInteractionList({ rows }) {
       {sorted.length > 10 && (
         <button
           onClick={() => setExpanded((e) => !e)}
-          style={{ marginTop: 10, background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 12, padding: 0 }}
+          style={{ marginTop: 10, background: "none", border: "none", color: T.accentDeep, cursor: "pointer", fontSize: 12, padding: 0 }}
         >
           {expanded ? "Show less" : `Show all ${sorted.length} cases`}
         </button>

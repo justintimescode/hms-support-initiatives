@@ -5,10 +5,10 @@ import { CopyableNumber } from "./CopyableNumber.jsx";
 /* ================= Drilldown ================= */
 export function CaseDrilldown({ title, rows, onClose }) {
   return (
-    <div style={{ marginTop: 12, border: `1px solid ${T.border}`, borderRadius: 4, background: T.surface }}>
+    <div style={{ marginTop: 12, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: T.surface }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: `1px solid ${T.borderSoft}`, background: T.surfaceAlt }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-          <span className="eyebrow" style={{ color: T.accent }}>{title}</span>
+          <span className="eyebrow" style={{ color: T.accentDeep }}>{title}</span>
           <span className="mono" style={{ fontSize: 12, color: T.sub }}>{rows.length} case{rows.length === 1 ? "" : "s"}</span>
         </div>
         <button

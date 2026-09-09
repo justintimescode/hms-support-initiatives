@@ -1,4 +1,4 @@
-import { T, alpha } from "../../lib/theme.js";
+import { T } from "../../lib/theme.js";
 import { SCOPE_ALL, SCOPE_RANGE } from "../../lib/time-axis.js";
 import { fmtFullDate } from "../../lib/format.js";
 
@@ -24,14 +24,14 @@ export function TimeScopeToggle({ scope, onScopeChange, range, label = "View" })
 
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <span className="eyebrow" style={{ color: T.muted, fontSize: 11 }}>{label}</span>
+      <span className="eyebrow">{label}</span>
       <div
         role="group"
         aria-label="Chart time scope"
         style={{
           display: "inline-flex",
           border: `1px solid ${T.border}`,
-          borderRadius: 6,
+          borderRadius: T.radiusSm,
           overflow: "hidden",
         }}
       >
@@ -66,10 +66,10 @@ function Chip({ on, onClick, title, children }) {
         fontWeight: on ? 600 : 500,
         padding: "3px 10px",
         border: "none",
-        // alpha() rather than hex concatenation — T tokens are var(--t-*) refs,
-        // so appending "22" produces an invalid color.
-        background: on ? alpha(T.accent, 0.16) : "transparent",
-        color: on ? T.accent : T.sub,
+        // Real tint tokens, not composited alpha: the pressed segment is the
+        // Infor Purple interactive colorway (Tint 01 ground, Purple Shade ink).
+        background: on ? T.vizAccentSoft : "transparent",
+        color: on ? T.vizAccentDeep : T.sub,
         cursor: "pointer",
         lineHeight: 1.6,
       }}

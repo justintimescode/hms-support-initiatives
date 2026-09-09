@@ -3,7 +3,7 @@ import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { T } from "../../lib/theme.js";
+import { T, AXIS_TICK, TOOLTIP_STYLE } from "../../lib/theme.js";
 import { monthlyFcrTrend, qualityMetrics } from "../../lib/stats.js";
 import { BUCKET_MS, SCOPE_RANGE, timeWindow } from "../../lib/time-axis.js";
 import { Card } from "../layout/Card.jsx";
@@ -30,7 +30,7 @@ export function FcrTrendBlock({ rows, dateRange }) {
   if (!hasSignal) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>First-contact resolution · monthly</div>
+        <div className="eyebrow">First-contact resolution · monthly</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           No closed cases to measure yet.
         </div>
@@ -43,7 +43,7 @@ export function FcrTrendBlock({ rows, dateRange }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <div className="eyebrow" style={{ color: T.muted }}>First-contact resolution · monthly</div>
+        <div className="eyebrow">First-contact resolution · monthly</div>
         <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
       </div>
       <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
@@ -59,32 +59,33 @@ export function FcrTrendBlock({ rows, dateRange }) {
           color={quality.reopened > 0 ? T.warn : T.ink}
         />
       </div>
-      <div style={{ height: 240, marginTop: 12 }}>
+      <div style={{ height: 240, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <ComposedChart data={win.data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
+            <CartesianGrid stroke={T.vizGrid} vertical={false} />
             <XAxis
               dataKey="month"
               type="number"
               domain={win.domain}
               tickFormatter={win.tickFormatter}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               ticks={win.ticks}
               interval="preserveStartEnd"
             />
             <YAxis
               domain={[0, 100]}
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               tickFormatter={(v) => `${v}%`}
             />
-            <Tooltip content={<FcrTip />} cursor={{ stroke: T.border }} />
+            <Tooltip content={<FcrTip />} cursor={{ stroke: T.vizAxis }} />
+            {/* Single metric: the duotone lead, Infor Purple. */}
             <Line
               type="monotone" dataKey="fcrPct" name="FCR rate"
-              stroke={T.accent} strokeWidth={2} dot={{ r: 2 }} connectNulls={false}
+              stroke={T.vizAccent} strokeWidth={2} dot={{ r: 2 }} connectNulls={false}
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -97,7 +98,7 @@ export function FcrTrendBlock({ rows, dateRange }) {
 function Stat({ label, value, color }) {
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted, fontSize: 10 }}>{label}</div>
+      <div className="eyebrow">{label}</div>
       <div className="mono" style={{ color, fontSize: 18, fontWeight: 600, marginTop: 2 }}>{value}</div>
     </div>
   );
@@ -110,7 +111,7 @@ function FcrTip({ active, payload }) {
   const d = payload[0].payload;
   const dte = new Date(d.month);
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>{MONTHS[dte.getMonth()]} {dte.getFullYear()}</div>
       {d.closed ? (
         <div className="mono" style={{ color: T.sub }}>

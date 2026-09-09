@@ -15,7 +15,7 @@ export function StuckCasesList({ rows, thresholdDays = 30, showAssignee = false 
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <div>
-          <div className="eyebrow" style={{ color: T.muted }}>Stuck cases · open more than {thresholdDays} days</div>
+          <div className="eyebrow">Stuck cases · open more than {thresholdDays} days</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 720 }}>
             The single highest-signal-per-pixel view for 1:1s. Sorted oldest first. {showAssignee ? "Each row shows its assignee." : "Filtered to this analyst's queue."}
           </div>
@@ -76,10 +76,10 @@ export function StuckCasesList({ rows, thresholdDays = 30, showAssignee = false 
             </table>
           </div>
           {stuck.length > 10 && (
-            <div style={{ marginTop: 10, textAlign: "center" }}>
+            <div style={{ marginTop: 10 }}>
               <button
                 onClick={() => setExpanded((v) => !v)}
-                style={{ background: "none", border: `1px solid ${T.border}`, color: T.sub, padding: "6px 14px", borderRadius: 4, cursor: "pointer", fontSize: 12 }}
+                style={{ background: "none", border: `1px solid ${T.border}`, color: T.sub, padding: "6px 14px", borderRadius: T.radiusSm, cursor: "pointer", fontSize: 12 }}
               >
                 {expanded ? "Show top 10" : `Show all ${stuck.length}`}
               </button>

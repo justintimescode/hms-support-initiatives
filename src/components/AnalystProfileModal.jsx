@@ -66,7 +66,7 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
         className="fade-in scrollbar"
         style={{
           width: "100%", maxWidth: 880, background: T.bg,
-          border: `1px solid ${T.border}`, borderRadius: T.radiusLg || 12,
+          border: `1px solid ${T.border}`, borderRadius: T.radiusLg,
           boxShadow: T.shadowLg, maxHeight: "calc(100vh - 80px)", overflowY: "auto",
         }}
       >
@@ -79,12 +79,12 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <button
               onClick={onOpenDashboard}
-              style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "Geist, DM Sans, sans-serif" }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 12px", background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, fontSize: 12, fontWeight: 600, cursor: "pointer" }}
             >
-              Open full dashboard <ArrowRight size={12} />
+              Open full dashboard <ArrowRight size={14} strokeWidth={2.25} />
             </button>
-            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: 6, cursor: "pointer" }}>
-              <X size={16} />
+            <button ref={closeRef} onClick={onClose} aria-label="Close" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, background: "transparent", color: T.sub, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer" }}>
+              <X size={18} strokeWidth={1.9} />
             </button>
           </div>
         </div>
@@ -94,8 +94,8 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
           {/* KPI tiles */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
             {tiles.map((t) => (
-              <div key={t.label} style={{ background: T.surfaceAlt, borderRadius: 8, padding: "12px 14px", border: `1px solid ${T.borderSoft}` }}>
-                <div className="eyebrow" style={{ color: T.muted, fontSize: 9 }}>{t.label}</div>
+              <div key={t.label} style={{ background: T.surfaceAlt, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid ${T.borderSoft}` }}>
+                <div className="eyebrow">{t.label}</div>
                 <div className="mono" style={{ fontSize: 22, fontWeight: 600, color: t.color || T.ink, marginTop: 4, lineHeight: 1 }}>{t.value}</div>
                 <div style={{ color: T.sub, fontSize: 11, marginTop: 5 }}>{t.sub}</div>
               </div>
@@ -106,12 +106,12 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
           <Card>
             <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 18 }}>
               <div>
-                <div className="eyebrow" style={{ color: T.muted, marginBottom: 8 }}>Priority mix</div>
+                <div className="eyebrow" style={{ marginBottom: 8 }}>Priority mix</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {(member.priorityMix || []).map((p) => (
                     <div key={p.priority} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
                       <div style={{ width: 84, color: T.sub, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.priority}</div>
-                      <div style={{ flex: 1, height: 6, background: T.surfaceAlt, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ flex: 1, height: 6, background: T.vizWell, borderRadius: T.radiusChart, overflow: "hidden" }}>
                         <div style={{ width: `${(p.count / maxPriority) * 100}%`, height: "100%", background: p.color }} />
                       </div>
                       <div className="mono" style={{ width: 26, textAlign: "right", color: T.sub }}>{p.count}</div>
@@ -133,23 +133,23 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
           {/* AI insights */}
           <Card>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <div className="eyebrow" style={{ color: T.muted }}>AI insights</div>
+              <div className="eyebrow">AI insights</div>
               <button
                 onClick={onRunAi}
                 disabled={ai?.loading}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: ai?.loading ? T.surfaceAlt : T.ink, color: ai?.loading ? T.muted : T.surface, border: `1px solid ${T.ink}`, borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: ai?.loading ? "default" : "pointer", fontFamily: "Geist, DM Sans, sans-serif" }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 12px", background: ai?.loading ? T.surfaceAlt : T.ink, color: ai?.loading ? T.muted : T.surface, border: `1px solid ${T.ink}`, borderRadius: T.radiusSm, fontSize: 12, fontWeight: 600, cursor: ai?.loading ? "default" : "pointer" }}
               >
-                <Sparkles size={12} /> {ai?.loading ? "Analyzing…" : ai?.result ? "Re-run" : "Analyze with AI"}
+                <Sparkles size={14} strokeWidth={2.25} /> {ai?.loading ? "Analyzing…" : ai?.result ? "Re-run" : "Analyze with AI"}
               </button>
             </div>
 
             {ai?.notConfigured ? (
               <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic", marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <AlertTriangle size={12} style={{ color: T.warn }} /> AI insights are not configured in this environment.
+                <AlertTriangle size={14} strokeWidth={2.25} style={{ color: T.warn }} /> AI insights are not configured in this environment.
               </div>
             ) : ai?.error ? (
               <div style={{ color: T.danger, fontSize: 12, marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                <AlertTriangle size={12} /> {ai.error}
+                <AlertTriangle size={14} strokeWidth={2.25} /> {ai.error}
               </div>
             ) : ai?.result ? (
               <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -159,7 +159,7 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
                 <InsightList title="Knowledge base gaps" items={ai.result.kb_gaps?.map((t) => ({ h: t.gap, b: t.why }))} />
                 {ai.result.watch_outs?.length > 0 && (
                   <div>
-                    <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>Watch-outs</div>
+                    <div className="eyebrow" style={{ marginBottom: 6 }}>Watch-outs</div>
                     <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.5, color: T.sub }}>
                       {ai.result.watch_outs.map((w, i) => <li key={i}>{w}</li>)}
                     </ul>
@@ -181,7 +181,7 @@ export function AnalystProfileModal({ member, ai, onRunAi, onClose, onOpenDashbo
 function MiniList({ label, items }) {
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 8 }}>{label}</div>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{label}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
         {(!items || items.length === 0) ? (
           <div style={{ fontSize: 12, color: T.muted, fontStyle: "italic" }}>—</div>
@@ -200,7 +200,7 @@ function InsightList({ title, items }) {
   if (!items || items.length === 0) return null;
   return (
     <div>
-      <div className="eyebrow" style={{ color: T.muted, marginBottom: 6 }}>{title}</div>
+      <div className="eyebrow" style={{ marginBottom: 6 }}>{title}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {items.map((it, i) => (
           <div key={i}>

@@ -16,6 +16,7 @@ An analytics dashboard for ServiceNow case exports — runnable in the browser (
 - [Jira Integration](#jira-integration)
 - [AI Insights](#ai-insights)
 - [Customer Sentiment](#customer-sentiment)
+- [Impact Clusters — unified Jira ↔ ServiceNow correlation](#impact-clusters--unified-jira--servicenow-correlation)
 - [SOP / Update Queue Engine](#sop--update-queue-engine)
 - [Data Enrichment Pipeline](#data-enrichment-pipeline)
 - [DuckDB SQL Backend](#duckdb-sql-backend)
@@ -293,6 +294,9 @@ Live engineering analytics for the HMS Jira project. Optional — needs Jira con
 #### Statistics (`/jira-stats`)
 Deep-dive statistics for the HMS project. See [Jira Integration](#jira-integration).
 
+#### Impact Clusters (`/operations`)
+Correlated Jira + ServiceNow ecosystems, ranked by real customer impact rather than ticket age. Consolidates the cross-source join that previously lived in two places. See [Impact Clusters](#impact-clusters--unified-jira--servicenow-correlation).
+
 ### Tools
 
 #### Connections (`/connections`)
@@ -388,7 +392,7 @@ Free-text mentions are **display-only**: the ticket appears on the case (clickab
 
 When Jira is synced, each ticket gets live status, assignee, priority, fix versions, and engineering cycle time from the Jira API. The "Likely closeable" panel surfaces cases where every linked Jira ticket is already Done but the ServiceNow case is still open.
 
-**Blast radius table** — ranks Jira tickets by how many open ServiceNow cases they are blocking, weighted by priority and age. One fix at the top of this list unblocks the most customer impact.
+**Blast radius table** — ranks Jira tickets by how many open ServiceNow cases they are blocking. Since the unified-insights work this is a projection over the shared correlation engine, scored by the same explainable function the [Impact Clusters](#impact-clusters--unified-jira--servicenow-correlation) page uses, so the two surfaces cannot disagree. One fix at the top of this list unblocks the most customer impact.
 
 ### All HMS Jira's page (`/jira`)
 
@@ -466,6 +470,203 @@ The hybrid: the lexicon engine grades the whole queue locally; for prose coachin
 
 ---
 
+## Impact Clusters — unified Jira ↔ ServiceNow correlation
+
+`/operations` answers one question: **which engineering work is hurting which
+customers, and how badly?** It correlates Jira tickets with the ServiceNow cases
+waiting on them, groups them into ecosystems, and ranks those by customer impact
+instead of by ticket age.
+
+### Where the link comes from
+
+The link lives **in the ServiceNow case**, not in Jira. `parseJiraRefs`
+(`enrich.js`) already extracts ticket references from the case journals
+(`system_log`, `work_notes`, `additional_comments`) and the `cause` field, and
+classifies each one by `source`. This layer consumes that; it re-parses nothing.
+
+Only **asserted** linkage becomes a correlation edge:
+
+- the `cause` field, and the System "Jira Reference ID … has been (created and)
+  linked" note → **an edge**;
+- a free-text mention (`HMS-12345` in prose) → **never an edge**. Even a note
+  reading "not related to HMS-123" would match the pattern. Mentions are carried
+  through and shown, tagged, and excluded from every count;
+- an `RN-` reference → **an edge**, tagged non-Atlassian. It is a ServiceNow
+  Resolution Notes record, not a Jira ticket, so it is never joined to the live
+  Jira map and never rendered as a browse URL — but `enrich.js` counts its System
+  link note toward `_jiraFirstLinked` *by design*, because that note marks when
+  the case started waiting on engineering. Two cases sharing an `RN-` really are
+  correlated.
+
+#### `RN-` refs are resolved to the Jira they stand for
+
+An `RN-` handle and an `HMS-` key are routinely the *same defect written down
+twice*, from the two sides of one workflow:
+
+```
+[Work notes] Jira Reference ID RN-9732370 has been linked to this case.
+[Cause]      External Defect ID: HMS-97290
+```
+
+Neither note names the other, so the parser — which pulls every `[A-Z]+-\d+`
+token independently — used to emit two tickets for one defect. A cluster listed
+`HMS-97290` *and* `RN-9732370` as separate rows, double-counting the defect in
+`distinctJiras`, halving `casesPerJira`, and splitting the blast-radius table
+into two rows that each told half the story.
+
+`buildAliasMap` (insight-metrics.js) resolves this from **co-occurrence pooled
+across the whole import**, not from a single case. That is what puts cases
+carrying *only* the `RN-` in the right bucket: `RN-9732370` appears alongside
+`HMS-97290` on eight separate cases, so a ninth whose `cause` field was left
+blank still lands on `HMS-97290`. The surviving key keeps the raw ref as
+display-only provenance (`aliasedFrom`), rendered as a subdued `· RN-9732370`
+suffix so a ref found in the work notes is still findable on screen.
+
+It requires a **strict plurality** — the top candidate must be backed by more
+cases than the runner-up — and refuses to guess otherwise:
+
+- `RN-9732370` → `HMS-97290` ×8 vs `HMS-97333` ×1 ⇒ resolved to `HMS-97290`. The
+  lone dissenter is one case whose `cause` reads `HMS-97290/HMS-97333`, i.e. a
+  case blocked on two defects — not evidence about what the ref is.
+- `RN-9651814` → `HMS-97002` ×2 vs `HMS-96993` ×2 ⇒ **not resolved.** A tie is
+  never broken alphabetically: attributing a case to the wrong defect is a worse
+  failure than showing one extra row, so the ref stays its own non-Atlassian node
+  exactly as before.
+
+Free-text mentions are **not** evidence — that would launder a name-drop into an
+edge for every case carrying the ref, which is the whole point of the rule above.
+The mapping is always derived from the unfiltered corpus, so a ticket's identity
+never changes with the analyst or date filters. On the two cached imports this
+resolves 213 of 298 `RN-` rows (and 15 of 30 on the smaller one); the rest either
+never co-occur with a Jira key (76 refs) or tie.
+
+### Clusters, not pairs
+
+Edges form a bipartite graph over case numbers and ticket keys; the view shows its
+**connected components**. That is what makes many-to-many work: one Jira spanning
+several cases, one case blocked by several Jiras, and the transitive groups that
+fall out of both (a case linking both J1 and J2 fuses them into one ecosystem).
+Union-find, iterative, O(n + m).
+
+A case that references a ticket only in prose asserts no linkage, so it forms no
+cluster; those cases are listed separately at the bottom of the page and excluded
+from every aggregate above it.
+
+### The ranking is explainable
+
+Each cluster carries a 0–100 `score` **and** the named contributions that sum to
+it, shown as chips (`Open cases blocked +30` · `Accounts affected +20` ·
+`Escalation: at-risk +15` → 65). Terms: affected open cases, distinct accounts,
+oldest unresolved Jira age, oldest open case age, derived escalation level,
+negative sentiment, and a high-urgency × long-unresolved interaction. **Every term
+is capped**, so raw case volume cannot swamp an escalation — 500 quiet cases
+cannot reach the `high` band on volume alone. All weights are named exports in
+`insight-thresholds.js`.
+
+Two named risk shapes are flagged separately: *long-running Jira + multiple
+unresolved cases*, and *high urgency + negative sentiment + escalation* (strictly
+all three).
+
+### Honest accuracy
+
+This view makes no claim it cannot support from the import in front of it.
+
+- **Nothing is sent to a model.** Sentiment is read from the baked `sentiment_*`
+  columns (see [Customer Sentiment](#customer-sentiment)); the per-cluster
+  narrative is a deterministic template over facts already computed. There is no
+  AI call on this page.
+- **Unknown is null, never zero.** An unknown priority does not become "low"; an
+  unscored case does not become "no risk"; a case with no System link note reports
+  **"Not linked"**, never `0` days. A missing Jira age renders "—", not `0`.
+- **Snapshot-anchored.** Every age, idle count and delta is measured against the
+  active import's upload time, not the wall clock, so the same upload always
+  renders identically — stated on the page itself. The Jira cache's own freshness
+  is shown separately rather than blended in.
+- **Escalation is derived**, because ServiceNow has no escalation field. The enum
+  composes explicit `sentiment_escalated` events, SOP-SLA breaches, sentiment risk
+  against the validated bands in `sentiment.js`, and Jira staleness — and every
+  level ships the reasons that produced it. `escalated` requires a real escalation
+  event; `at-risk` and `watch` do not.
+- **Cluster metrics describe the whole cluster, even when filtered.** A Jira
+  blocking five cases blocks five cases regardless of who is looking, so filtering
+  to one analyst does not shrink the number; a chip reads "N of M cases match your
+  filter" instead.
+- **Ceilings are disclosed.** The list renders the top 60 clusters and says so,
+  pointing at the CSV, which contains all of them. Facet chips show the top 8
+  values per dimension with a "+N more" note.
+
+### Filter dimensions, and what your export supports
+
+Filters are a declared registry; each dimension's availability is resolved from
+the **active import**, and an absent one renders "Not available in this export —
+needs `<column>`" rather than a misleading zero (the same pattern as
+`AiEffectivenessBlock`).
+
+Case side: `account`, `parent_account`, `product_line`, `region`,
+`assignment_group`, priority, category, lifecycle, age bucket, plus `assigned_to`
+and `manager` (owned by the global filter bar above). Jira side: `assignee`,
+`priority`, `fixVersions`, `statusCategory`, age bucket — all of which need a Jira
+sync.
+
+> **`Region` and `Assignment group` note.** These were long assumed absent from
+> ServiceNow exports. They are not: the standard case layout ships both, and they
+> were simply never mapped by `normalizeXlsxRow`. They are now mapped as raw
+> passthroughs (like `parent_account` and `tags` — no SQL column) and are ordinary
+> dimensions. `Country` and `City` are also present in that layout and remain
+> unmapped.
+
+View-local filter selections are serialized into the URL as **opaque index
+tokens** (`?od=account:3`), so a shared link carries no account name, region or
+personal name — the same treatment `useFilters` gives the analyst selector
+(SECURITY #3). A token that no longer resolves is ignored, so a link shared
+against a different import degrades to "no filter" rather than to a wrong one.
+
+### Consolidation
+
+This layer is also the **single** implementation of the cross-source join. Two
+others existed and are gone:
+
+- `jira-stats.js` `blastRadius` is now a thin projection over the shared engine,
+  emitting the same field names its consumers already read.
+- `JiraDashboard.jsx`'s private `ticketGroups` memo and its own impact formula
+  (`cases.length * 2 + priorityWeight + min(20, oldestDays / 7)`) are deleted.
+
+So the Blockers page, the Jira Statistics blast-radius table and this view rank
+tickets with one function and cannot disagree. The visible consequence is that the
+"Tickets blocking multiple cases" ordering changed — the old formula let raw case
+count outweigh a live customer escalation. See
+`CODEREVIEW(unified-insights).md` for the equivalence proof and the full list of
+numbers that moved.
+
+### Exports
+
+Two CSVs — one row per cluster, one row per case — both routed through
+`rowsToCsv` → `sanitizeCellForExport` (SECURITY #7). "Days linked" exports the
+word **"Not linked"**, never `0`. The cluster CSV includes the factor breakdown,
+so a spreadsheet reader sees *why* a row ranks where it does.
+
+### Modules
+
+```
+src/lib/insight-thresholds.js   named weights, caps, bands, enums
+src/lib/correlate.js            the engine — imports nothing, knows no field name
+src/lib/insight-metrics.js      the ONLY source-aware module: adapters + metrics
+src/lib/insight-rank.js         scoring, factors, flags, narratives, buildInsights
+src/lib/insight-filters.js      dimension registry, selectors, drill-down, tokens
+src/lib/insights-csv.js         sanitized exports
+src/components/insights/…       presentation only
+src/pages/OperationsPage.jsx    route + outlet context
+```
+
+`correlate.js` takes normalized node/edge descriptors and returns clusters — it
+names no ServiceNow or Jira field and imports nothing, so adding a future source
+(Gainsight, a ServiceNow API connector) means writing one adapter in
+`insight-metrics.js` and not touching the engine. Correlation is computed **once**
+per import and every filter selects from the result; ~23 ms for 11,098 issues ×
+951 cases.
+
+---
+
 ## SOP / Update Queue Engine
 
 The Update Queue is the most operationally critical feature. All thresholds live in `src/lib/sop-thresholds.js` — edit there when the SOP changes, nowhere else.
@@ -502,7 +703,7 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 | `_slaDue` | `sla_due` | ServiceNow's raw "SLA due" date — retained for reference; no longer drives any metric |
 | `_resolvedMs` | `_closed - _created` | Resolution time in ms |
 | `_frtMs` | `first_response_time` | First response time in ms |
-| `_isClosed` | `state` | true if state is "closed" or "resolved" |
+| `_isClosed` | `state` | true ONLY when state is `"Closed"`. `State="Resolved"` (Status "Solution Proposed") is its own `_lifecycle` bucket — neither open nor closed. Never use `!_isClosed` to mean "open"; use `_isOpen` |
 | `_madeSla` | `made_sla` | ServiceNow's first-response-only flag — retained raw; no longer drives any metric |
 | `_category` | `short_description` + `close_notes` | Auto-categorized (11 categories) |
 | `_jiraTickets` | journals + `cause` | Parsed Jira ticket references |
@@ -533,7 +734,7 @@ The queue is computed against `meta.loaded_at` (the timestamp when the file was 
 1. **Pass 1** — scans each journal (`system_log`, `work_notes`, `additional_comments` — deduped via `jiraJournals`, each segment walked independently so header dates never bleed across journals) line by line for "Jira Reference ID `[KEY]` has been linked" / "...has been created and linked" and "...has been closed" events. The event itself is recorded even when the journal header (and thus the timestamp) is missing — so a truncated closed note still marks the ticket `jira_closed`. Each journal is also scanned for free-text `HMS-XXXXX` mentions, which attach the ticket display-only: no link date, never an active blocker (mention-mining is restricted to the real Jira project key so prose tokens like "UTF-8" can't become phantom tickets).
 2. **Pass 2** — extracts every `[A-Z]+-\d+` pattern from the `cause` field (canonical blockers).
 
-`RN-` prefixed IDs are flagged as ServiceNow-internal and marked `clickable: false` so they don't generate broken Atlassian links.
+`RN-` prefixed IDs are flagged as ServiceNow-internal and marked `clickable: false` so they don't generate broken Atlassian links. They are still a real *asserted* link — the System note marks when the case started waiting on engineering whether the tracked record is a Jira ticket or an internal Resolution Notes record — so they count toward `_jiraFirstLinked`, appear in the blast-radius table, and form correlation clusters. What `clickable: false` buys is that they are never joined to the live Jira map and never rendered as a browse URL. Only free-text mentions are excluded from linkage entirely. In the insight layer an `RN-` ref is additionally **resolved to the Jira key it stands for** where the import proves the pairing, so one defect is one ticket — see [`RN-` refs are resolved to the Jira they stand for](#rn--refs-are-resolved-to-the-jira-they-stand-for).
 
 ### XLSX normalization
 
@@ -595,7 +796,9 @@ Analyst identity is serialized as an opaque index (`a4` = the 5th analyst alphab
 |---|---|
 | All time | No filter |
 | YTD | Jan 1 of current year → today |
+| Older than 90 days | Everything before the 90-day cutoff |
 | Last 90 days | Rolling 90-day window |
+| Last 60 days | Rolling 60-day window |
 | Last 30 days | Rolling 30-day window |
 | Last 7 days | Rolling 7-day window |
 | Custom | Date picker |
@@ -641,6 +844,8 @@ Print mode is triggered by setting `printMode` state, which causes all `print-se
 
 The app works with standard ServiceNow case table exports. XLSX is strongly recommended — CSV exports may not populate all columns depending on export configuration.
 
+> **Repeated headers.** The standard case layout ships the header `Number` **twice** — column 1 is the case number (`CS1887438`) and a later column is the account number (`ACCT9000004`). The XLSX reader keeps the **first** occurrence of any repeated header, which is the record's own field. Before this rule the last one won, so every case's `number` was silently an account number.
+
 | XLSX display label | CSV internal name | Used for |
 |---|---|---|
 | `Number` | `number` | Case identifier |
@@ -652,6 +857,8 @@ The app works with standard ServiceNow case table exports. XLSX is strongly reco
 | `Account` | `account` | Account analytics |
 | `Contact` | `contact` | Per-case sentiment export (Contact column) |
 | `Product line` | `product_line` | Product analytics |
+| `Region` | `region` | Impact Clusters filter dimension (raw passthrough, no SQL column) |
+| `Assignment group` | `assignment_group` | Impact Clusters filter dimension (raw passthrough, no SQL column) |
 | `Made SLA` | `made_sla` | Retained raw (ServiceNow first-response flag); no longer drives metrics |
 | `SLA due` | `sla_due` | Retained raw; SLA risk now uses the SOP next-update deadline |
 | `Created` | `sys_created_on` | All time-based analytics |

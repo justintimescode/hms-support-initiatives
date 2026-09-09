@@ -7,11 +7,11 @@ export function SurveyPlaceholder() {
   return (
     <Card style={{ background: T.surfaceAlt, borderStyle: "dashed" }}>
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-        <div style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6 }}>
-          <Mailbox size={18} style={{ color: T.muted }} />
+        <div style={{ padding: 10, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
+          <Mailbox size={18} strokeWidth={1.9} style={{ color: T.muted }} />
         </div>
         <div style={{ flex: 1 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Coming online</div>
+          <div className="eyebrow">Coming online</div>
           <div style={{ fontWeight: 600, fontSize: 15, marginTop: 4 }}>
             Customer survey responses — not yet exposed in ServiceNow
           </div>

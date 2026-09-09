@@ -39,7 +39,7 @@ function createWindow() {
     height: 900,
     minWidth: 960,
     minHeight: 600,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#15262E',
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

@@ -3,7 +3,9 @@ import {
   BarChart, Bar, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { T } from "../../lib/theme.js";
+import {
+  T, AXIS_TICK, AXIS_TICK_CAT, BAR_RADIUS_V, TOOLTIP_STYLE,
+} from "../../lib/theme.js";
 import { fmtFullDate } from "../../lib/format.js";
 import { coverageTrend } from "../../lib/ai-tags.js";
 import { OUTCOME_COLOR, UNTAGGED_COLOR } from "../../lib/ai-tag-colors.js";
@@ -65,7 +67,7 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
   if (!data.length) {
     return (
       <Card>
-        <div className="eyebrow" style={{ color: T.muted }}>AI tagging over time</div>
+        <div className="eyebrow">AI tagging over time</div>
         <div style={{ color: T.sub, fontSize: 13, fontStyle: "italic", marginTop: 12 }}>
           No dated cases to plot — the trend needs case creation dates.
         </div>
@@ -80,11 +82,11 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
   return (
     <Card>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <div className="eyebrow" style={{ color: T.muted }}>AI tagging over time</div>
+        <div className="eyebrow">AI tagging over time</div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <TimeScopeToggle scope={scope} onScopeChange={setScope} range={dateRange} />
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
-            <span className="eyebrow" style={{ color: T.muted }}>Bucket</span>
+            <span className="eyebrow">Bucket</span>
             <select
               value={granularity}
               onChange={(e) => setGranularity(e.target.value)}
@@ -92,7 +94,7 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
                 fontSize: 12,
                 padding: "4px 8px",
                 border: `1px solid ${T.border}`,
-                borderRadius: 6,
+                borderRadius: T.radiusSm,
                 background: T.surface,
                 color: T.ink,
                 cursor: "pointer",
@@ -112,37 +114,37 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
         {MIN_ATTEMPTED} attempted cases — too thin for a rate.
       </div>
 
-      <div style={{ height: 190, marginTop: 12 }}>
+      <div style={{ height: 190, marginTop: 12, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <BarChart data={win.data} margin={{ top: 10, right: 24, left: 0, bottom: 0 }} syncId="aiTagTrend">
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
+            <CartesianGrid stroke={T.vizGrid} vertical={false} />
             <XAxis
               dataKey="bucket"
               type="number"
               domain={win.domain}
               tickFormatter={win.tickFormatter}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK_CAT}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               ticks={win.ticks}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               allowDecimals={false}
             />
-            <Tooltip content={<TrendTip granularity={granularity} />} cursor={{ fill: T.surfaceAlt }} />
-            <Bar stackId="v" dataKey="tagged" name="tagged" fill={T.accent} fillOpacity={0.85} />
-            <Bar stackId="v" dataKey="untagged" name="untagged" fill={UNTAGGED_COLOR} radius={[2, 2, 0, 0]} />
+            <Tooltip content={<TrendTip granularity={granularity} />} cursor={{ fill: T.vizWell }} />
+            <Bar stackId="v" dataKey="tagged" name="tagged" fill={T.vizAccent} />
+            <Bar stackId="v" dataKey="untagged" name="untagged" fill={UNTAGGED_COLOR} stroke={T.vizStroke} strokeWidth={1} radius={BAR_RADIUS_V} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
       <div style={{ display: "flex", gap: 16, marginTop: 4, fontSize: 11, color: T.sub, flexWrap: "wrap" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 14, height: 2, background: T.accent }} /> tagging coverage
+          <span style={{ width: 14, height: 2, background: T.vizCat }} /> tagging coverage
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 14, height: 2, background: OUTCOME_COLOR.helpful }} /> assist rate
@@ -150,18 +152,18 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
         </span>
       </div>
 
-      <div style={{ height: 170, marginTop: 4 }}>
+      <div style={{ height: 170, marginTop: 4, background: T.vizWell, borderRadius: T.radiusMd }}>
         <ResponsiveContainer>
           <LineChart data={win.data} margin={{ top: 6, right: 24, left: 0, bottom: 0 }} syncId="aiTagTrend">
-            <CartesianGrid stroke={T.borderSoft} vertical={false} />
+            <CartesianGrid stroke={T.vizGrid} vertical={false} />
             <XAxis
               dataKey="bucket"
               type="number"
               domain={win.domain}
               tickFormatter={win.tickFormatter}
-              tick={{ fill: T.sub, fontSize: 11 }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK_CAT}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
               ticks={win.ticks}
               interval="preserveStartEnd"
             />
@@ -169,16 +171,16 @@ export function AiTagTrendBlock({ rows, dateRange, snapshotMs }) {
               domain={[0, 100]}
               ticks={[0, 25, 50, 75, 100]}
               tickFormatter={(v) => `${v}%`}
-              tick={{ fill: T.muted, fontSize: 11, fontFamily: "JetBrains Mono" }}
-              axisLine={{ stroke: T.border }}
-              tickLine={{ stroke: T.border }}
+              tick={AXIS_TICK}
+              axisLine={{ stroke: T.vizAxis }}
+              tickLine={{ stroke: T.vizAxis }}
             />
-            <Tooltip content={<TrendTip granularity={granularity} />} cursor={{ stroke: T.border }} />
+            <Tooltip content={<TrendTip granularity={granularity} />} cursor={{ stroke: T.vizAxis }} />
             <Line
               type="monotone"
               dataKey="coveragePct"
               name="tagging coverage"
-              stroke={T.accent}
+              stroke={T.vizCat}
               strokeWidth={2}
               dot={false}
               connectNulls={false}
@@ -220,7 +222,7 @@ function TrendTip({ active, payload, granularity }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div style={{ background: T.surface, border: `1px solid ${T.border}`, padding: "8px 12px", borderRadius: 4, fontSize: 12 }}>
+    <div style={TOOLTIP_STYLE}>
       <div style={{ fontWeight: 600 }}>
         {granularity === "week" ? `Week of ${fmtFullDate(d.bucket)}` : fmtMonthLabel(d.bucket)}
       </div>

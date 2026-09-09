@@ -20,7 +20,7 @@ export function AiBlock({ state, run, hasData }) {
     return (
       <Card>
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "20px 0" }}>
-          <Loader2 size={20} style={{ color: T.accent, animation: "spin 1s linear infinite" }} />
+          <Loader2 size={18} strokeWidth={1.9} style={{ color: T.accentDeep, animation: "spin 1s linear infinite" }} />
           <div>
             <div style={{ fontWeight: 600 }}>Reading resolution notes…</div>
             <div style={{ color: T.sub, fontSize: 13, marginTop: 2 }}>Sampling cases, detecting themes, surfacing gaps.</div>
@@ -33,7 +33,7 @@ export function AiBlock({ state, run, hasData }) {
     return (
       <Card>
         <div style={{ color: T.danger, fontSize: 13 }}>
-          <AlertTriangle size={14} style={{ verticalAlign: "middle" }} /> {state.error}
+          <AlertTriangle size={14} strokeWidth={2.25} style={{ verticalAlign: "middle" }} /> {state.error}
         </div>
         <button onClick={run} style={btnPrimary}>Try again</button>
       </Card>
@@ -46,7 +46,7 @@ export function AiBlock({ state, run, hasData }) {
       <Card>
         <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 300 }}>
-            <div className="display" style={{ fontSize: 20, fontWeight: 500 }}>
+            <div style={{ fontSize: "var(--fs-subhead)", fontWeight: 600 }}>
               Let Claude read the notes.
             </div>
             <div style={{ color: T.sub, fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
@@ -59,7 +59,7 @@ export function AiBlock({ state, run, hasData }) {
             disabled={!canRun}
             style={{ ...btnPrimary, ...(canRun ? {} : { opacity: 0.5, cursor: "not-allowed" }) }}
           >
-            <Sparkles size={14} /> Generate insights
+            <Sparkles size={14} strokeWidth={2.25} /> Generate insights
           </button>
         </div>
         {!canRun && (
@@ -73,15 +73,15 @@ export function AiBlock({ state, run, hasData }) {
   const r = state.result;
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-      <AiList title="Themes" icon={<TrendingUp size={13} />} items={r.themes?.map((t) => ({ h: t.title, b: t.description }))} />
-      <AiList title="Recurring issues" icon={<Activity size={13} />} items={r.recurring_issues?.map((t) => ({ h: t.issue, b: t.evidence }))} />
-      <AiList title="Skill opportunities" icon={<Sparkles size={13} />} items={r.skill_opportunities?.map((t) => ({ h: t.area, b: t.why }))} />
-      <AiList title="Knowledge base gaps" icon={<Info size={13} />} items={r.kb_gaps?.map((t) => ({ h: t.gap, b: t.why }))} />
+      <AiList title="Themes" icon={<TrendingUp size={14} strokeWidth={2.25} />} items={r.themes?.map((t) => ({ h: t.title, b: t.description }))} />
+      <AiList title="Recurring issues" icon={<Activity size={14} strokeWidth={2.25} />} items={r.recurring_issues?.map((t) => ({ h: t.issue, b: t.evidence }))} />
+      <AiList title="Skill opportunities" icon={<Sparkles size={14} strokeWidth={2.25} />} items={r.skill_opportunities?.map((t) => ({ h: t.area, b: t.why }))} />
+      <AiList title="Knowledge base gaps" icon={<Info size={14} strokeWidth={2.25} />} items={r.kb_gaps?.map((t) => ({ h: t.gap, b: t.why }))} />
       {r.watch_outs?.length > 0 && (
         <div style={{ gridColumn: "1 / -1" }}>
           <Card>
-            <div className="eyebrow" style={{ color: T.muted, display: "flex", alignItems: "center", gap: 6 }}>
-              <AlertTriangle size={13} /> Watch-outs
+            <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={14} strokeWidth={2.25} /> Watch-outs
             </div>
             <ul style={{ margin: "12px 0 0", paddingLeft: 18, fontSize: 13, lineHeight: 1.6 }}>
               {r.watch_outs.map((w, i) => <li key={i}>{w}</li>)}
@@ -97,9 +97,9 @@ function AiNotConfiguredCard() {
   return (
     <Card>
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <Info size={18} style={{ color: T.accent, flex: "0 0 auto", marginTop: 2 }} />
+        <Info size={18} strokeWidth={1.9} style={{ color: T.accentDeep, flex: "0 0 auto", marginTop: 2 }} />
         <div>
-          <div className="display" style={{ fontSize: 18, fontWeight: 500 }}>
+          <div style={{ fontSize: "var(--fs-subhead)", fontWeight: 600 }}>
             AI insights are not configured
           </div>
           <div style={{ color: T.sub, fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
@@ -117,7 +117,7 @@ function AiNotConfiguredCard() {
 function AiList({ title, icon, items }) {
   return (
     <Card>
-      <div className="eyebrow" style={{ color: T.muted, display: "flex", alignItems: "center", gap: 6 }}>
+      <div className="eyebrow" style={{ display: "flex", alignItems: "center", gap: 6 }}>
         {icon} {title}
       </div>
       <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -140,10 +140,9 @@ const btnPrimary = {
   background: T.ink,
   color: T.surface,
   border: "none",
-  borderRadius: 6,
-  fontFamily: "DM Sans, sans-serif",
+  borderRadius: T.radiusSm,
   fontSize: 13,
-  fontWeight: 500,
+  fontWeight: 600,
   cursor: "pointer",
   marginTop: 8,
 };

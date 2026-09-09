@@ -20,13 +20,18 @@ import { startOfMonday } from "./stats.js";
 //   `name`  — the exact ServiceNow "Parent Account" value.
 //   `id`    — a safe, whitespace-free key for chart dataKeys / maps.
 //   `label` — legend / axis text.
-//   `color` — fixed, branch-evocative hex, readable on both light and dark
-//             surfaces (chart palettes here use raw hex; see AccountProductBlock).
+//   `color` — a data-viz theme token from src/index.css (--t-dod-*), never a
+//             raw hex. The four branches are purely categorical, with no
+//             good/bad meaning, so they take four well-separated steps of the
+//             Infor Purple ladder: one color family, tuned for both the light
+//             and dark palettes. A fifth branch takes the NEXT step of that
+//             same ladder (see --t-cat-* / categoricalAt in lib/theme.js);
+//             never invent a new hue and never paste a hex here.
 export const DOD_PARENT_ACCOUNTS = [
-  { id: "airforce",   name: "Armed Forces - Air Force (HQ)",   label: "Air Force",   color: "#4C6FB8" },
-  { id: "army",       name: "Armed Forces - Army (HQ)",        label: "Army",        color: "#5A6B3C" },
-  { id: "navy",       name: "Armed Forces - Navy (HQ)",        label: "Navy",        color: "#2E4A6B" },
-  { id: "navylodges", name: "Armed Forces - Navy Lodges (HQ)", label: "Navy Lodges", color: "#3E7C8F" },
+  { id: "airforce",   name: "Armed Forces - Air Force (HQ)",   label: "Air Force",   color: "var(--t-dod-airforce)" },
+  { id: "army",       name: "Armed Forces - Army (HQ)",        label: "Army",        color: "var(--t-dod-army)" },
+  { id: "navy",       name: "Armed Forces - Navy (HQ)",        label: "Navy",        color: "var(--t-dod-navy)" },
+  { id: "navylodges", name: "Armed Forces - Navy Lodges (HQ)", label: "Navy Lodges", color: "var(--t-dod-navylodges)" },
 ];
 
 // Normalize a parent-account string for matching: trim, collapse internal runs of

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
-import { T, alpha } from "../lib/theme.js";
+import { T } from "../lib/theme.js";
 import { fmtDate, ageDays, priorityColor } from "../lib/format.js";
 import { rowsToCsv, downloadCsv, csvTimestamp } from "../lib/csv-export.js";
 import {
@@ -96,7 +96,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
     <Card>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ minWidth: 260 }}>
-          <div className="eyebrow" style={{ color: T.muted }}>Case explorer</div>
+          <div className="eyebrow">Case explorer</div>
           <div style={{ color: T.sub, fontSize: 12, marginTop: 4, maxWidth: 560 }}>
             Every tag in this import plus the combined views, each labelled with its case count.
             Scopes this list only — the charts above follow the filter bar.
@@ -104,7 +104,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
-            <span className="eyebrow" style={{ color: T.muted }}>Tag</span>
+            <span className="eyebrow">Tag</span>
             <select
               value={active}
               onChange={(e) => onSelectionChange(e.target.value)}
@@ -122,7 +122,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
             </select>
           </label>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.sub }}>
-            <span className="eyebrow" style={{ color: T.muted }}>Sort</span>
+            <span className="eyebrow">Sort</span>
             <select value={sortMode} onChange={(e) => setSortMode(e.target.value)} style={selectStyle}>
               {SORTS.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
@@ -137,7 +137,7 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
               fontSize: 12,
               padding: "5px 9px",
               border: `1px solid ${T.border}`,
-              borderRadius: 6,
+              borderRadius: T.radiusSm,
               background: T.surface,
               color: T.ink,
               width: 210,
@@ -153,15 +153,15 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
               fontSize: 12,
               padding: "5px 10px",
               border: `1px solid ${T.border}`,
-              borderRadius: 6,
+              borderRadius: T.radiusSm,
               background: T.surface,
               color: sorted.length ? T.ink : T.muted,
               cursor: sorted.length ? "pointer" : "default",
             }}
           >
-            <Download size={13} /> Export CSV
+            <Download size={14} strokeWidth={2.25} /> Export CSV
           </button>
-          <div className="mono" style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>
+          <div className="mono" style={{ fontSize: 12, color: T.accentDeep, fontWeight: 600 }}>
             {sorted.length.toLocaleString()} case{sorted.length === 1 ? "" : "s"}
           </div>
         </div>
@@ -177,17 +177,17 @@ export function AiCaseExplorer({ rows, selection, onSelectionChange }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: T.surfaceAlt, position: "sticky", top: 0, zIndex: 1 }}>
-                <th style={th}>Case</th>
-                <th style={th}>Tags</th>
-                <th style={th}>Priority</th>
-                <th style={th}>State</th>
-                <th style={th}>Status</th>
-                <th style={th}>Assignee</th>
-                <th style={th}>Manager</th>
-                <th style={th}>Account</th>
-                <th style={th}>Created</th>
-                <th style={th}>Age</th>
-                <th style={th}>Description</th>
+                <th className="eyebrow" style={th}>Case</th>
+                <th className="eyebrow" style={th}>Tags</th>
+                <th className="eyebrow" style={th}>Priority</th>
+                <th className="eyebrow" style={th}>State</th>
+                <th className="eyebrow" style={th}>Status</th>
+                <th className="eyebrow" style={th}>Assignee</th>
+                <th className="eyebrow" style={th}>Manager</th>
+                <th className="eyebrow" style={th}>Account</th>
+                <th className="eyebrow" style={th}>Created</th>
+                <th className="eyebrow" style={th}>Age</th>
+                <th className="eyebrow" style={th}>Description</th>
               </tr>
             </thead>
             <tbody>
@@ -282,23 +282,20 @@ const selectStyle = {
   fontSize: 12,
   padding: "4px 8px",
   border: `1px solid ${T.border}`,
-  borderRadius: 6,
+  borderRadius: T.radiusSm,
   background: T.surface,
   color: T.ink,
   cursor: "pointer",
 };
 
+/* Header cells ride className="eyebrow" (uppercase / 11px / 0.08em / 600); only
+ * the per-site color, the sticky ground and the real hairline live here. */
 const th = {
   textAlign: "left",
   padding: "8px 12px",
   color: T.sub,
-  fontWeight: 600,
-  fontSize: 11,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
   borderBottom: `1px solid ${T.border}`,
   background: T.surfaceAlt,
-  boxShadow: `inset 0 -1px 0 ${alpha(T.ink, 0.06)}`,
   whiteSpace: "nowrap",
 };
 

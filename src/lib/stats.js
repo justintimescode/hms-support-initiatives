@@ -143,7 +143,9 @@ export const presetRange = (key, refDate = new Date()) => {
   switch (key) {
     case "7d":  return { from: start.getTime() - 6 * 864e5, to: endOfToday };
     case "30d": return { from: start.getTime() - 29 * 864e5, to: endOfToday };
-    case "qtr": return { from: start.getTime() - 89 * 864e5, to: endOfToday };
+    case "60d": return { from: start.getTime() - 59 * 864e5, to: endOfToday };
+    case "90d": return { from: start.getTime() - 89 * 864e5, to: endOfToday };
+    case "older90": return { from: null, to: start.getTime() - 89 * 864e5 - 1 };
     case "ytd": {
       const yearStart = new Date(start.getFullYear(), 0, 1);
       return { from: yearStart.getTime(), to: endOfToday };
@@ -346,6 +348,44 @@ export const openByAssigneeAge = (members) => {
     return b.total - a.total;
   });
   return rows;
+};
+
+// Rollup label for categories outside the top N — distinct from `categorizeCase`'s
+// own "Other" fallback bucket (a real category meaning "matched no keyword set"),
+// so the two never collide into one ambiguous column.
+const CATEGORY_ROLLUP = "Other categories";
+
+/** Analyst × category matrix for a heatmap: which problem areas concentrate on
+ *  which analyst. Columns are capped at the team's `topN` busiest categories
+ *  (by raw volume across the whole member set) plus one rollup column for the
+ *  rest — with 15-20 possible category buckets, an uncapped grid would be wider
+ *  than it is useful. Analysts with zero cases in scope are dropped, same as
+ *  `openByAssigneeAge`. */
+export const analystCategoryMatrix = (members, topN = 8) => {
+  if (!members || !members.length) return { categories: [], rows: [] };
+  const allRows = members.flatMap((m) => m.rows);
+  const top = topCounts(allRows, (r) => r._category, topN).map((c) => c.name);
+  const topSet = new Set(top);
+  const distinctCount = new Set(allRows.map((r) => r._category || "Unknown")).size;
+  const hasRollup = distinctCount > top.length;
+  const categories = hasRollup ? [...top, CATEGORY_ROLLUP] : top;
+
+  const rows = [];
+  for (const m of members) {
+    const counts = Object.fromEntries(categories.map((c) => [c, 0]));
+    let total = 0;
+    for (const r of m.rows) {
+      const cat = r._category || "Unknown";
+      const key = topSet.has(cat) ? cat : CATEGORY_ROLLUP;
+      if (!(key in counts)) continue;
+      counts[key]++;
+      total++;
+    }
+    if (total === 0) continue;
+    rows.push({ name: m.name, total, ...counts });
+  }
+  rows.sort((a, b) => b.total - a.total);
+  return { categories, rows };
 };
 
 export const stuckCases = (rows, thresholdDays = 30) => {
